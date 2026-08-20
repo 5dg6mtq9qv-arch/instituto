@@ -23,11 +23,11 @@
 
       <nav class="main-nav" aria-label="Principal">
         <a class="active" href="/">Panel</a>
-        <a href="/admin/institutions/institution/">Instituciones</a>
-        <a href="/admin/people/student/">Estudiantes</a>
-        <a href="/admin/people/enrollment/">Matriculas</a>
-        <a href="/admin/finance/installment/">Pagos</a>
-        <a href="/admin/academic/lessonplan/">Planificacion</a>
+        <a href="/admin/core/empresa/">Empresas</a>
+        <a href="/admin/core/partner/">Partners</a>
+        <a href="/admin/matricula/fichainscripcion/">Matriculas</a>
+        <a href="/admin/cartera/cuota/">Pagos</a>
+        <a href="/admin/academico/planificacionclase/">Planificacion</a>
       </nav>
     </aside>
 
@@ -35,11 +35,11 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">Panel institucional</p>
-          <h1>{{ institution.name|default:"Instituto" }}</h1>
+          <h1>{{ institution.nombre_comercial|default:"Instituto" }}</h1>
         </div>
         <div class="topbar-actions">
           {% if active_period %}
-            <span class="period-pill">{{ active_period.name }}</span>
+            <span class="period-pill">{{ active_period.nombre }}</span>
           {% endif %}
           <a class="button secondary" href="/admin/">Admin</a>
           <a class="button primary" href="/admin/login/">Ingresar</a>

@@ -1,29 +1,29 @@
 from django.contrib.auth import get_user_model
 from django.shortcuts import render
 
-from apps.academic.models import LessonPlan, Question, QuestionBank, Subject, Topic
-from apps.finance.models import Installment, Payment
-from apps.institutions.models import AcademicPeriod, Classroom, Institution
-from apps.people.models import Enrollment, Representative, Student
+from apps.academico.models import Asignatura, BancoPregunta, PlanificacionClase, Pregunta, Tema
+from apps.cartera.models import Cuota, Pago
+from apps.core.models import Empresa, Partner
+from apps.matricula.models import Aula, FichaInscripcion, PeriodoAcademico
 
 
 def home(request):
     User = get_user_model()
 
     metrics = [
-        {"label": "Instituciones", "value": Institution.objects.count(), "accent": "green"},
-        {"label": "Estudiantes", "value": Student.objects.count(), "accent": "blue"},
-        {"label": "Matriculas", "value": Enrollment.objects.count(), "accent": "yellow"},
-        {"label": "Cuotas pendientes", "value": Installment.objects.exclude(status="paid").count(), "accent": "red"},
+        {"label": "Empresas", "value": Empresa.objects.count(), "accent": "green"},
+        {"label": "Estudiantes", "value": Partner.objects.filter(es_estudiante=True).count(), "accent": "blue"},
+        {"label": "Fichas", "value": FichaInscripcion.objects.count(), "accent": "yellow"},
+        {"label": "Cuotas pendientes", "value": Cuota.objects.exclude(estado="pagada").count(), "accent": "red"},
     ]
 
     modules = [
         {
             "title": "Administracion",
-            "description": "Instituciones, periodos, aulas, usuarios y roles.",
+            "description": "Empresas, periodos, aulas, usuarios y roles.",
             "items": [
-                ("Periodos", AcademicPeriod.objects.count()),
-                ("Aulas", Classroom.objects.count()),
+                ("Periodos", PeriodoAcademico.objects.count()),
+                ("Aulas", Aula.objects.count()),
                 ("Usuarios", User.objects.count()),
             ],
         },
@@ -31,27 +31,27 @@ def home(request):
             "title": "Matriculas",
             "description": "Estudiantes, representantes, fichas y cambios de aula.",
             "items": [
-                ("Estudiantes", Student.objects.count()),
-                ("Representantes", Representative.objects.count()),
-                ("Matriculas", Enrollment.objects.count()),
+                ("Estudiantes", Partner.objects.filter(es_estudiante=True).count()),
+                ("Representantes", Partner.objects.filter(es_representante=True).count()),
+                ("Fichas", FichaInscripcion.objects.count()),
             ],
         },
         {
             "title": "Academico",
             "description": "Temarios, temas, planificacion, preguntas y evaluaciones.",
             "items": [
-                ("Materias", Subject.objects.count()),
-                ("Temas", Topic.objects.count()),
-                ("Planificaciones", LessonPlan.objects.count()),
+                ("Materias", Asignatura.objects.count()),
+                ("Temas", Tema.objects.count()),
+                ("Planificaciones", PlanificacionClase.objects.count()),
             ],
         },
         {
             "title": "Cartera",
             "description": "Planes de pago, cuotas, comprobantes y semaforo.",
             "items": [
-                ("Pagos", Payment.objects.count()),
-                ("Bancos", QuestionBank.objects.count()),
-                ("Preguntas", Question.objects.count()),
+                ("Pagos", Pago.objects.count()),
+                ("Bancos", BancoPregunta.objects.count()),
+                ("Preguntas", Pregunta.objects.count()),
             ],
         },
     ]
@@ -59,7 +59,7 @@ def home(request):
     context = {
         "metrics": metrics,
         "modules": modules,
-        "institution": Institution.objects.first(),
-        "active_period": AcademicPeriod.objects.filter(status="active").first(),
+        "institution": Empresa.objects.first(),
+        "active_period": PeriodoAcademico.objects.filter(estado="activo").first(),
     }
     return render(request, "dashboard/home.html", context)
