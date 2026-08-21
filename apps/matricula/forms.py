@@ -1,4 +1,5 @@
 from django import forms
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.forms import BootstrapFormMixin
@@ -253,6 +254,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             if not partner:
                 self.add_error("representante_partner", "Seleccione un representante activo.")
                 return
+            conyuge = representante_conyuge_data(partner)
             cleaned_data["representante_identificacion"] = partner.identificacion
             cleaned_data["representante_nombre"] = partner.nombre
             cleaned_data["representante_email"] = partner.email
@@ -260,6 +262,8 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             cleaned_data["representante_celular"] = partner.telefono_celular
             cleaned_data["representante_ocupacion"] = partner.ocupacion
             cleaned_data["representante_direccion"] = partner.direccion
+            cleaned_data["nombre_conyuge"] = cleaned_data.get("nombre_conyuge") or conyuge["nombre_conyuge"]
+            cleaned_data["ocupacion_conyuge"] = cleaned_data.get("ocupacion_conyuge") or conyuge["ocupacion_conyuge"]
             return
         if not cleaned_data.get("representante_identificacion"):
             self.add_error("representante_identificacion", "Ingrese la identificacion del representante.")
@@ -275,6 +279,33 @@ def calcular_edad(fecha_nacimiento):
     if (hoy.month, hoy.day) < (fecha_nacimiento.month, fecha_nacimiento.day):
         edad -= 1
     return edad
+
+
+def representante_conyuge_data(partner):
+    tags = partner.tags or {}
+    nombre_conyuge = tags.get("nombre_conyuge") or ""
+    ocupacion_conyuge = tags.get("ocupacion_conyuge") or ""
+    if nombre_conyuge or ocupacion_conyuge:
+        return {
+            "nombre_conyuge": nombre_conyuge,
+            "ocupacion_conyuge": ocupacion_conyuge,
+        }
+
+    ficha = (
+        FichaInscripcion.objects.filter(representante=partner)
+        .filter(
+            Q(nombre_conyuge__isnull=False, nombre_conyuge__gt="")
+            | Q(ocupacion_conyuge__isnull=False, ocupacion_conyuge__gt="")
+        )
+        .order_by("-fecha", "-id")
+        .first()
+    )
+    if not ficha:
+        return {"nombre_conyuge": "", "ocupacion_conyuge": ""}
+    return {
+        "nombre_conyuge": ficha.nombre_conyuge or "",
+        "ocupacion_conyuge": ficha.ocupacion_conyuge or "",
+    }
 
 
 class MatriculaPasoForm(MatriculaProcesoForm):

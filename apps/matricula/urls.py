@@ -6,6 +6,7 @@ app_name = "matricula"
 
 urlpatterns = [
     path("matricular/", views.MatriculaProcesoView.as_view(), name="matricula_proceso"),
+    path("representantes/<int:pk>/prefill/", views.representante_prefill, name="representante_prefill"),
     path("periodos/", views.PeriodoAcademicoListView.as_view(), name="periodo_list"),
     path("periodos/nuevo/", views.PeriodoAcademicoCreateView.as_view(), name="periodo_nuevo"),
     path("periodos/<int:pk>/editar/", views.PeriodoAcademicoUpdateView.as_view(), name="periodo_editar"),

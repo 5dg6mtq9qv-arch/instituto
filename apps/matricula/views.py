@@ -8,6 +8,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Max, Q
 from django.http import HttpResponse
+from django.http import JsonResponse
 from django.http import QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
@@ -28,6 +29,7 @@ from .forms import (
     MatriculaProcesoForm,
     MatriculaRepresentanteForm,
     PeriodoAcademicoForm,
+    representante_conyuge_data,
 )
 from .models import Aula, Curso, FichaInscripcion, PeriodoAcademico
 from .odt import TEMPLATE_PATH, build_document_response_file
@@ -356,8 +358,10 @@ class MatriculaProcesoView(LoginRequiredMixin, View):
 
     def guardar_representante(self, data, empresa):
         if data.get("representante_modo") == "seleccionar" and data.get("representante_partner"):
-            return data["representante_partner"]
-        return self.guardar_partner(
+            partner = data["representante_partner"]
+            self.guardar_conyuge_partner(partner, data)
+            return partner
+        partner = self.guardar_partner(
             empresa=empresa,
             tipo_identificacion=self.get_tipo_identificacion(),
             identificacion=data["representante_identificacion"],
@@ -370,6 +374,19 @@ class MatriculaProcesoView(LoginRequiredMixin, View):
             es_cliente=True,
             es_representante=True,
         )
+        self.guardar_conyuge_partner(partner, data)
+        return partner
+
+    def guardar_conyuge_partner(self, partner, data):
+        nombre_conyuge = data.get("nombre_conyuge") or ""
+        ocupacion_conyuge = data.get("ocupacion_conyuge") or ""
+        if not nombre_conyuge and not ocupacion_conyuge:
+            return
+        tags = partner.tags or {}
+        tags["nombre_conyuge"] = nombre_conyuge
+        tags["ocupacion_conyuge"] = ocupacion_conyuge
+        partner.tags = tags
+        partner.save(update_fields=["tags"])
 
     def combined_querydict(self, session_data):
         data = QueryDict("", mutable=True)
@@ -567,6 +584,25 @@ def ficha_odt(request, pk):
 @login_required
 def ficha_pdf(request, pk):
     return ficha_documento_descarga(pk, "pdf")
+
+
+@login_required
+def representante_prefill(request, pk):
+    representante = get_object_or_404(Partner, pk=pk, activo=True, es_representante=True)
+    conyuge = representante_conyuge_data(representante)
+    return JsonResponse(
+        {
+            "identificacion": representante.identificacion,
+            "nombre": representante.nombre,
+            "telefono": representante.telefono or "",
+            "celular": representante.telefono_celular or "",
+            "email": representante.email or "",
+            "ocupacion": representante.ocupacion or "",
+            "direccion": representante.direccion or "",
+            "nombre_conyuge": conyuge["nombre_conyuge"],
+            "ocupacion_conyuge": conyuge["ocupacion_conyuge"],
+        }
+    )
 
 
 def ficha_documento_descarga(pk, extension):

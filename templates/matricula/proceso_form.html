@@ -112,6 +112,51 @@
         syncMode();
       });
 
+      const representanteSelect = document.getElementById("id_representante_partner");
+      const representantePrefillUrl = "{% url 'matricula:representante_prefill' 0 %}";
+
+      function setInputValue(id, value) {
+        const input = document.getElementById(id);
+        if (input) {
+          input.value = value || "";
+        }
+      }
+
+      function prefillRepresentante() {
+        const modeInput = document.querySelector("input[name='representante_modo']:checked");
+        if (!representanteSelect || !modeInput || modeInput.value !== "seleccionar" || !representanteSelect.value) {
+          return;
+        }
+        const url = representantePrefillUrl.replace("/0/", "/" + representanteSelect.value + "/");
+        fetch(url, {headers: {"X-Requested-With": "XMLHttpRequest"}})
+          .then(function (response) {
+            if (!response.ok) {
+              throw new Error("No se pudo cargar el representante.");
+            }
+            return response.json();
+          })
+          .then(function (data) {
+            setInputValue("id_representante_identificacion", data.identificacion);
+            setInputValue("id_representante_nombre", data.nombre);
+            setInputValue("id_representante_telefono", data.telefono);
+            setInputValue("id_representante_celular", data.celular);
+            setInputValue("id_representante_email", data.email);
+            setInputValue("id_representante_ocupacion", data.ocupacion);
+            setInputValue("id_representante_direccion", data.direccion);
+            setInputValue("id_nombre_conyuge", data.nombre_conyuge);
+            setInputValue("id_ocupacion_conyuge", data.ocupacion_conyuge);
+          })
+          .catch(function () {});
+      }
+
+      if (representanteSelect) {
+        representanteSelect.addEventListener("change", prefillRepresentante);
+        document.querySelectorAll("input[name='representante_modo']").forEach(function (input) {
+          input.addEventListener("change", prefillRepresentante);
+        });
+        prefillRepresentante();
+      }
+
       const birthInput = document.getElementById("id_estudiante_fecha_nacimiento");
       const ageInput = document.getElementById("id_edad");
       if (!birthInput || !ageInput) {
