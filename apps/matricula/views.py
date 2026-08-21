@@ -10,7 +10,7 @@ from django.db.models import Max, Q
 from django.http import HttpResponse
 from django.http import QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 
@@ -165,8 +165,45 @@ class FichaInscripcionUpdateView(InstitutoUpdateView):
     model = FichaInscripcion
     form_class = FichaInscripcionForm
     title = "Editar ficha de inscripcion"
-    success_url = reverse_lazy("matricula:ficha_list")
     cancel_url = reverse_lazy("matricula:ficha_list")
+
+    def get_success_url(self):
+        if self.request.POST.get("_after_save") == "print":
+            return reverse("matricula:ficha_pdf", kwargs={"pk": self.object.pk})
+        if self.request.POST.get("_after_save") == "documents":
+            return reverse("matricula:ficha_documentos", kwargs={"pk": self.object.pk})
+        return reverse("matricula:ficha_editar", kwargs={"pk": self.object.pk})
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["object_actions"] = [
+            {
+                "label": "Ver documentos",
+                "url": reverse("matricula:ficha_documentos", kwargs={"pk": self.object.pk}),
+                "class": "btn-outline-primary",
+            },
+            {
+                "label": "Imprimir ficha",
+                "url": reverse("matricula:ficha_pdf", kwargs={"pk": self.object.pk}),
+                "class": "btn-primary",
+                "target": "_blank",
+            },
+        ]
+        context["submit_actions"] = [
+            {
+                "label": "Guardar y ver documentos",
+                "name": "_after_save",
+                "value": "documents",
+                "class": "btn-outline-primary",
+            },
+            {
+                "label": "Guardar e imprimir ficha",
+                "name": "_after_save",
+                "value": "print",
+                "class": "btn-outline-primary",
+            },
+        ]
+        return context
 
 
 class MatriculaProcesoView(LoginRequiredMixin, View):

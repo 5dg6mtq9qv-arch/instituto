@@ -8,7 +8,12 @@
       <p class="eyebrow">Registro</p>
       <h1>{{ title }}</h1>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+    <div class="topbar-actions">
+      {% for action in object_actions %}
+        <a class="btn {{ action.class|default:'btn-outline-primary' }}" href="{{ action.url }}"{% if action.target %} target="{{ action.target }}"{% endif %}>{{ action.label }}</a>
+      {% endfor %}
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+    </div>
   </header>
 
   <form class="panel form-panel" method="post" enctype="multipart/form-data" novalidate>
@@ -36,6 +41,9 @@
     </div>
     <div class="form-actions">
       <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      {% for action in submit_actions %}
+        <button class="btn {{ action.class|default:'btn-outline-primary' }}" type="submit" name="{{ action.name }}" value="{{ action.value }}">{{ action.label }}</button>
+      {% endfor %}
       <button class="btn btn-primary" type="submit">Guardar</button>
     </div>
   </form>
