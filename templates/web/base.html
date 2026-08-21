@@ -19,15 +19,9 @@
         </span>
       </a>
       <nav class="main-nav" aria-label="Principal">
-        <a href="{% url 'home' %}">Panel</a>
-        <a href="{% url 'matricula:matricula_proceso' %}">Matricular</a>
-        <a href="{% url 'core:partner_list' %}">Personas</a>
-        <a href="{% url 'matricula:ficha_list' %}">Fichas</a>
-        <a href="{% url 'matricula:aula_list' %}">Aulas</a>
-        <a href="{% url 'cartera:cuota_list' %}">Cuotas</a>
-        <a href="{% url 'cartera:pago_list' %}">Pagos</a>
-        <a href="{% url 'academico:planificacion_list' %}">Planificacion</a>
-        <a href="{% url 'academico:pregunta_list' %}">Preguntas</a>
+        {% for item in security_menu %}
+          <a href="{% url item.url_name %}">{{ item.label }}</a>
+        {% endfor %}
       </nav>
       <div class="sidebar-footer">
         <span>{{ request.user.username }}</span>

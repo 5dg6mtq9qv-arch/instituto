@@ -1,0 +1,63 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Seguridad</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+  </header>
+
+  <form class="panel form-panel" method="post" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <section class="form-section form-section-current">
+      <div class="row g-3">
+        {% include "web/form_field.html" with field=form.name cols="col-md-6" %}
+      </div>
+    </section>
+
+    <section class="form-section">
+      <div class="section-heading">
+        <h2>Usuarios</h2>
+      </div>
+      {% for error in form.users.errors %}
+        <div class="invalid-feedback d-block">{{ error }}</div>
+      {% endfor %}
+      <div class="permission-grid permission-grid-users">
+        {% for checkbox in form.users %}
+          <label class="permission-option">{{ checkbox.tag }} <span>{{ checkbox.choice_label }}</span></label>
+        {% empty %}
+          <p class="text-muted">No hay usuarios activos.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="form-section">
+      <div class="section-heading">
+        <h2>Permisos</h2>
+      </div>
+      {% for error in form.permissions.errors %}
+        <div class="invalid-feedback d-block">{{ error }}</div>
+      {% endfor %}
+      <div class="permission-grid">
+        {% for checkbox in form.permissions %}
+          <label class="permission-option">{{ checkbox.tag }} <span>{{ checkbox.choice_label }}</span></label>
+        {% empty %}
+          <p class="text-muted">No hay permisos disponibles.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar grupo</button>
+    </div>
+  </form>
+{% endblock %}

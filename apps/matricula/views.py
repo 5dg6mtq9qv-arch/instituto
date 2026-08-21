@@ -3,8 +3,8 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib import messages
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.decorators import login_required, permission_required
+from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.db import transaction
 from django.db.models import Max, Q
 from django.http import HttpResponse
@@ -208,8 +208,9 @@ class FichaInscripcionUpdateView(InstitutoUpdateView):
         return context
 
 
-class MatriculaProcesoView(LoginRequiredMixin, View):
+class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     template_name = "matricula/proceso_form.html"
+    permission_required = "matricula.add_fichainscripcion"
     session_key = "matricula_proceso"
     steps = (
         ("estudiante", "Estudiante", MatriculaEstudianteForm),
@@ -566,6 +567,7 @@ def get_ficha_documento(pk):
 
 
 @login_required
+@permission_required("matricula.view_fichainscripcion", raise_exception=True)
 def ficha_documentos(request, pk):
     ficha = get_ficha_documento(pk)
     cuotas = ficha.plan_pago.cuotas.all() if hasattr(ficha, "plan_pago") else []
@@ -577,16 +579,19 @@ def ficha_documentos(request, pk):
 
 
 @login_required
+@permission_required("matricula.view_fichainscripcion", raise_exception=True)
 def ficha_odt(request, pk):
     return ficha_documento_descarga(pk, "odt")
 
 
 @login_required
+@permission_required("matricula.view_fichainscripcion", raise_exception=True)
 def ficha_pdf(request, pk):
     return ficha_documento_descarga(pk, "pdf")
 
 
 @login_required
+@permission_required("matricula.view_fichainscripcion", raise_exception=True)
 def representante_prefill(request, pk):
     representante = get_object_or_404(Partner, pk=pk, activo=True, es_representante=True)
     conyuge = representante_conyuge_data(representante)

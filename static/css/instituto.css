@@ -411,6 +411,38 @@ dd {
   grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
 }
 
+.document-data-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.permission-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.permission-grid-users {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.permission-option {
+  align-items: flex-start;
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  line-height: 1.25;
+  min-height: 42px;
+  padding: 9px 10px;
+}
+
+.permission-option input {
+  margin-top: 2px;
+}
+
 .message-stack {
   margin-bottom: 18px;
 }
@@ -497,6 +529,12 @@ dd {
   }
 
   .document-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .document-data-grid,
+  .permission-grid,
+  .permission-grid-users {
     grid-template-columns: 1fr;
   }
 }

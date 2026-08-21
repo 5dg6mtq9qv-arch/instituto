@@ -1,5 +1,5 @@
 from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.urls import reverse_lazy
 from django.urls import reverse
 from django.views.generic import CreateView, ListView, UpdateView
@@ -7,13 +7,17 @@ from django.views.generic import CreateView, ListView, UpdateView
 from apps.core.models import Empresa
 
 
-class InstitutoListView(LoginRequiredMixin, ListView):
+class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
     template_name = "web/object_list.html"
     paginate_by = 20
     title = ""
     create_url_name = None
     update_url_name = None
     columns = ()
+
+    def get_permission_required(self):
+        opts = self.model._meta
+        return (f"{opts.app_label}.view_{opts.model_name}",)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -55,7 +59,7 @@ class InstitutoListView(LoginRequiredMixin, ListView):
         return value
 
 
-class InstitutoFormMixin(LoginRequiredMixin):
+class InstitutoFormMixin(LoginRequiredMixin, PermissionRequiredMixin):
     template_name = "web/object_form.html"
     title = ""
     cancel_url = reverse_lazy("home")
@@ -86,8 +90,12 @@ class InstitutoFormMixin(LoginRequiredMixin):
 
 
 class InstitutoCreateView(InstitutoFormMixin, CreateView):
-    pass
+    def get_permission_required(self):
+        opts = self.model._meta
+        return (f"{opts.app_label}.add_{opts.model_name}",)
 
 
 class InstitutoUpdateView(InstitutoFormMixin, UpdateView):
-    pass
+    def get_permission_required(self):
+        opts = self.model._meta
+        return (f"{opts.app_label}.change_{opts.model_name}",)

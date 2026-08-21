@@ -1,7 +1,9 @@
+from django.contrib.auth.mixins import UserPassesTestMixin
+from django.contrib.auth.models import Group
 from django.db.models import Q
 from django.urls import reverse_lazy
 
-from apps.core.forms import EmpresaForm, PartnerForm
+from apps.core.forms import EmpresaForm, GroupPermissionForm, PartnerForm
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 
 from .models import Empresa, Partner
@@ -77,3 +79,61 @@ class PartnerUpdateView(InstitutoUpdateView):
     title = "Editar persona"
     success_url = reverse_lazy("core:partner_list")
     cancel_url = reverse_lazy("core:partner_list")
+
+
+class SecurityAccessMixin(UserPassesTestMixin):
+    def test_func(self):
+        user = self.request.user
+        return user.is_superuser or user.has_perm("auth.view_group") or user.has_perm("auth.change_group")
+
+
+class GroupListView(SecurityAccessMixin, InstitutoListView):
+    model = Group
+    title = "Grupos y permisos"
+    create_url_name = "core:grupo_nuevo"
+    update_url_name = "core:grupo_editar"
+    columns = (
+        ("Grupo", "name"),
+        ("Usuarios", "usuarios_count"),
+        ("Permisos", "permisos_count"),
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset().prefetch_related("permissions", "user_set").order_by("name")
+        q = self.request.GET.get("q")
+        if q:
+            queryset = queryset.filter(name__icontains=q)
+        return queryset
+
+    def get_column_value(self, obj, attr):
+        if attr == "usuarios_count":
+            return obj.user_set.count()
+        if attr == "permisos_count":
+            return obj.permissions.count()
+        return super().get_column_value(obj, attr)
+
+
+class GroupCreateView(SecurityAccessMixin, InstitutoCreateView):
+    model = Group
+    form_class = GroupPermissionForm
+    template_name = "core/group_form.html"
+    title = "Nuevo grupo"
+    success_url = reverse_lazy("core:grupo_list")
+    cancel_url = reverse_lazy("core:grupo_list")
+
+    def test_func(self):
+        user = self.request.user
+        return user.is_superuser or user.has_perm("auth.add_group")
+
+
+class GroupUpdateView(SecurityAccessMixin, InstitutoUpdateView):
+    model = Group
+    form_class = GroupPermissionForm
+    template_name = "core/group_form.html"
+    title = "Editar grupo"
+    success_url = reverse_lazy("core:grupo_list")
+    cancel_url = reverse_lazy("core:grupo_list")
+
+    def test_func(self):
+        user = self.request.user
+        return user.is_superuser or user.has_perm("auth.change_group")
