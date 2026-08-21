@@ -1,5 +1,6 @@
-<div class="{{ cols|default:'col-md-6' }} field-{{ field.name }}{% if field.field.widget.input_type == 'checkbox' %} d-flex align-items-end{% endif %}">
-  {% if field.field.widget.input_type == 'checkbox' %}
+{% with input_type=field.field.widget.input_type|default:'' %}
+<div class="{{ cols|default:'col-md-6' }} field-{{ field.name }}{% if input_type == 'checkbox' %} d-flex align-items-end{% endif %}">
+  {% if input_type == 'checkbox' %}
     <div class="form-check mb-2">
       {{ field }}
       <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -12,3 +13,4 @@
     <div class="invalid-feedback d-block">{{ error }}</div>
   {% endfor %}
 </div>
+{% endwith %}

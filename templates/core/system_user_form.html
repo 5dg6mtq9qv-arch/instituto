@@ -1,0 +1,56 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Seguridad</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+  </header>
+
+  <form class="panel form-panel" method="post" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <section class="form-section form-section-current">
+      <div class="section-heading">
+        <h2>Datos de acceso</h2>
+      </div>
+      <div class="row g-3">
+        {% include "web/form_field.html" with field=form.username cols="col-md-6" %}
+        {% include "web/form_field.html" with field=form.password cols="col-md-6" %}
+        {% include "web/form_field.html" with field=form.first_name cols="col-md-6" %}
+        {% include "web/form_field.html" with field=form.last_name cols="col-md-6" %}
+        {% include "web/form_field.html" with field=form.email cols="col-md-6" %}
+        {% include "web/form_field.html" with field=form.is_active cols="col-md-3" %}
+        {% include "web/form_field.html" with field=form.is_staff cols="col-md-3" %}
+      </div>
+    </section>
+
+    <section class="form-section">
+      <div class="section-heading">
+        <h2>Grupos</h2>
+      </div>
+      {% for error in form.groups.errors %}
+        <div class="invalid-feedback d-block">{{ error }}</div>
+      {% endfor %}
+      <div class="permission-grid permission-grid-users">
+        {% for checkbox in form.groups %}
+          <label class="permission-option">{{ checkbox.tag }} <span>{{ checkbox.choice_label }}</span></label>
+        {% empty %}
+          <p class="text-muted">No hay grupos creados.</p>
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar usuario</button>
+    </div>
+  </form>
+{% endblock %}

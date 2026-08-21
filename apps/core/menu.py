@@ -9,10 +9,13 @@ MENU_ITEMS = [
     {"label": "Planificacion", "url_name": "academico:planificacion_list", "perm": "academico.view_planificacionclase"},
     {"label": "Preguntas", "url_name": "academico:pregunta_list", "perm": "academico.view_pregunta"},
     {"label": "Grupos", "url_name": "core:grupo_list", "perm": "auth.view_group"},
+    {"label": "Usuarios", "url_name": "core:usuario_list", "perm": "auth.view_user", "superuser_only": True},
 ]
 
 
 def user_can_see_menu_item(user, item):
+    if item.get("superuser_only"):
+        return user.is_superuser
     perm = item.get("perm")
     return user.is_superuser or not perm or user.has_perm(perm)
 

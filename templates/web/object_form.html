@@ -23,8 +23,9 @@
     {% endif %}
     <div class="row g-3">
       {% for field in form %}
-        <div class="col-md-6{% if field.field.widget.input_type == 'checkbox' %} d-flex align-items-end{% endif %}">
-          {% if field.field.widget.input_type == 'checkbox' %}
+        {% with input_type=field.field.widget.input_type|default:'' %}
+        <div class="col-md-6{% if input_type == 'checkbox' %} d-flex align-items-end{% endif %}">
+          {% if input_type == 'checkbox' %}
             <div class="form-check mb-2">
               {{ field }}
               <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -37,6 +38,7 @@
             <div class="invalid-feedback d-block">{{ error }}</div>
           {% endfor %}
         </div>
+        {% endwith %}
       {% endfor %}
     </div>
     <div class="form-actions">

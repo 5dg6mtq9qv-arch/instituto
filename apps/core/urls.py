@@ -14,4 +14,7 @@ urlpatterns = [
     path("grupos/", views.GroupListView.as_view(), name="grupo_list"),
     path("grupos/nuevo/", views.GroupCreateView.as_view(), name="grupo_nuevo"),
     path("grupos/<int:pk>/editar/", views.GroupUpdateView.as_view(), name="grupo_editar"),
+    path("usuarios/", views.SystemUserListView.as_view(), name="usuario_list"),
+    path("usuarios/nuevo/", views.SystemUserCreateView.as_view(), name="usuario_nuevo"),
+    path("usuarios/<int:pk>/editar/", views.SystemUserUpdateView.as_view(), name="usuario_editar"),
 ]

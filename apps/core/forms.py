@@ -112,3 +112,63 @@ class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
         if commit:
             group.user_set.set(self.cleaned_data["users"])
         return group
+
+
+class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
+    password = forms.CharField(
+        label="Contraseña",
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text="En edición puedes dejarla vacía para conservar la contraseña actual.",
+    )
+    groups = forms.ModelMultipleChoiceField(
+        label="Grupos",
+        queryset=Group.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
+
+    class Meta:
+        model = get_user_model()
+        fields = [
+            "username",
+            "first_name",
+            "last_name",
+            "email",
+            "is_active",
+            "is_staff",
+            "groups",
+            "password",
+        ]
+        labels = {
+            "username": "Usuario",
+            "first_name": "Nombres",
+            "last_name": "Apellidos",
+            "email": "Correo",
+            "is_active": "Activo",
+            "is_staff": "Puede entrar al admin Django",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["groups"].queryset = Group.objects.order_by("name")
+        if self.instance.pk:
+            self.fields["groups"].initial = self.instance.groups.all()
+        else:
+            self.fields["password"].required = True
+
+    def clean_password(self):
+        password = self.cleaned_data.get("password")
+        if not self.instance.pk and not password:
+            raise forms.ValidationError("La contraseña es obligatoria para crear un usuario.")
+        return password
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        password = self.cleaned_data.get("password")
+        if password:
+            user.set_password(password)
+        if commit:
+            user.save()
+            user.groups.set(self.cleaned_data["groups"])
+        return user

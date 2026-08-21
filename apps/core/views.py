@@ -1,9 +1,10 @@
+from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import UserPassesTestMixin
 from django.contrib.auth.models import Group
 from django.db.models import Q
 from django.urls import reverse_lazy
 
-from apps.core.forms import EmpresaForm, GroupPermissionForm, PartnerForm
+from apps.core.forms import EmpresaForm, GroupPermissionForm, PartnerForm, SystemUserForm
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 
 from .models import Empresa, Partner
@@ -87,6 +88,11 @@ class SecurityAccessMixin(UserPassesTestMixin):
         return user.is_superuser or user.has_perm("auth.view_group") or user.has_perm("auth.change_group")
 
 
+class SuperuserRequiredMixin(UserPassesTestMixin):
+    def test_func(self):
+        return self.request.user.is_superuser
+
+
 class GroupListView(SecurityAccessMixin, InstitutoListView):
     model = Group
     title = "Grupos y permisos"
@@ -137,3 +143,54 @@ class GroupUpdateView(SecurityAccessMixin, InstitutoUpdateView):
     def test_func(self):
         user = self.request.user
         return user.is_superuser or user.has_perm("auth.change_group")
+
+
+class SystemUserListView(SuperuserRequiredMixin, InstitutoListView):
+    model = get_user_model()
+    title = "Usuarios del sistema"
+    create_url_name = "core:usuario_nuevo"
+    update_url_name = "core:usuario_editar"
+    columns = (
+        ("Usuario", "username"),
+        ("Nombre", "get_full_name"),
+        ("Correo", "email"),
+        ("Activo", "is_active"),
+        ("Admin Django", "is_staff"),
+        ("Grupos", "group_names"),
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset().prefetch_related("groups").order_by("username")
+        q = self.request.GET.get("q")
+        if q:
+            queryset = queryset.filter(
+                Q(username__icontains=q)
+                | Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(email__icontains=q)
+                | Q(groups__name__icontains=q)
+            ).distinct()
+        return queryset
+
+    def get_column_value(self, obj, attr):
+        if attr == "group_names":
+            return ", ".join(obj.groups.values_list("name", flat=True)) or "-"
+        return super().get_column_value(obj, attr)
+
+
+class SystemUserCreateView(SuperuserRequiredMixin, InstitutoCreateView):
+    model = get_user_model()
+    form_class = SystemUserForm
+    template_name = "core/system_user_form.html"
+    title = "Nuevo usuario del sistema"
+    success_url = reverse_lazy("core:usuario_list")
+    cancel_url = reverse_lazy("core:usuario_list")
+
+
+class SystemUserUpdateView(SuperuserRequiredMixin, InstitutoUpdateView):
+    model = get_user_model()
+    form_class = SystemUserForm
+    template_name = "core/system_user_form.html"
+    title = "Editar usuario del sistema"
+    success_url = reverse_lazy("core:usuario_list")
+    cancel_url = reverse_lazy("core:usuario_list")
