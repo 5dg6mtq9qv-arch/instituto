@@ -1,0 +1,124 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Ficha de matricula</title>
+  <style>
+    body { color: #16417a; font-family: Arial, sans-serif; font-size: 10pt; }
+    h1 { font-size: 22pt; margin: 0; text-align: center; }
+    h2 { border: 1px solid #16417a; font-size: 14pt; margin: 10px 0 6px; padding: 4px; text-align: center; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border: 1px solid #16417a; padding: 4px; vertical-align: top; }
+    .no-border td { border: 0; }
+    .small { font-size: 8pt; }
+    .right { text-align: right; }
+    .center { text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>{{empresa_nombre}}</h1>
+  <p class="center">DESARROLLA TU POTENCIAL DE APRENDIZAJE</p>
+  <p class="center"><strong>No. {{ficha_numero}}</strong></p>
+
+  <table class="no-border">
+    <tr>
+      <td><strong>Cliente:</strong> {{cliente}}</td>
+      <td><strong>Fecha:</strong> {{fecha}}</td>
+    </tr>
+    <tr>
+      <td><strong>R.U.C./C.I.:</strong> {{cliente_identificacion}}</td>
+      <td><strong>Telf.:</strong> {{cliente_telefono}} <strong>Cel.:</strong> {{cliente_celular}} <strong>Edad:</strong> {{edad}}</td>
+    </tr>
+    <tr>
+      <td><strong>Estudiante:</strong> {{estudiante}}</td>
+      <td><strong>C.I.:</strong> {{estudiante_identificacion}} <strong>Curso/Grado:</strong> {{curso_grado}}</td>
+    </tr>
+    <tr>
+      <td><strong>Colegio:</strong> {{colegio}}</td>
+      <td><strong>Fecha nacimiento estudiante:</strong> {{estudiante_fecha_nacimiento}}</td>
+    </tr>
+  </table>
+
+  <h2>DATOS REFERENCIALES</h2>
+  <table class="no-border">
+    <tr>
+      <td><strong>Representante:</strong> {{representante}}</td>
+      <td><strong>Ocupacion:</strong> {{representante_ocupacion}}</td>
+      <td><strong>Nota de grado:</strong> {{nota_grado}}</td>
+    </tr>
+    <tr>
+      <td><strong>Nombre conyuge:</strong> {{nombre_conyuge}}</td>
+      <td><strong>Ocupacion:</strong> {{ocupacion_conyuge}}</td>
+      <td><strong>Carrera:</strong> {{carrera}}</td>
+    </tr>
+    <tr>
+      <td colspan="2"><strong>Direccion:</strong> {{representante_direccion}}</td>
+      <td><strong>Universidad:</strong> {{universidad}}</td>
+    </tr>
+    <tr>
+      <td><strong>Correo estudiante:</strong> {{estudiante_correo}}</td>
+      <td colspan="2"><strong>Correo representante:</strong> {{representante_correo}}</td>
+    </tr>
+  </table>
+
+  <table>
+    <tr>
+      <td><strong>Horario:</strong> {{horario}}</td>
+      <td><strong>Hora:</strong> {{hora}}</td>
+      <td><strong>Duracion:</strong> {{duracion}}</td>
+    </tr>
+  </table>
+
+  <h2>CONVENIO DE PAGO</h2>
+  <table>
+    <tr>
+      <td><strong>Valor total del curso sin matricula:</strong> {{valor_total_curso}}</td>
+      <td><strong>Valor de matricula:</strong> {{valor_matricula}}</td>
+      <td><strong>Promo:</strong> SI {{promo_si}} NO {{promo_no}}</td>
+    </tr>
+    <tr>
+      <td><strong>Quincenal:</strong> {{convenio_quincenal}}</td>
+      <td><strong>Mensual:</strong> {{convenio_mensual}}</td>
+      <td><strong>Un solo pago total:</strong> {{convenio_unico}}</td>
+    </tr>
+    <tr>
+      <td><strong>Fecha proxima pago:</strong> {{fecha_proximo_pago}}</td>
+      <td colspan="2"><strong>Valor:</strong> {{valor_proximo_pago}}</td>
+    </tr>
+  </table>
+
+  <table>
+    <tr>
+      <th>No. de pago</th>
+      <th>Fecha de pago/debito</th>
+      <th>Valor</th>
+      <th>No. Recibo/Factura/Dep. Bancario</th>
+      <th>Observacion</th>
+    </tr>
+    <tr>
+      <td colspan="5">{{cuotas}}</td>
+    </tr>
+  </table>
+
+  <p class="small">ART. 1 YO __________________________________________ EN CALIDAD DE REPRESENTANTE LEGAL DEL ESTUDIANTE ACEPTO VOLUNTARIAMENTE Y ME COMPROMETO A CANCELAR EL VALOR TOTAL DEL CURSO DETALLADO EN EL CONVENIO DE PAGO.</p>
+  <p class="small">ART. 2 AUTORIZO EL USO DE IMAGEN Y FOTOGRAFIAS PARA FINES PUBLICITARIOS. {{autorizacion_imagen}}</p>
+  <p class="small">ART. 3 LA GARANTIA TIENE UN 100% DE VALIDEZ SI EL ESTUDIANTE NO TIENE NI UNA SOLA FALTA O ATRASO LOS DIAS DE CLASES. {{acepta_garantia}}</p>
+  <p class="small">UNA VEZ ACEPTADO EL SERVICIO NO HAY DEVOLUCION DEL DINERO. {{acepta_no_devolucion}}</p>
+
+  <table>
+    <tr>
+      <td><strong>FORMA DE PAGO</strong><br>EFECTIVO __ TRANSFERENCIA __ CHEQUE __ TARJETA DE CREDITO __ DEPOSITO __ DEBITO BANCARIO __</td>
+      <td class="center"><br><br>____________________________<br>FIRMA REPRESENTANTE<br>C.I.: {{representante_identificacion}}</td>
+      <td class="center"><br><br>____________________________<br>FIRMA DIRECTOR ASESOR</td>
+      <td>
+        <strong>Total:</strong> {{total}}<br>
+        <strong>Descuento:</strong> {{descuento}}<br>
+        <strong>Abono:</strong> {{abono}}<br>
+        <strong>Saldo:</strong> {{saldo}}
+      </td>
+    </tr>
+  </table>
+
+  <p class="center small">{{empresa_direccion}} · {{empresa_telefono}} · {{empresa_ciudad}}</p>
+</body>
+</html>

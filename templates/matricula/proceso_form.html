@@ -1,0 +1,147 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Proceso</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">Volver</a>
+      <a class="btn btn-outline-danger" href="{% url 'matricula:matricula_proceso' %}?reiniciar=1">Reiniciar</a>
+    </div>
+  </header>
+
+  <form class="panel form-panel" method="post" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="process-steps">
+      {% for item in step_items %}
+        <span class="{{ item.status }}">{{ item.number }}. {{ item.label }}</span>
+      {% endfor %}
+    </div>
+
+    <section class="form-section form-section-current">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Paso {{ step_number }}</p>
+          <h2>{{ step_label }}</h2>
+        </div>
+      </div>
+
+      <div class="row g-3">
+        {% for field in form %}
+          {% include "web/form_field.html" with field=field cols="col-md-6" %}
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="form-actions">
+      {% if not is_first_step %}
+        <a class="btn btn-outline-secondary" href="{% url 'matricula:matricula_proceso' %}?paso={{ back_step }}">Anterior</a>
+      {% else %}
+        <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">Cancelar</a>
+      {% endif %}
+      {% if is_last_step %}
+        <button class="btn btn-primary" type="submit">Confirmar matricula y generar documentos</button>
+      {% else %}
+        <button class="btn btn-primary" type="submit">Siguiente</button>
+      {% endif %}
+    </div>
+  </form>
+  <script>
+    (function () {
+      const modeConfigs = [
+        {
+          name: "estudiante",
+          selectFields: ["estudiante_partner"],
+          createFields: [
+            "estudiante_identificacion",
+            "estudiante_nombre",
+            "estudiante_fecha_nacimiento",
+            "edad",
+            "estudiante_telefono",
+            "estudiante_email"
+          ]
+        },
+        {
+          name: "representante",
+          selectFields: ["representante_partner"],
+          createFields: [
+            "representante_identificacion",
+            "representante_nombre",
+            "representante_telefono",
+            "representante_celular",
+            "representante_email",
+            "representante_ocupacion",
+            "representante_direccion"
+          ]
+        }
+      ];
+
+      function setFieldsVisible(fieldNames, visible) {
+        fieldNames.forEach(function (fieldName) {
+          const element = document.querySelector(".field-" + fieldName);
+          if (element) {
+            element.classList.toggle("d-none", !visible);
+          }
+        });
+      }
+
+      modeConfigs.forEach(function (config) {
+        const inputs = document.querySelectorAll("input[name='" + config.name + "_modo']");
+        if (!inputs.length) {
+          return;
+        }
+
+        function syncMode() {
+          const checked = document.querySelector("input[name='" + config.name + "_modo']:checked");
+          const mode = checked ? checked.value : "seleccionar";
+          setFieldsVisible(config.selectFields, mode === "seleccionar");
+          setFieldsVisible(config.createFields, mode === "crear");
+        }
+
+        inputs.forEach(function (input) {
+          input.addEventListener("change", syncMode);
+        });
+        syncMode();
+      });
+
+      const birthInput = document.getElementById("id_estudiante_fecha_nacimiento");
+      const ageInput = document.getElementById("id_edad");
+      if (!birthInput || !ageInput) {
+        return;
+      }
+
+      function calculateAge(value) {
+        if (!value) {
+          return "";
+        }
+        const birthDate = new Date(value + "T00:00:00");
+        if (Number.isNaN(birthDate.getTime())) {
+          return "";
+        }
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const monthDiff = today.getMonth() - birthDate.getMonth();
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+          age -= 1;
+        }
+        return age >= 0 ? age : "";
+      }
+
+      function updateAge() {
+        ageInput.value = calculateAge(birthInput.value);
+      }
+
+      birthInput.addEventListener("change", updateAge);
+      birthInput.addEventListener("input", updateAge);
+      updateAge();
+    })();
+  </script>
+{% endblock %}

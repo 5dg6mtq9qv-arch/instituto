@@ -1,0 +1,75 @@
+{% extends "web/base.html" %}
+
+{% block title %}Documentos matricula | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Documentos</p>
+      <h1>Matricula {{ ficha.numero }}</h1>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">Fichas</a>
+      <a class="btn btn-outline-primary" href="{% url 'matricula:ficha_odt' ficha.pk %}">Descargar ODT</a>
+      <a class="btn btn-primary" href="{% url 'matricula:ficha_pdf' ficha.pk %}">Descargar PDF</a>
+    </div>
+  </header>
+
+  <section class="panel document-summary">
+    <div>
+      <h2>{{ ficha.estudiante }}</h2>
+      <p>{{ ficha.representante|default:ficha.cliente }} · {{ ficha.fecha }}</p>
+    </div>
+    <dl>
+      <div>
+        <dt>Total</dt>
+        <dd>{{ ficha.plan_pago.valor_total|default:ficha.valor_total_curso }}</dd>
+      </div>
+      <div>
+        <dt>Abono</dt>
+        <dd>{{ ficha.abono }}</dd>
+      </div>
+      <div>
+        <dt>Saldo</dt>
+        <dd>{{ ficha.saldo }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="panel mt-3">
+    <div class="section-heading">
+      <h2>Cuotas generadas</h2>
+      <span class="text-muted">Plantilla: {{ template_path }}</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle">
+        <thead>
+          <tr>
+            <th>No.</th>
+            <th>Fecha</th>
+            <th>Valor</th>
+            <th>Pagado</th>
+            <th>Estado</th>
+            <th>Observacion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cuota in cuotas %}
+            <tr>
+              <td>{{ cuota.numero }}</td>
+              <td>{{ cuota.fecha_pago_debito }}</td>
+              <td>{{ cuota.valor }}</td>
+              <td>{{ cuota.valor_pagado }}</td>
+              <td>{{ cuota.estado }}</td>
+              <td>{{ cuota.observacion }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="text-center text-muted py-4">Sin cuotas.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

@@ -5,6 +5,7 @@ from . import views
 app_name = "matricula"
 
 urlpatterns = [
+    path("matricular/", views.MatriculaProcesoView.as_view(), name="matricula_proceso"),
     path("periodos/", views.PeriodoAcademicoListView.as_view(), name="periodo_list"),
     path("periodos/nuevo/", views.PeriodoAcademicoCreateView.as_view(), name="periodo_nuevo"),
     path("periodos/<int:pk>/editar/", views.PeriodoAcademicoUpdateView.as_view(), name="periodo_editar"),
@@ -17,4 +18,7 @@ urlpatterns = [
     path("fichas/", views.FichaInscripcionListView.as_view(), name="ficha_list"),
     path("fichas/nueva/", views.FichaInscripcionCreateView.as_view(), name="ficha_nueva"),
     path("fichas/<int:pk>/editar/", views.FichaInscripcionUpdateView.as_view(), name="ficha_editar"),
+    path("fichas/<int:pk>/documentos/", views.ficha_documentos, name="ficha_documentos"),
+    path("fichas/<int:pk>/documentos/odt/", views.ficha_odt, name="ficha_odt"),
+    path("fichas/<int:pk>/documentos/pdf/", views.ficha_pdf, name="ficha_pdf"),
 ]
