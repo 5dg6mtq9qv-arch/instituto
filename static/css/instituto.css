@@ -41,6 +41,8 @@ a {
   background: var(--nav);
   color: #edf5ff;
   padding: 24px 18px;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand {
@@ -95,7 +97,8 @@ a {
   padding: 28px;
 }
 
-.topbar {
+.topbar,
+.page-header {
   align-items: center;
   display: flex;
   gap: 20px;
@@ -239,10 +242,17 @@ h3 {
 }
 
 .module-card {
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
-  min-height: 245px;
+  min-height: 180px;
   padding: 18px;
+}
+
+.module-card:hover {
+  border-color: #9db2c9;
+  box-shadow: var(--shadow);
+  color: inherit;
 }
 
 .module-header {
@@ -289,6 +299,85 @@ dd {
   margin: 0;
 }
 
+.sidebar-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  display: grid;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 18px;
+}
+
+.sidebar-footer span {
+  color: #c9d6e6;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+.form-panel {
+  max-width: 1180px;
+}
+
+.form-actions {
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 22px;
+  padding-top: 18px;
+}
+
+.message-stack {
+  margin-bottom: 18px;
+}
+
+.login-body {
+  align-items: center;
+  background: var(--bg);
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.login-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  max-width: 420px;
+  padding: 28px;
+  width: 100%;
+}
+
+.login-brand {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 26px;
+}
+
+.login-brand strong,
+.login-brand small {
+  display: block;
+}
+
+.login-brand small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.table {
+  margin-bottom: 0;
+}
+
 @media (max-width: 1100px) {
   .summary-grid,
   .module-grid {
@@ -314,6 +403,7 @@ dd {
   }
 
   .topbar,
+  .page-header,
   .section-heading {
     align-items: stretch;
     flex-direction: column;

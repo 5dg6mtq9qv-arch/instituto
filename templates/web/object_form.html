@@ -1,0 +1,42 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Registro</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+  </header>
+
+  <form class="panel form-panel" method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="row g-3">
+      {% for field in form %}
+        <div class="col-md-6{% if field.field.widget.input_type == 'checkbox' %} d-flex align-items-end{% endif %}">
+          {% if field.field.widget.input_type == 'checkbox' %}
+            <div class="form-check mb-2">
+              {{ field }}
+              <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            </div>
+          {% else %}
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+          {% endif %}
+          {% for error in field.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar</button>
+    </div>
+  </form>
+{% endblock %}

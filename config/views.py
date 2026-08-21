@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
 from apps.academico.models import Asignatura, BancoPregunta, PlanificacionClase, Pregunta, Tema
@@ -7,6 +8,7 @@ from apps.core.models import Empresa, Partner
 from apps.matricula.models import Aula, FichaInscripcion, PeriodoAcademico
 
 
+@login_required
 def home(request):
     User = get_user_model()
 
