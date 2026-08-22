@@ -56,6 +56,36 @@
       });
     });
 
+    qsa(".sidebar-menu .dropdown > a").forEach(function (link) {
+      link.addEventListener("click", function (event) {
+        event.preventDefault();
+        const item = link.parentElement;
+        const submenu = item ? item.querySelector(".sidebar-submenu") : null;
+        if (!item || !submenu) {
+          return;
+        }
+
+        qsa(".sidebar-menu .dropdown.open").forEach(function (openItem) {
+          if (openItem === item) {
+            return;
+          }
+          openItem.classList.remove("open");
+          const openSubmenu = openItem.querySelector(".sidebar-submenu");
+          if (openSubmenu) {
+            openSubmenu.style.display = "none";
+          }
+          const openLink = openItem.querySelector(":scope > a");
+          if (openLink) {
+            openLink.setAttribute("aria-expanded", "false");
+          }
+        });
+
+        const isOpen = item.classList.toggle("open");
+        submenu.style.display = isOpen ? "block" : "none";
+        link.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      });
+    });
+
     qsa(".theme-toggle-btn").forEach(function (button) {
       button.addEventListener("click", function () {
         const currentTheme = document.documentElement.getAttribute("data-theme") || "light";

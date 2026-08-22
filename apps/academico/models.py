@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -196,6 +197,99 @@ class DocenteAsignatura(models.Model):
 
     def __str__(self):
         return f"{self.docente} - {self.asignatura}"
+
+
+class HorarioClase(models.Model):
+    ESTADO_CHOICES = (
+        ("programada", "Programada"),
+        ("realizada", "Realizada"),
+        ("no_dio_clases", "No dio clases"),
+        ("reprogramada", "Reprogramada"),
+        ("cancelada", "Cancelada"),
+    )
+
+    empresa = models.ForeignKey(
+        "core.Empresa",
+        db_column="id_empresa",
+        on_delete=models.DO_NOTHING,
+    )
+    periodo_academico = models.ForeignKey(
+        "matricula.PeriodoAcademico",
+        db_column="id_periodo_academico",
+        on_delete=models.DO_NOTHING,
+        related_name="horarios_clase",
+    )
+    aula = models.ForeignKey(
+        "matricula.Aula",
+        db_column="id_aula",
+        on_delete=models.DO_NOTHING,
+        related_name="horarios_clase",
+    )
+    asignatura = models.ForeignKey(
+        Asignatura,
+        db_column="id_asignatura",
+        on_delete=models.DO_NOTHING,
+        related_name="horarios_clase",
+    )
+    docente = models.ForeignKey(
+        "core.Partner",
+        db_column="id_docente",
+        on_delete=models.DO_NOTHING,
+        related_name="horarios_docente",
+    )
+    fecha = models.DateField()
+    hora_inicio = models.TimeField()
+    hora_fin = models.TimeField()
+    tutor = models.ForeignKey(
+        "core.Partner",
+        db_column="id_tutor",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="horarios_tutor",
+    )
+    tipo_planificacion = models.CharField(max_length=120, blank=True, null=True)
+    tema_previsto = models.TextField(blank=True, null=True)
+    observacion = models.TextField(blank=True, null=True)
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="programada")
+    activo = models.BooleanField(default=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now=True)
+    usuario_updated = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario_updated",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="horarios_clase_actualizados",
+    )
+
+    class Meta:
+        db_table = '"academico"."horario_clase"'
+        ordering = ["fecha", "hora_inicio", "aula", "asignatura"]
+        unique_together = (("periodo_academico", "aula", "fecha", "hora_inicio", "hora_fin"),)
+
+    def clean(self):
+        super().clean()
+        if self.hora_inicio and self.hora_fin and self.hora_inicio >= self.hora_fin:
+            raise ValidationError({"hora_fin": "La hora fin debe ser mayor que la hora inicio."})
+
+        if not self.fecha or not self.hora_inicio or not self.hora_fin:
+            return
+
+        overlapping = HorarioClase.objects.filter(
+            fecha=self.fecha,
+            activo=True,
+            hora_inicio__lt=self.hora_fin,
+            hora_fin__gt=self.hora_inicio,
+        ).exclude(pk=self.pk)
+        if self.aula_id and overlapping.filter(aula_id=self.aula_id).exists():
+            raise ValidationError("Ya existe una clase en esa aula dentro del mismo horario.")
+        if self.docente_id and overlapping.filter(docente_id=self.docente_id).exists():
+            raise ValidationError("El docente ya tiene otra clase dentro del mismo horario.")
+
+    def __str__(self):
+        return f"{self.fecha} {self.hora_inicio}-{self.hora_fin} {self.aula} {self.asignatura}"
 
 
 class PlanificacionClase(models.Model):

@@ -40,36 +40,50 @@
     {% endfor %}
   </section>
 
-  <section class="module-grid">
-    {% if request.user.is_superuser or perms.matricula.add_fichainscripcion %}
-      <a class="module-card" href="{% url 'matricula:matricula_proceso' %}">
-        <h3>Matricular</h3>
-        <p>Crear estudiante, representante, ficha, convenio y cuotas en un solo proceso.</p>
-      </a>
-    {% endif %}
-    {% if request.user.is_superuser or perms.core.view_partner %}
-      <a class="module-card" href="{% url 'core:partner_list' %}">
-        <h3>Personas</h3>
-        <p>Clientes, estudiantes, representantes y docentes.</p>
-      </a>
-    {% endif %}
-    {% if request.user.is_superuser or perms.matricula.view_fichainscripcion %}
-      <a class="module-card" href="{% url 'matricula:ficha_list' %}">
-        <h3>Matriculas</h3>
-        <p>Fichas de inscripcion, curso, aula y convenio de pago.</p>
-      </a>
-    {% endif %}
-    {% if request.user.is_superuser or perms.cartera.view_cuota %}
-      <a class="module-card" href="{% url 'cartera:cuota_list' %}">
-        <h3>Cartera</h3>
-        <p>Planes, cuotas, pagos y seguimiento de saldos.</p>
-      </a>
-    {% endif %}
-    {% if request.user.is_superuser or perms.academico.view_planificacionclase %}
-      <a class="module-card" href="{% url 'academico:planificacion_list' %}">
-        <h3>Academico</h3>
-        <p>Planificacion de clases, temas y bancos de preguntas.</p>
-      </a>
-    {% endif %}
+  <section class="dashboard-hub">
+    <aside class="hub-nav" aria-label="Areas del panel">
+      {% for section in dashboard_sections %}
+        <a href="#hub-{{ section.slug }}" class="{% if forloop.first %}active{% endif %}">
+          <span>{{ section.title }}</span>
+          <small>{{ section.cards|length }} modulos</small>
+        </a>
+      {% endfor %}
+    </aside>
+
+    <div class="hub-content">
+      {% for section in dashboard_sections %}
+        <section id="hub-{{ section.slug }}" class="hub-section">
+          <div class="hub-section-header">
+            <div>
+              <p class="eyebrow">{{ section.title }}</p>
+              <h2>{{ section.description }}</h2>
+            </div>
+          </div>
+
+          <div class="hub-card-grid">
+            {% for card in section.cards %}
+              <article class="hub-card hub-card-{{ card.accent }}">
+                <a class="hub-card-main" href="{{ card.url }}">
+                  <span class="hub-card-icon">
+                    <i class="{{ card.icon }}"></i>
+                  </span>
+                  <span class="hub-card-copy">
+                    <strong>{{ card.title }}</strong>
+                    <small>{{ card.description }}</small>
+                  </span>
+                  <span class="hub-card-count">{{ card.count }}</span>
+                </a>
+                <div class="hub-card-actions">
+                  <a href="{{ card.url }}">Ver</a>
+                  {% if card.action_url %}
+                    <a href="{{ card.action_url }}">{{ card.action_label }}</a>
+                  {% endif %}
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endfor %}
+    </div>
   </section>
 {% endblock %}

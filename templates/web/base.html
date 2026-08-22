@@ -63,12 +63,22 @@
 
     <nav class="sidebar-menu-area" aria-label="Principal">
       <ul class="sidebar-menu" id="sidebar-menu">
-        {% for item in security_menu %}
-          <li>
-            <a href="{% url item.url_name %}" class="{% if request.resolver_match.view_name == item.url_name %}active-page{% endif %}">
-              <i class="{{ item.icon|default:'ri-circle-line' }}"></i>
-              <span>{{ item.label }}</span>
+        {% for group in security_menu_groups %}
+          <li class="dropdown{% if group.active %} open{% endif %}">
+            <a href="#" class="{% if group.active %}active-page{% endif %}" aria-expanded="{% if group.active %}true{% else %}false{% endif %}">
+              <i class="{{ group.icon|default:'ri-folder-line' }}"></i>
+              <span>{{ group.label }}</span>
             </a>
+            <ul class="sidebar-submenu"{% if group.active %} style="display: block;"{% endif %}>
+              {% for item in group.items %}
+                <li class="{% if item.active %}active-page{% endif %}">
+                  <a href="{% url item.url_name %}">
+                    <i class="ri-circle-fill circle-icon w-auto"></i>
+                    {{ item.label }}
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
           </li>
         {% endfor %}
       </ul>

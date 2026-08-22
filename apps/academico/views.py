@@ -1,9 +1,18 @@
 from django.urls import reverse_lazy
+from django.db.models import Q
 
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 
-from .forms import AsignaturaForm, BancoPreguntaForm, PlanificacionClaseForm, PreguntaForm, TemaForm, TemarioForm
-from .models import Asignatura, BancoPregunta, PlanificacionClase, Pregunta, Tema, Temario
+from .forms import (
+    AsignaturaForm,
+    BancoPreguntaForm,
+    HorarioClaseForm,
+    PlanificacionClaseForm,
+    PreguntaForm,
+    TemaForm,
+    TemarioForm,
+)
+from .models import Asignatura, BancoPregunta, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
 
 
 class AsignaturaListView(InstitutoListView):
@@ -53,6 +62,63 @@ class TemarioUpdateView(InstitutoUpdateView):
     title = "Editar temario"
     success_url = reverse_lazy("academico:temario_list")
     cancel_url = reverse_lazy("academico:temario_list")
+
+
+class HorarioClaseListView(InstitutoListView):
+    model = HorarioClase
+    title = "Horarios de clase"
+    create_url_name = "academico:horario_nuevo"
+    columns = (
+        ("Fecha", "fecha"),
+        ("Hora", "rango_hora"),
+        ("Aula", "aula"),
+        ("Asignatura", "asignatura"),
+        ("Docente", "docente"),
+        ("Tutor", "tutor"),
+        ("Periodo", "periodo_academico"),
+        ("Estado", "estado"),
+    )
+
+    def get_queryset(self):
+        queryset = (
+            super()
+            .get_queryset()
+            .select_related("empresa", "periodo_academico", "aula", "asignatura", "docente", "tutor")
+        )
+        q = self.request.GET.get("q")
+        if q:
+            queryset = queryset.filter(
+                Q(aula__nombre__icontains=q)
+                | Q(asignatura__nombre__icontains=q)
+                | Q(docente__nombre__icontains=q)
+                | Q(tutor__nombre__icontains=q)
+                | Q(periodo_academico__nombre__icontains=q)
+                | Q(tipo_planificacion__icontains=q)
+                | Q(tema_previsto__icontains=q)
+                | Q(observacion__icontains=q)
+            )
+        return queryset
+
+    def get_column_value(self, obj, attr):
+        if attr == "rango_hora":
+            return f"{obj.hora_inicio:%H:%M} - {obj.hora_fin:%H:%M}"
+        return super().get_column_value(obj, attr)
+
+
+class HorarioClaseCreateView(InstitutoCreateView):
+    model = HorarioClase
+    form_class = HorarioClaseForm
+    title = "Nuevo horario de clase"
+    success_url = reverse_lazy("academico:horario_list")
+    cancel_url = reverse_lazy("academico:horario_list")
+
+
+class HorarioClaseUpdateView(InstitutoUpdateView):
+    model = HorarioClase
+    form_class = HorarioClaseForm
+    title = "Editar horario de clase"
+    success_url = reverse_lazy("academico:horario_list")
+    cancel_url = reverse_lazy("academico:horario_list")
 
 
 class TemaListView(InstitutoListView):

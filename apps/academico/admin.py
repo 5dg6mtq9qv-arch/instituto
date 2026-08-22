@@ -7,6 +7,7 @@ from .models import (
     DocenteAsignatura,
     Evaluacion,
     EvaluacionResultado,
+    HorarioClase,
     PlanificacionClase,
     Pregunta,
     RecursoClase,
@@ -74,6 +75,14 @@ class DocenteAsignaturaAdmin(admin.ModelAdmin):
     list_display = ("docente", "asignatura", "periodo_academico", "aula", "activo")
     list_filter = ("empresa", "periodo_academico", "asignatura", "activo")
     search_fields = ("docente__nombre", "asignatura__nombre")
+
+
+@admin.register(HorarioClase)
+class HorarioClaseAdmin(admin.ModelAdmin):
+    list_display = ("fecha", "hora_inicio", "hora_fin", "aula", "asignatura", "docente", "estado", "activo")
+    list_filter = ("empresa", "periodo_academico", "aula", "asignatura", "estado", "activo")
+    search_fields = ("docente__nombre", "asignatura__nombre", "aula__nombre", "tema_previsto", "observacion")
+    date_hierarchy = "fecha"
 
 
 @admin.register(PlanificacionClase)

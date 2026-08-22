@@ -2,7 +2,9 @@ from django import forms
 
 from apps.core.forms import BootstrapFormMixin
 
-from .models import Asignatura, BancoPregunta, PlanificacionClase, Pregunta, Tema, Temario
+from apps.core.models import Partner
+
+from .models import Asignatura, BancoPregunta, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
 
 
 class AsignaturaForm(BootstrapFormMixin, forms.ModelForm):
@@ -15,6 +17,48 @@ class TemarioForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = Temario
         fields = ["empresa", "periodo_academico", "asignatura", "nombre", "estado", "activo"]
+
+
+class HorarioClaseForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = HorarioClase
+        fields = [
+            "empresa",
+            "periodo_academico",
+            "aula",
+            "fecha",
+            "hora_inicio",
+            "hora_fin",
+            "asignatura",
+            "docente",
+            "tutor",
+            "tipo_planificacion",
+            "tema_previsto",
+            "observacion",
+            "estado",
+            "activo",
+        ]
+        widgets = {
+            "fecha": forms.DateInput(attrs={"type": "date"}),
+            "hora_inicio": forms.TimeInput(attrs={"type": "time"}),
+            "hora_fin": forms.TimeInput(attrs={"type": "time"}),
+            "tema_previsto": forms.Textarea(attrs={"rows": 3}),
+            "observacion": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        docentes = Partner.objects.filter(es_docente=True, activo=True).order_by("nombre")
+        self.fields["docente"].queryset = docentes
+        self.fields["tutor"].queryset = docentes
+
+    def clean(self):
+        cleaned_data = super().clean()
+        instance = self.instance
+        for field, value in cleaned_data.items():
+            setattr(instance, field, value)
+        instance.clean()
+        return cleaned_data
 
 
 class TemaForm(BootstrapFormMixin, forms.ModelForm):
