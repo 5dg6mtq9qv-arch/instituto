@@ -59,21 +59,25 @@
                 </td>
               {% endfor %}
               <td class="text-end">
-                <div class="dropdown table-action">
-                  <button class="table-action-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Acciones">
-                    <i class="ri-more-2-fill"></i>
-                  </button>
-                  <ul class="dropdown-menu dropdown-menu-end">
-                    {% if row.action_label and row.primary_url %}
-                      <li><a class="dropdown-item" href="{{ row.primary_url }}">{{ row.action_label }}</a></li>
-                    {% elif row.primary_url %}
-                      <li><a class="dropdown-item" href="{{ row.primary_url }}">Abrir</a></li>
-                    {% endif %}
-                    {% if row.update_url and row.update_url != row.primary_url %}
-                      <li><a class="dropdown-item" href="{{ row.update_url }}">Editar</a></li>
-                    {% endif %}
-                  </ul>
-                </div>
+                {% if row.primary_url or row.update_url %}
+                  <div class="dropdown table-action">
+                    <button class="table-action-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Acciones">
+                      <i class="ri-more-2-fill"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      {% if row.action_label and row.primary_url %}
+                        <li><a class="dropdown-item" href="{{ row.primary_url }}">{{ row.action_label }}</a></li>
+                      {% elif row.primary_url %}
+                        <li><a class="dropdown-item" href="{{ row.primary_url }}">Abrir</a></li>
+                      {% endif %}
+                      {% if row.update_url and row.update_url != row.primary_url %}
+                        <li><a class="dropdown-item" href="{{ row.update_url }}">Editar</a></li>
+                      {% endif %}
+                    </ul>
+                  </div>
+                {% else %}
+                  <span class="text-muted">-</span>
+                {% endif %}
               </td>
             </tr>
           {% empty %}

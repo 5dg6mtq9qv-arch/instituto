@@ -100,31 +100,10 @@
           <div class="invalid-feedback d-block">{{ error }}</div>
         {% endfor %}
       </div>
-      <div>
-        <label class="form-label" for="{{ base_form.estado.id_for_label }}">{{ base_form.estado.label }}</label>
-        {{ base_form.estado }}
-        {% for error in base_form.estado.errors %}
-          <div class="invalid-feedback d-block">{{ error }}</div>
-        {% endfor %}
-      </div>
       <div class="recurrent-days-field">
         <label class="form-label">{{ base_form.dias_semana.label }}</label>
         {{ base_form.dias_semana }}
         {% for error in base_form.dias_semana.errors %}
-          <div class="invalid-feedback d-block">{{ error }}</div>
-        {% endfor %}
-      </div>
-      <div>
-        <label class="form-label" for="{{ base_form.tema_previsto.id_for_label }}">{{ base_form.tema_previsto.label }}</label>
-        {{ base_form.tema_previsto }}
-        {% for error in base_form.tema_previsto.errors %}
-          <div class="invalid-feedback d-block">{{ error }}</div>
-        {% endfor %}
-      </div>
-      <div>
-        <label class="form-label" for="{{ base_form.observacion.id_for_label }}">{{ base_form.observacion.label }}</label>
-        {{ base_form.observacion }}
-        {% for error in base_form.observacion.errors %}
           <div class="invalid-feedback d-block">{{ error }}</div>
         {% endfor %}
       </div>

@@ -29,6 +29,10 @@ from .forms import (
 from .models import Asignatura, BancoPregunta, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
 
 
+def can_view_all_horarios(user):
+    return user.is_superuser or user.groups.filter(name="Director").exists() or user.has_perm("academico.view_all_horarioclase")
+
+
 class AsignaturaListView(InstitutoListView):
     model = Asignatura
     title = "Asignaturas"
@@ -100,6 +104,9 @@ class HorarioClaseListView(InstitutoListView):
             .get_queryset()
             .select_related("empresa", "periodo_academico", "aula", "asignatura", "docente", "tutor")
         )
+        user = self.request.user
+        if not can_view_all_horarios(user):
+            queryset = queryset.filter(docente__usuario=user)
         q = self.request.GET.get("q")
         if q:
             queryset = queryset.filter(
@@ -108,8 +115,6 @@ class HorarioClaseListView(InstitutoListView):
                 | Q(docente__nombre__icontains=q)
                 | Q(tutor__nombre__icontains=q)
                 | Q(periodo_academico__nombre__icontains=q)
-                | Q(tema_previsto__icontains=q)
-                | Q(observacion__icontains=q)
             )
         return queryset
 
@@ -153,7 +158,6 @@ class HorarioAsignacionView(LoginRequiredMixin, PermissionRequiredMixin, View):
             if periodo and periodo.fecha_fin:
                 initial["fecha_fin"] = periodo.fecha_fin.isoformat()
             initial["aula"] = getattr(empresa.aula_set.filter(activo=True).first(), "pk", None)
-            initial["estado"] = "programada"
         selected_date = request.GET.get("date")
         if selected_date:
             try:
@@ -197,9 +201,7 @@ class HorarioAsignacionView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     asignatura=base_form.cleaned_data["asignatura"],
                     docente=base_form.cleaned_data["docente"],
                     tutor=base_form.cleaned_data.get("tutor"),
-                    tema_previsto=base_form.cleaned_data.get("tema_previsto"),
-                    observacion=base_form.cleaned_data.get("observacion"),
-                    estado=base_form.cleaned_data.get("estado") or "programada",
+                    estado="programada",
                     activo=True,
                     usuario_updated=request.user,
                 )
@@ -214,7 +216,7 @@ class HorarioAsignacionView(LoginRequiredMixin, PermissionRequiredMixin, View):
                             "aula": horario.aula,
                             "asignatura": horario.asignatura,
                             "fecha_planificada": horario.fecha,
-                            "objetivo": horario.tema_previsto or "",
+                            "objetivo": "",
                             "estado": "pendiente",
                             "activo": True,
                             "usuario_updated": request.user,
@@ -286,12 +288,21 @@ class HorarioCalendarioView(LoginRequiredMixin, PermissionRequiredMixin, View):
         params.update({key: value for key, value in filters.items() if value})
         return f"?{urlencode(params)}"
 
+    def can_view_all(self, user):
+        return can_view_all_horarios(user)
+
     def get(self, request):
+        can_add_horario = request.user.has_perm("academico.add_horarioclase")
+        can_change_horario = request.user.has_perm("academico.change_horarioclase")
         queryset = (
             HorarioClase.objects.select_related("periodo_academico", "aula", "asignatura", "docente", "tutor")
             .filter(activo=True)
             .order_by("fecha", "hora_inicio", "aula__nombre")
         )
+        can_view_all = self.can_view_all(request.user)
+        if not can_view_all:
+            queryset = queryset.filter(docente__usuario=request.user)
+        options_queryset = queryset
         periodo_id = request.GET.get("periodo")
         aula_id = request.GET.get("aula")
         if periodo_id:
@@ -377,7 +388,7 @@ class HorarioCalendarioView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     "end": f"{horario.fecha.isoformat()}T{horario.hora_fin.strftime('%H:%M:%S')}",
                     "allDay": False,
                     "className": event_classes[index % len(event_classes)],
-                    "url": str(reverse_lazy("academico:horario_editar", kwargs={"pk": horario.pk})),
+                    "url": str(reverse_lazy("academico:horario_editar", kwargs={"pk": horario.pk})) if can_change_horario else "",
                     "description": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M} · {horario.asignatura} · {horario.aula} · {horario.docente}",
                 }
             )
@@ -396,12 +407,15 @@ class HorarioCalendarioView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 "day_horarios": day_horarios,
                 "month_horarios": month_horarios[:14],
                 "calendar_sidebar_horarios": sidebar_horarios,
-                "periodos": HorarioClase.objects.values_list("periodo_academico_id", "periodo_academico__nombre")
+                "periodos": options_queryset.values_list("periodo_academico_id", "periodo_academico__nombre")
                 .distinct()
                 .order_by("periodo_academico__nombre"),
-                "aulas": HorarioClase.objects.values_list("aula_id", "aula__nombre").distinct().order_by("aula__nombre"),
+                "aulas": options_queryset.values_list("aula_id", "aula__nombre").distinct().order_by("aula__nombre"),
                 "selected_periodo": periodo_id or "",
                 "selected_aula": aula_id or "",
+                "can_view_all_horarios": can_view_all,
+                "can_add_horario": can_add_horario,
+                "can_change_horario": can_change_horario,
                 "day_view_url": self.build_calendar_url(focus_date, filters, "day"),
                 "week_view_url": self.build_calendar_url(focus_date, filters, "week"),
                 "month_view_url": self.build_calendar_url(focus_date, filters, "month"),

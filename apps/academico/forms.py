@@ -33,10 +33,6 @@ class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):
         ),
         widget=forms.CheckboxSelectMultiple,
     )
-    tema_previsto = forms.CharField(label="Tema / descripcion", required=False, widget=forms.Textarea(attrs={"rows": 3}))
-    observacion = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
-    estado = forms.ChoiceField(choices=HorarioClase.ESTADO_CHOICES, initial="programada", required=False)
-
     def __init__(self, *args, **kwargs):
         empresa = kwargs.pop("empresa", None)
         super().__init__(*args, **kwargs)
@@ -89,8 +85,6 @@ class HorarioAsignacionItemForm(BootstrapFormMixin, forms.Form):
     asignatura = forms.ModelChoiceField(queryset=Asignatura.objects.none(), required=False)
     docente = forms.ModelChoiceField(queryset=Partner.objects.none(), required=False)
     tutor = forms.ModelChoiceField(queryset=Partner.objects.none(), required=False)
-    tema_previsto = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}))
-    observacion = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}))
     estado = forms.ChoiceField(choices=HorarioClase.ESTADO_CHOICES, initial="programada", required=False)
 
     def __init__(self, *args, **kwargs):
@@ -148,8 +142,6 @@ class HorarioClaseForm(BootstrapFormMixin, forms.ModelForm):
             "asignatura",
             "docente",
             "tutor",
-            "tema_previsto",
-            "observacion",
             "estado",
             "activo",
         ]
@@ -157,8 +149,6 @@ class HorarioClaseForm(BootstrapFormMixin, forms.ModelForm):
             "fecha": forms.DateInput(attrs={"type": "date"}),
             "hora_inicio": forms.TimeInput(attrs={"type": "text", "class": "form-control js-time-picker"}),
             "hora_fin": forms.TimeInput(attrs={"type": "text", "class": "form-control js-time-picker"}),
-            "tema_previsto": forms.Textarea(attrs={"rows": 3}),
-            "observacion": forms.Textarea(attrs={"rows": 3}),
         }
 
     def __init__(self, *args, **kwargs):

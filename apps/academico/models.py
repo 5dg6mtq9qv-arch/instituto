@@ -267,6 +267,7 @@ class HorarioClase(models.Model):
         db_table = '"academico"."horario_clase"'
         ordering = ["fecha", "hora_inicio", "aula", "asignatura"]
         unique_together = (("periodo_academico", "aula", "fecha", "hora_inicio", "hora_fin"),)
+        permissions = (("view_all_horarioclase", "Puede ver todos los horarios"),)
 
     def clean(self):
         super().clean()

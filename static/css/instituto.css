@@ -1415,7 +1415,8 @@ dd {
   border-bottom: 0;
 }
 
-.event-list-item a {
+.event-list-item a,
+.event-list-content {
   color: var(--instituto-ink);
   min-width: 0;
 }

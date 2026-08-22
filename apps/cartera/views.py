@@ -47,7 +47,12 @@ class AlumnoCarteraListView(InstitutoListView):
     def get_action_label(self, obj):
         return "Ver pendientes"
 
+    def can_update_object(self, obj):
+        return self.request.user.has_perm("cartera.view_cuota")
+
     def get_update_url(self, obj):
+        if not self.can_update_object(obj):
+            return ""
         return reverse_lazy("cartera:alumno_pendientes", kwargs={"pk": obj.pk})
 
 
