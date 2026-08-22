@@ -1,38 +1,59 @@
 {% load static %}
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Ingresar | Instituto</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="icon" href="{% static 'assets/images/favicon.png' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/lib/bootstrap.min.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/remixicon.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/style.css' %}">
   <link rel="stylesheet" href="{% static 'css/instituto.css' %}">
 </head>
-<body class="login-body">
-  <main class="login-card">
-    <div class="login-brand">
-      <span class="brand-mark">I</span>
-      <div>
-        <strong>Instituto</strong>
-        <small>Plataforma academica</small>
+<body class="login-page">
+  <main class="login-shell">
+    <section class="login-visual" aria-hidden="true">
+      <img src="{% static 'assets/images/thumbs/login-img.png' %}" alt="">
+    </section>
+
+    <section class="login-panel">
+      <div class="login-card">
+        <a class="login-brand" href="{% url 'home' %}">
+          <span class="brand-mark">I</span>
+          <span>
+            <strong>Instituto</strong>
+            <small>Plataforma academica</small>
+          </span>
+        </a>
+
+        <div class="login-heading">
+          <h1>Ingreso</h1>
+          <p>Accede con tu usuario institucional.</p>
+        </div>
+
+        {% if form.errors %}
+          <div class="alert alert-danger">Usuario o clave incorrectos.</div>
+        {% endif %}
+
+        <form method="post" class="d-flex flex-column gap-24">
+          {% csrf_token %}
+          <div>
+            <label class="form-label" for="{{ form.username.id_for_label }}">Usuario</label>
+            <input class="form-control" type="text" name="{{ form.username.html_name }}" id="{{ form.username.id_for_label }}" autofocus required>
+          </div>
+          <div>
+            <label class="form-label" for="{{ form.password.id_for_label }}">Clave</label>
+            <div class="position-relative">
+              <input class="form-control password-field" type="password" name="{{ form.password.html_name }}" id="{{ form.password.id_for_label }}" required>
+              <button type="button" class="toggle-password ri-eye-line" aria-label="Mostrar u ocultar clave"></button>
+            </div>
+          </div>
+          <button class="btn btn-primary-600 text-sm btn-sm px-12 py-16 w-100 radius-8" type="submit">Ingresar</button>
+        </form>
       </div>
-    </div>
-    <h1>Ingreso</h1>
-    {% if form.errors %}
-      <div class="alert alert-danger">Usuario o clave incorrectos.</div>
-    {% endif %}
-    <form method="post">
-      {% csrf_token %}
-      <div class="mb-3">
-        <label class="form-label" for="{{ form.username.id_for_label }}">Usuario</label>
-        <input class="form-control" type="text" name="{{ form.username.html_name }}" id="{{ form.username.id_for_label }}" autofocus required>
-      </div>
-      <div class="mb-3">
-        <label class="form-label" for="{{ form.password.id_for_label }}">Clave</label>
-        <input class="form-control" type="password" name="{{ form.password.html_name }}" id="{{ form.password.id_for_label }}" required>
-      </div>
-      <button class="btn btn-primary w-100" type="submit">Ingresar</button>
-    </form>
+    </section>
   </main>
+  <script src="{% static 'js/instituto.js' %}"></script>
 </body>
 </html>

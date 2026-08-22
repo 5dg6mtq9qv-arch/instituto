@@ -1,4 +1,5 @@
 {% extends "web/base.html" %}
+{% load static %}
 
 {% block title %}Panel | Instituto{% endblock %}
 
@@ -15,9 +16,26 @@
 
   <section class="summary-grid" aria-label="Resumen">
     {% for metric in metrics %}
-      <article class="metric-card {{ metric.accent }}">
-        <span>{{ metric.label }}</span>
+      <article class="metric-card metric-card-{{ forloop.counter }} {{ metric.accent }} gradient-bg-end-{{ forloop.counter }}">
+        <div class="metric-heading">
+          <span class="metric-icon">
+            {% if forloop.counter == 1 %}
+              <img src="{% static 'assets/images/icons/dashboard-icon1.png' %}" alt="">
+            {% elif forloop.counter == 2 %}
+              <img src="{% static 'assets/images/icons/dashboard-icon2.png' %}" alt="">
+            {% elif forloop.counter == 3 %}
+              <img src="{% static 'assets/images/icons/dashboard-icon3.png' %}" alt="">
+            {% else %}
+              <img src="{% static 'assets/images/icons/dashboard-icon4.png' %}" alt="">
+            {% endif %}
+          </span>
+          <span class="metric-title">{{ metric.label }}</span>
+        </div>
         <strong>{{ metric.value }}</strong>
+        <p class="metric-trend">
+          <span>10% <i class="ri-arrow-up-s-fill"></i></span>
+          <small>este mes</small>
+        </p>
       </article>
     {% endfor %}
   </section>
