@@ -26,14 +26,35 @@ class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
         context["update_url_name"] = self.get_update_url_name()
         context["columns"] = self.columns
         context["object_rows"] = [self.get_row(obj) for obj in context["object_list"]]
+        query_params = self.request.GET.copy()
+        query_params.pop("page", None)
+        context["pagination_query"] = query_params.urlencode()
         return context
 
     def get_row(self, obj):
+        primary_url = self.get_primary_url(obj)
+        update_url = self.get_update_url(obj)
         return {
             "object": obj,
-            "update_url": self.get_update_url(obj),
-            "values": [self.get_column_value(obj, attr) for _, attr in self.columns],
+            "primary_url": primary_url,
+            "update_url": update_url,
+            "action_label": self.get_action_label(obj),
+            "values": [
+                {
+                    "value": self.get_column_value(obj, attr),
+                    "is_primary": index == 0 and bool(primary_url),
+                    "url": primary_url if index == 0 else "",
+                    "kind": self.get_column_kind(attr),
+                }
+                for index, (_, attr) in enumerate(self.columns)
+            ],
         }
+
+    def get_action_label(self, obj):
+        return ""
+
+    def get_primary_url(self, obj):
+        return self.get_update_url(obj)
 
     def get_update_url_name(self):
         if self.update_url_name:
@@ -49,6 +70,9 @@ class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
         return reverse(url_name, kwargs={"pk": obj.pk})
 
     def get_column_value(self, obj, attr):
+        display_method = getattr(obj, f"get_{attr}_display", None)
+        if callable(display_method):
+            return display_method()
         value = obj
         for part in attr.split("."):
             value = getattr(value, part, "")
@@ -57,6 +81,12 @@ class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
             if value is None:
                 return ""
         return value
+
+    def get_column_kind(self, attr):
+        lowered = attr.lower()
+        if lowered in {"estado", "activo", "is_active", "is_staff"} or lowered.endswith("estado"):
+            return "status"
+        return "text"
 
 
 class InstitutoFormMixin(LoginRequiredMixin, PermissionRequiredMixin):

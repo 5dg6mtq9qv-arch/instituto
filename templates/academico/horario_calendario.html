@@ -1,0 +1,210 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Educativo</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-primary-600 list-create-btn" href="{{ assign_selected_url }}">
+      <i class="ri-add-line"></i>
+      <span>Asignar horarios</span>
+    </a>
+  </header>
+
+  <section class="event-calendar-layout">
+    <aside class="panel event-list-panel">
+      <div class="event-list-header">
+        <span data-event-list-title>Clases del mes</span>
+        <strong data-event-list-count>0</strong>
+      </div>
+
+      <div class="event-list" data-event-list>
+        {% for horario in calendar_sidebar_horarios %}
+          <article class="event-list-item" data-event-item data-start="{{ horario.fecha|date:'Y-m-d' }}T{{ horario.hora_inicio|time:'H:i:s' }}">
+            <span class="event-dot event-dot-{{ horario.color_index }}"></span>
+            <a href="{% url 'academico:horario_editar' horario.pk %}">
+              <span class="event-time">{{ horario.fecha|date:"d M" }}, {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</span>
+              <strong>{{ horario.asignatura }}</strong>
+              <small>{{ horario.aula }} · {{ horario.docente }}</small>
+            </a>
+            <a class="event-more" href="{% url 'academico:horario_editar' horario.pk %}" aria-label="Editar horario">
+              <i class="ri-more-2-fill"></i>
+            </a>
+          </article>
+        {% endfor %}
+        <p class="text-muted mb-0 d-none" data-event-list-empty>No hay clases para esta seleccion.</p>
+      </div>
+    </aside>
+
+    <section class="panel edudash-calendar-panel">
+      <form class="calendar-filters calendar-filters-compact" method="get">
+        <input type="hidden" name="view" value="{{ view_mode }}">
+        <input type="hidden" name="date" value="{{ selected_date_iso }}">
+        <select class="form-select" name="periodo">
+          <option value="">Todos los periodos</option>
+          {% for id, nombre in periodos %}
+            <option value="{{ id }}"{% if selected_periodo == id|stringformat:"s" %} selected{% endif %}>{{ nombre }}</option>
+          {% endfor %}
+        </select>
+        <select class="form-select" name="aula">
+          <option value="">Todas las aulas</option>
+          {% for id, nombre in aulas %}
+            <option value="{{ id }}"{% if selected_aula == id|stringformat:"s" %} selected{% endif %}>{{ nombre }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-primary-600" type="submit">Filtrar</button>
+      </form>
+
+      <div class="edudash-calendar-wrap">
+        <div id="calendar"></div>
+      </div>
+    </section>
+  </section>
+
+  <div class="offcanvas offcanvas-end schedule-offcanvas" tabindex="-1" id="scheduleAddOffcanvas" aria-labelledby="scheduleAddTitle">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title" id="scheduleAddTitle">Add New Event</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div class="schedule-offcanvas-date">
+        <span>Fecha seleccionada</span>
+        <strong data-selected-date-label>{{ selected_date_label }}</strong>
+      </div>
+      <p>Se abrira el formulario de asignacion con esta fecha precargada.</p>
+      <a class="btn btn-primary-600 w-100" href="{{ assign_selected_url }}" data-add-schedule-link>
+        <i class="ri-add-line"></i>
+        <span>Añadir horario</span>
+      </a>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
+  <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
+  <script src="{% static 'assets/js/full-calendar.js' %}"></script>
+  <script>
+    (function () {
+      const events = {{ calendar_events_json|safe }};
+      const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
+      const defaultView = "{{ calendar_default_view }}";
+      const addBaseUrl = "{% url 'academico:horario_asignacion' %}";
+      const selectedPeriod = "{{ selected_periodo }}";
+      const selectedAula = "{{ selected_aula }}";
+
+      function pad(value) {
+        return String(value).padStart(2, "0");
+      }
+
+      function toISODate(date) {
+        return [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join("-");
+      }
+
+      function labelDate(date) {
+        return date.toLocaleDateString("es-EC", { day: "numeric", month: "long", year: "numeric" });
+      }
+
+      function openAddPanel(date) {
+        const isoDate = toISODate(date);
+        const params = new URLSearchParams({ date: isoDate });
+        if (selectedPeriod) params.set("periodo", selectedPeriod);
+        if (selectedAula) params.set("aula", selectedAula);
+        document.querySelector("[data-selected-date-label]").textContent = labelDate(date);
+        document.querySelector("[data-add-schedule-link]").href = `${addBaseUrl}?${params.toString()}`;
+        bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("scheduleAddOffcanvas")).show();
+      }
+
+      function listTitle(view) {
+        if (view.name === "agendaDay") return "Clases del dia";
+        if (view.name === "agendaWeek") return "Clases de la semana";
+        return "Clases del mes";
+      }
+
+      function updateEventList(view) {
+        const start = view.start ? new Date(view.start.getTime()) : null;
+        const end = view.end ? new Date(view.end.getTime()) : null;
+        const items = Array.from(document.querySelectorAll("[data-event-item]"));
+        let visibleCount = 0;
+        document.querySelector("[data-event-list-title]").textContent = listTitle(view);
+        items
+          .sort((a, b) => new Date(a.dataset.start) - new Date(b.dataset.start))
+          .forEach((item) => {
+            const itemDate = new Date(item.dataset.start);
+            const visible = start && end && itemDate >= start && itemDate < end;
+            item.classList.toggle("d-none", !visible);
+            if (visible) {
+              item.parentElement.appendChild(item);
+              visibleCount += 1;
+            }
+          });
+        document.querySelector("[data-event-list-count]").textContent = visibleCount;
+        document.querySelector("[data-event-list-empty]").classList.toggle("d-none", visibleCount !== 0);
+      }
+
+      $(function () {
+        const $calendar = $("#calendar");
+        if ($calendar.data("fullCalendar")) {
+          $calendar.fullCalendar("destroy");
+        }
+        $calendar.fullCalendar({
+          header: {
+            left: "title",
+            center: "agendaDay,agendaWeek,month",
+            right: "prev,next today"
+          },
+          defaultView: defaultView,
+          year: defaultDate.getFullYear(),
+          month: defaultDate.getMonth(),
+          date: defaultDate.getDate(),
+          firstDay: 1,
+          editable: false,
+          selectable: true,
+          selectHelper: true,
+          allDaySlot: false,
+          minTime: 7,
+          maxTime: 18,
+          slotMinutes: 30,
+          firstHour: 7,
+          slotEventOverlap: false,
+          timeFormat: "H:mm",
+          axisFormat: "H:mm",
+          buttonText: {
+            today: "hoy",
+            month: "mes",
+            week: "semana",
+            day: "dia"
+          },
+          monthNames: ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
+          monthNamesShort: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+          dayNames: ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"],
+          dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+          events: events,
+          eventRender: function (event, element) {
+            if (event.description) {
+              element.attr("title", event.description);
+            }
+          },
+          viewDisplay: function (view) {
+            updateEventList(view);
+          },
+          dayClick: function (date) {
+            openAddPanel(date);
+          },
+          select: function (startDate) {
+            openAddPanel(startDate);
+            $calendar.fullCalendar("unselect");
+          }
+        });
+      });
+    })();
+  </script>
+{% endblock %}

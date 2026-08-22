@@ -1,0 +1,155 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Educativo</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Listado</a>
+      <a class="btn btn-primary-600 list-create-btn" href="{{ calendar_url }}">
+        <i class="ri-calendar-schedule-line"></i>
+        <span>Calendario</span>
+      </a>
+    </div>
+  </header>
+
+  <form class="panel schedule-form recurrent-schedule-form" method="post" novalidate>
+    {% csrf_token %}
+    {% if base_form.non_field_errors %}
+      <div class="alert alert-danger">{{ base_form.non_field_errors }}</div>
+    {% endif %}
+
+    <section class="schedule-modal-head">
+      <div>
+        <h2>Asignar horario recurrente</h2>
+        <p>Selecciona el aula, la materia, el docente y los dias. Se crearan las clases dentro del rango del periodo.</p>
+      </div>
+      <i class="ri-calendar-event-line"></i>
+    </section>
+
+    <section class="schedule-base recurrent-schedule-grid">
+      <div>
+        <label class="form-label" for="{{ base_form.periodo_academico.id_for_label }}">{{ base_form.periodo_academico.label }}</label>
+        {{ base_form.periodo_academico }}
+        {% for error in base_form.periodo_academico.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.aula.id_for_label }}">{{ base_form.aula.label }}</label>
+        {{ base_form.aula }}
+        {% for error in base_form.aula.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.asignatura.id_for_label }}">{{ base_form.asignatura.label }}</label>
+        {{ base_form.asignatura }}
+        {% for error in base_form.asignatura.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.docente.id_for_label }}">{{ base_form.docente.label }}</label>
+        {{ base_form.docente }}
+        {% for error in base_form.docente.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.tutor.id_for_label }}">{{ base_form.tutor.label }}</label>
+        {{ base_form.tutor }}
+        {% for error in base_form.tutor.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.fecha_inicio.id_for_label }}">{{ base_form.fecha_inicio.label }}</label>
+        {{ base_form.fecha_inicio }}
+        {% for error in base_form.fecha_inicio.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.fecha_fin.id_for_label }}">{{ base_form.fecha_fin.label }}</label>
+        {{ base_form.fecha_fin }}
+        {% for error in base_form.fecha_fin.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.hora_inicio.id_for_label }}">{{ base_form.hora_inicio.label }}</label>
+        {{ base_form.hora_inicio }}
+        {% for error in base_form.hora_inicio.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.hora_fin.id_for_label }}">{{ base_form.hora_fin.label }}</label>
+        {{ base_form.hora_fin }}
+        {% for error in base_form.hora_fin.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.estado.id_for_label }}">{{ base_form.estado.label }}</label>
+        {{ base_form.estado }}
+        {% for error in base_form.estado.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div class="recurrent-days-field">
+        <label class="form-label">{{ base_form.dias_semana.label }}</label>
+        {{ base_form.dias_semana }}
+        {% for error in base_form.dias_semana.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.tema_previsto.id_for_label }}">{{ base_form.tema_previsto.label }}</label>
+        {{ base_form.tema_previsto }}
+        {% for error in base_form.tema_previsto.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div>
+        <label class="form-label" for="{{ base_form.observacion.id_for_label }}">{{ base_form.observacion.label }}</label>
+        {{ base_form.observacion }}
+        {% for error in base_form.observacion.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary-600" type="submit">Generar horarios</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      flatpickr(".js-time-picker", {
+        enableTime: true,
+        noCalendar: true,
+        dateFormat: "H:i",
+        time_24hr: true,
+        minuteIncrement: 5,
+        allowInput: true,
+        disableMobile: true
+      });
+    });
+  </script>
+{% endblock %}

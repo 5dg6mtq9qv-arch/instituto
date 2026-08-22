@@ -248,7 +248,6 @@ class HorarioClase(models.Model):
         null=True,
         related_name="horarios_tutor",
     )
-    tipo_planificacion = models.CharField(max_length=120, blank=True, null=True)
     tema_previsto = models.TextField(blank=True, null=True)
     observacion = models.TextField(blank=True, null=True)
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="programada")
@@ -294,7 +293,7 @@ class HorarioClase(models.Model):
 
 class PlanificacionClase(models.Model):
     ESTADO_CHOICES = (
-        ("borrador", "Borrador"),
+        ("pendiente", "Pendiente"),
         ("revision", "En revision"),
         ("aprobada", "Aprobada"),
         ("rechazada", "Rechazada"),
@@ -305,6 +304,14 @@ class PlanificacionClase(models.Model):
         "core.Empresa",
         db_column="id_empresa",
         on_delete=models.DO_NOTHING,
+    )
+    horario_clase = models.OneToOneField(
+        HorarioClase,
+        db_column="id_horario_clase",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="planificacion",
     )
     docente = models.ForeignKey(
         "core.Partner",
@@ -326,6 +333,8 @@ class PlanificacionClase(models.Model):
         Tema,
         db_column="id_tema",
         on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
     )
     subtema = models.ForeignKey(
         Subtema,
@@ -336,10 +345,12 @@ class PlanificacionClase(models.Model):
     )
     numero_clase = models.IntegerField(default=1)
     fecha_planificada = models.DateField()
-    objetivo = models.TextField()
-    actividades = models.TextField()
+    objetivo = models.TextField(blank=True, null=True)
+    competencias = models.TextField(blank=True, null=True)
+    estrategias = models.TextField(blank=True, null=True)
+    actividades = models.TextField(blank=True, null=True)
     recursos_previstos = models.TextField(blank=True, null=True)
-    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="borrador")
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="pendiente")
     revisado_por = models.ForeignKey(
         "core.Partner",
         db_column="id_revisado_por",
@@ -365,9 +376,10 @@ class PlanificacionClase(models.Model):
     class Meta:
         db_table = '"academico"."planificacion_clase"'
         ordering = ["fecha_planificada", "aula", "numero_clase"]
+        permissions = (("review_planificacionclase", "Puede revisar planificaciones de clase"),)
 
     def __str__(self):
-        return f"{self.asignatura} - {self.tema} ({self.fecha_planificada})"
+        return f"{self.asignatura} ({self.fecha_planificada})"
 
 
 class RecursoClase(models.Model):

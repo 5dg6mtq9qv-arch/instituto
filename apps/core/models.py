@@ -94,6 +94,14 @@ class Partner(models.Model):
         blank=True,
         null=True,
     )
+    usuario = models.OneToOneField(
+        "auth.User",
+        db_column="id_usuario",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="partner",
+    )
     es_cliente = models.BooleanField(default=True)
     es_estudiante = models.BooleanField(default=False)
     es_representante = models.BooleanField(default=False)

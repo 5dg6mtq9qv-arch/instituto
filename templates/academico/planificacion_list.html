@@ -1,0 +1,10 @@
+{% extends "web/object_list.html" %}
+
+{% block list_filters %}
+  <select class="form-select" name="estado">
+    <option value="">Todos los estados</option>
+    {% for value, label in estado_choices %}
+      <option value="{{ value }}"{% if selected_estado == value %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+{% endblock %}

@@ -9,48 +9,104 @@
       <h1>{{ title }}</h1>
     </div>
     {% if create_url_name %}
-      <a class="btn btn-primary" href="{% url create_url_name %}">Nuevo</a>
+      <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
+        <i class="ri-add-line"></i>
+        <span>Nuevo</span>
+      </a>
     {% endif %}
   </header>
 
-  <section class="panel">
-    <form class="row g-2 mb-3" method="get">
-      <div class="col-md-5">
-        <input class="form-control" type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar">
+  <section class="panel list-panel">
+    <form class="list-toolbar" method="get">
+      <div class="list-search">
+        <i class="ri-search-line"></i>
+        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar">
       </div>
-      <div class="col-auto">
-        <button class="btn btn-outline-primary" type="submit">Buscar</button>
-      </div>
+      {% block list_filters %}{% endblock %}
+      <button class="btn btn-primary-600 list-search-btn" type="submit">Buscar</button>
     </form>
-    <div class="table-responsive">
-      <table class="table table-hover align-middle">
+
+    <div class="table-responsive list-table-responsive">
+      <table class="table table-hover align-middle app-table">
         <thead>
           <tr>
+            <th class="select-col">
+              <input class="form-check-input" type="checkbox" aria-label="Seleccionar todo">
+            </th>
+            <th class="serial-col">S.L</th>
             {% for label, attr in columns %}
               <th>{{ label }}</th>
             {% endfor %}
-            <th class="text-end">Acciones</th>
+            <th class="text-end">Accion</th>
           </tr>
         </thead>
         <tbody>
           {% for row in object_rows %}
             <tr>
-              {% for value in row.values %}
-                <td>{{ value }}</td>
+              <td class="select-col">
+                <input class="form-check-input" type="checkbox" aria-label="Seleccionar fila">
+              </td>
+              <td class="serial-col">{{ forloop.counter|stringformat:"02d" }}</td>
+              {% for cell in row.values %}
+                <td>
+                  {% if cell.kind == "status" %}
+                    <span class="status-badge status-{{ cell.value|slugify }}">{{ cell.value }}</span>
+                  {% elif cell.is_primary %}
+                    <a class="table-primary-link" href="{{ cell.url }}">{{ cell.value }}</a>
+                  {% else %}
+                    {{ cell.value }}
+                  {% endif %}
+                </td>
               {% endfor %}
               <td class="text-end">
-                {% if row.update_url %}
-                  <a class="btn btn-sm btn-outline-secondary" href="{{ row.update_url }}">Editar</a>
-                {% endif %}
+                <div class="dropdown table-action">
+                  <button class="table-action-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Acciones">
+                    <i class="ri-more-2-fill"></i>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    {% if row.action_label and row.primary_url %}
+                      <li><a class="dropdown-item" href="{{ row.primary_url }}">{{ row.action_label }}</a></li>
+                    {% elif row.primary_url %}
+                      <li><a class="dropdown-item" href="{{ row.primary_url }}">Abrir</a></li>
+                    {% endif %}
+                    {% if row.update_url and row.update_url != row.primary_url %}
+                      <li><a class="dropdown-item" href="{{ row.update_url }}">Editar</a></li>
+                    {% endif %}
+                  </ul>
+                </div>
               </td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="{{ columns|length|add:1 }}" class="text-center text-muted py-4">Sin registros.</td>
+              <td colspan="{{ columns|length|add:3 }}" class="text-center text-muted py-4">Sin registros.</td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
+    {% if is_paginated %}
+      <div class="list-pagination">
+        <span>Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+        <nav aria-label="Paginacion">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-left-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-left-s-line"></i></span>
+          {% endif %}
+          {% for number in page_obj.paginator.page_range %}
+            {% if number == page_obj.number %}
+              <span class="active">{{ number }}</span>
+            {% elif number >= page_obj.number|add:-2 and number <= page_obj.number|add:2 %}
+              <a href="?page={{ number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}">{{ number }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-right-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-right-s-line"></i></span>
+          {% endif %}
+        </nav>
+      </div>
+    {% endif %}
   </section>
 {% endblock %}

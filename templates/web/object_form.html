@@ -1,6 +1,11 @@
 {% extends "web/base.html" %}
+{% load static %}
 
 {% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+{% endblock %}
 
 {% block content %}
   <header class="page-header">
@@ -12,6 +17,24 @@
       {% for action in object_actions %}
         <a class="btn {{ action.class|default:'btn-outline-primary' }}" href="{{ action.url }}"{% if action.target %} target="{{ action.target }}"{% endif %}>{{ action.label }}</a>
       {% endfor %}
+      {% if review_enabled %}
+        <div class="dropdown">
+          <button class="btn btn-primary-600 dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            Acciones
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li>
+              <form method="post">
+                {% csrf_token %}
+                <button class="dropdown-item" type="submit" name="review_action" value="aprobar">Aprobar</button>
+              </form>
+            </li>
+            <li>
+              <button class="dropdown-item text-danger" type="button" data-bs-toggle="modal" data-bs-target="#rejectPlanificacionModal">Rechazar</button>
+            </li>
+          </ul>
+        </div>
+      {% endif %}
       <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
     </div>
   </header>
@@ -20,6 +43,32 @@
     {% csrf_token %}
     {% if form.non_field_errors %}
       <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+    {% if planificacion_resumen %}
+      <div class="form-summary-card">
+        <div>
+          <span>Clase</span>
+          <strong>{{ planificacion_resumen.asignatura }}</strong>
+        </div>
+        <div>
+          <span>Fecha</span>
+          <strong>{{ planificacion_resumen.fecha_planificada|date:"d M Y" }}</strong>
+        </div>
+        <div>
+          <span>Aula</span>
+          <strong>{{ planificacion_resumen.aula }}</strong>
+        </div>
+        <div>
+          <span>Estado</span>
+          <strong>{{ planificacion_resumen.get_estado_display }}</strong>
+        </div>
+      </div>
+      {% if planificacion_resumen.notas_revision %}
+        <div class="alert alert-warning review-notes-alert">
+          <strong>Observaciones para subsanar</strong>
+          <p>{{ planificacion_resumen.notas_revision }}</p>
+        </div>
+      {% endif %}
     {% endif %}
     <div class="row g-3">
       {% for field in form %}
@@ -46,7 +95,49 @@
       {% for action in submit_actions %}
         <button class="btn {{ action.class|default:'btn-outline-primary' }}" type="submit" name="{{ action.name }}" value="{{ action.value }}">{{ action.label }}</button>
       {% endfor %}
-      <button class="btn btn-primary" type="submit">Guardar</button>
+      {% if show_save_button %}
+        <button class="btn btn-primary" type="submit">Guardar</button>
+      {% endif %}
     </div>
   </form>
+  {% if review_enabled %}
+    <div class="modal fade" id="rejectPlanificacionModal" tabindex="-1" aria-labelledby="rejectPlanificacionTitle" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" novalidate>
+          {% csrf_token %}
+          <div class="modal-header">
+            <h5 class="modal-title" id="rejectPlanificacionTitle">Indicar observaciones</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted">Indica que debe corregir el docente para poder subsanar la planificacion.</p>
+            <label class="form-label" for="id_notas_revision">Observaciones</label>
+            <textarea class="form-control" id="id_notas_revision" name="notas_revision" required placeholder="Detalle lo que debe corregirse">{{ planificacion_resumen.notas_revision|default:"" }}</textarea>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-outline-danger" type="submit" name="review_action" value="rechazar">Rechazar y devolver</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      if (!document.querySelector(".js-time-picker")) return;
+      flatpickr(".js-time-picker", {
+        enableTime: true,
+        noCalendar: true,
+        dateFormat: "H:i",
+        time_24hr: true,
+        minuteIncrement: 5,
+        allowInput: true,
+        disableMobile: true
+      });
+    });
+  </script>
 {% endblock %}

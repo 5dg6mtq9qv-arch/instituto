@@ -80,6 +80,8 @@ MENU_GROUPS = [
         "icon": "ri-graduation-cap-line",
         "items": [
             {"label": "Horarios", "url_name": "academico:horario_list", "perm": "academico.view_horarioclase"},
+            {"label": "Calendario", "url_name": "academico:horario_calendario", "perm": "academico.view_horarioclase"},
+            {"label": "Asignar horarios", "url_name": "academico:horario_asignacion", "perm": "academico.add_horarioclase"},
             {"label": "Nuevo horario", "url_name": "academico:horario_nuevo", "perm": "academico.add_horarioclase"},
             {"label": "Asignaturas", "url_name": "academico:asignatura_list", "perm": "academico.view_asignatura"},
             {"label": "Temarios", "url_name": "academico:temario_list", "perm": "academico.view_temario"},
