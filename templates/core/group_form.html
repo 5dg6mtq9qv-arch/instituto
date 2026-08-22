@@ -26,32 +26,66 @@
     <section class="form-section">
       <div class="section-heading">
         <h2>Usuarios</h2>
+        <span class="selection-count" data-selection-count="users">0 seleccionados</span>
       </div>
       {% for error in form.users.errors %}
         <div class="invalid-feedback d-block">{{ error }}</div>
       {% endfor %}
-      <div class="permission-grid permission-grid-users">
-        {% for checkbox in form.users %}
-          <label class="permission-option">{{ checkbox.tag }} <span>{{ checkbox.choice_label }}</span></label>
-        {% empty %}
-          <p class="text-muted">No hay usuarios activos.</p>
-        {% endfor %}
+      <div class="assignment-picker" data-assignment-picker="users">
+        <button class="assignment-picker-toggle" type="button" data-picker-toggle>
+          <span data-picker-summary>Seleccionar usuarios</span>
+          <i class="ri-arrow-down-s-line"></i>
+        </button>
+        <div class="assignment-picker-menu">
+          <div class="assignment-picker-search">
+            <i class="ri-search-line"></i>
+            <input type="search" placeholder="Buscar usuario" data-picker-search>
+          </div>
+          <div class="assignment-picker-list">
+            {% for checkbox in form.users %}
+              <label class="assignment-option" data-picker-option>
+                {{ checkbox.tag }}
+                <span>{{ checkbox.choice_label }}</span>
+              </label>
+            {% empty %}
+              <p class="text-muted mb-0">No hay usuarios activos.</p>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="assignment-selected" data-picker-selected></div>
       </div>
     </section>
 
     <section class="form-section">
       <div class="section-heading">
         <h2>Permisos</h2>
+        <span class="selection-count" data-selection-count="permissions">0 seleccionados</span>
       </div>
       {% for error in form.permissions.errors %}
         <div class="invalid-feedback d-block">{{ error }}</div>
       {% endfor %}
-      <div class="permission-grid">
-        {% for checkbox in form.permissions %}
-          <label class="permission-option">{{ checkbox.tag }} <span>{{ checkbox.choice_label }}</span></label>
-        {% empty %}
-          <p class="text-muted">No hay permisos disponibles.</p>
-        {% endfor %}
+      <div class="assignment-picker" data-assignment-picker="permissions">
+        <button class="assignment-picker-toggle" type="button" data-picker-toggle>
+          <span data-picker-summary>Seleccionar permisos</span>
+          <i class="ri-arrow-down-s-line"></i>
+        </button>
+        <div class="assignment-picker-menu">
+          <div class="assignment-picker-search">
+            <i class="ri-search-line"></i>
+            <input type="search" placeholder="Buscar permiso" data-picker-search>
+          </div>
+          <div class="assignment-picker-list">
+            {% for checkbox in form.permissions %}
+              <label class="assignment-option" data-picker-option>
+                {{ checkbox.tag }}
+                <span>{{ checkbox.choice_label }}</span>
+              </label>
+            {% empty %}
+              <p class="text-muted mb-0">No hay permisos disponibles.</p>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="assignment-selected" data-picker-selected></div>
       </div>
     </section>
 
@@ -60,4 +94,57 @@
       <button class="btn btn-primary" type="submit">Guardar grupo</button>
     </div>
   </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      document.querySelectorAll("[data-assignment-picker]").forEach((picker) => {
+        const toggle = picker.querySelector("[data-picker-toggle]");
+        const summary = picker.querySelector("[data-picker-summary]");
+        const search = picker.querySelector("[data-picker-search]");
+        const options = Array.from(picker.querySelectorAll("[data-picker-option]"));
+        const selected = picker.querySelector("[data-picker-selected]");
+        const countTarget = document.querySelector(`[data-selection-count="${picker.dataset.assignmentPicker}"]`);
+
+        function checkedOptions() {
+          return options.filter((option) => option.querySelector("input").checked);
+        }
+
+        function refresh() {
+          const checked = checkedOptions();
+          const count = checked.length;
+          summary.textContent = count ? `${count} seleccionado${count === 1 ? "" : "s"}` : "Seleccionar";
+          if (countTarget) countTarget.textContent = `${count} seleccionado${count === 1 ? "" : "s"}`;
+          selected.innerHTML = "";
+          checked.slice(0, 12).forEach((option) => {
+            const chip = document.createElement("span");
+            chip.textContent = option.querySelector("span").textContent.trim();
+            selected.appendChild(chip);
+          });
+          if (checked.length > 12) {
+            const chip = document.createElement("span");
+            chip.textContent = `+${checked.length - 12} mas`;
+            selected.appendChild(chip);
+          }
+        }
+
+        toggle.addEventListener("click", () => {
+          picker.classList.toggle("open");
+          if (picker.classList.contains("open")) search.focus();
+        });
+        search.addEventListener("input", () => {
+          const term = search.value.trim().toLowerCase();
+          options.forEach((option) => {
+            option.hidden = !option.textContent.toLowerCase().includes(term);
+          });
+        });
+        options.forEach((option) => option.querySelector("input").addEventListener("change", refresh));
+        document.addEventListener("click", (event) => {
+          if (!picker.contains(event.target)) picker.classList.remove("open");
+        });
+        refresh();
+      });
+    });
+  </script>
 {% endblock %}

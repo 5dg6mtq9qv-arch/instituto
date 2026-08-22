@@ -94,6 +94,7 @@ MENU_GROUPS = [
         "label": "Cartera",
         "icon": "ri-money-dollar-circle-line",
         "items": [
+            {"label": "Alumnos", "url_name": "cartera:alumno_cartera_list", "perm": "cartera.view_cuota"},
             {"label": "Cuotas", "url_name": "cartera:cuota_list", "perm": "cartera.view_cuota"},
             {"label": "Pagos", "url_name": "cartera:pago_list", "perm": "cartera.view_pago"},
             {"label": "Planes de pago", "url_name": "cartera:plan_pago_list", "perm": "cartera.view_planpago"},

@@ -606,6 +606,7 @@ body.overlay-active .instituto-overlay {
 
 .form-panel {
   max-width: 1180px;
+  overflow: visible;
 }
 
 .section-heading {
@@ -807,6 +808,122 @@ dd {
   margin-top: 2px;
 }
 
+.selection-count {
+  background: var(--primary-50);
+  border-radius: 8px;
+  color: var(--primary-700);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 7px 10px;
+}
+
+.assignment-picker {
+  position: relative;
+}
+
+.assignment-picker-toggle {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  color: var(--instituto-ink);
+  display: flex;
+  font-weight: 700;
+  justify-content: space-between;
+  min-height: 46px;
+  padding: 0 14px;
+  width: 100%;
+}
+
+.assignment-picker-toggle i {
+  color: var(--instituto-muted);
+  font-size: 20px;
+}
+
+.assignment-picker-menu {
+  background: #ffffff;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.14);
+  display: none;
+  left: 0;
+  margin-top: 8px;
+  overflow: hidden;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 1090;
+}
+
+.assignment-picker.open .assignment-picker-menu {
+  display: block;
+}
+
+.assignment-picker-search {
+  align-items: center;
+  border-bottom: 1px solid var(--instituto-line);
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.assignment-picker-search i {
+  color: var(--instituto-muted);
+}
+
+.assignment-picker-search input {
+  border: 0;
+  color: var(--instituto-ink);
+  outline: 0;
+  width: 100%;
+}
+
+.assignment-picker-list {
+  display: grid;
+  gap: 6px;
+  max-height: 340px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.assignment-option {
+  align-items: center;
+  border-radius: 8px;
+  color: var(--instituto-ink);
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  margin: 0;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.assignment-option:hover {
+  background: var(--neutral-100);
+}
+
+.assignment-option input {
+  margin: 0;
+}
+
+.assignment-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  min-height: 34px;
+}
+
+.assignment-selected span {
+  background: var(--neutral-100);
+  border: 1px solid var(--instituto-line);
+  border-radius: 999px;
+  color: var(--instituto-ink);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 10px;
+}
+
 .table {
   margin-bottom: 0;
 }
@@ -935,6 +1052,78 @@ dd {
 #rejectPlanificacionModal textarea {
   min-height: 140px;
   resize: vertical;
+}
+
+.payment-student-panel {
+  padding: 20px;
+}
+
+.payment-top-actions {
+  align-items: center;
+  background: #f8fbfc;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+}
+
+.payment-top-actions span,
+.payment-top-actions strong {
+  display: block;
+}
+
+.payment-top-actions span {
+  color: var(--instituto-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.payment-top-actions strong {
+  color: var(--primary-700);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.payment-register-grid {
+  border-top: 1px solid var(--instituto-line);
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.modal .payment-register-grid {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.payment-total-box {
+  background: var(--primary-50);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.payment-total-box span {
+  color: var(--instituto-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.payment-total-box strong {
+  color: var(--primary-700);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.payment-comment {
+  grid-column: 1 / -1;
 }
 
 .app-table thead th {
@@ -1982,6 +2171,7 @@ dd {
   .hub-card-grid,
   .process-steps,
   .form-summary-card,
+  .payment-register-grid,
   .document-summary,
   .document-data-grid,
   .permission-grid,

@@ -5,6 +5,24 @@ from apps.core.forms import BootstrapFormMixin
 from .models import Cuota, FormaPago, Pago, PlanPago
 
 
+class RegistrarPagoCuotasForm(BootstrapFormMixin, forms.Form):
+    cuotas = forms.ModelMultipleChoiceField(queryset=Cuota.objects.none(), widget=forms.CheckboxSelectMultiple)
+    forma_pago = forms.ModelChoiceField(queryset=FormaPago.objects.none(), label="Tipo de pago")
+    numero_documento = forms.CharField(label="No. comprobante / referencia", max_length=60, required=False)
+    comprobante = forms.FileField(required=False)
+    comentario = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def __init__(self, *args, **kwargs):
+        cuotas_queryset = kwargs.pop("cuotas_queryset", Cuota.objects.none())
+        empresa = kwargs.pop("empresa", None)
+        super().__init__(*args, **kwargs)
+        self.fields["cuotas"].queryset = cuotas_queryset
+        formas_pago = FormaPago.objects.filter(activo=True, es_pago=True)
+        if empresa:
+            formas_pago = formas_pago.filter(empresa=empresa)
+        self.fields["forma_pago"].queryset = formas_pago.order_by("orden", "nombre")
+
+
 class FormaPagoForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = FormaPago
