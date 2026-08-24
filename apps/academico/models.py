@@ -834,3 +834,65 @@ class HorarioAulaCurso(models.Model):
 
     def __str__(self):
         return f"{self.aula_curso} - {self.horario_dia}"
+
+
+class Materia(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    nombre = models.CharField(max_length=150)
+    nombre_corto = models.CharField(max_length=50, blank=True, null=True)
+    descripcion = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = '"academico"."materia"'
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class MateriaCurso(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    materia = models.ForeignKey(
+        Materia,
+        db_column="id_materia",
+        on_delete=models.RESTRICT,
+        related_name="materia_cursos",
+    )
+    grupo = models.ForeignKey(
+        Curso,
+        db_column="id_grupo",
+        on_delete=models.CASCADE,
+        related_name="materia_cursos",
+    )
+
+    class Meta:
+        db_table = '"academico"."materia_curso"'
+        unique_together = (("materia", "grupo"),)
+        ordering = ["grupo", "materia"]
+
+    def __str__(self):
+        return f"{self.grupo} - {self.materia}"
+
+
+class MateriaHorario(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    materia_grupo = models.ForeignKey(
+        MateriaCurso,
+        db_column="id_materia_grupo",
+        on_delete=models.CASCADE,
+        related_name="materia_horarios",
+    )
+    horario_aula_curso = models.ForeignKey(
+        HorarioAulaCurso,
+        db_column="id_horario_aula_curso",
+        on_delete=models.CASCADE,
+        related_name="materia_horarios",
+    )
+
+    class Meta:
+        db_table = '"academico"."materia_horario"'
+        unique_together = (("materia_grupo", "horario_aula_curso"),)
+        ordering = ["materia_grupo", "horario_aula_curso"]
+
+    def __str__(self):
+        return f"{self.materia_grupo} - {self.horario_aula_curso}"

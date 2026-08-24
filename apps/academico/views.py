@@ -23,6 +23,7 @@ from .forms import (
     CursoForm,
     HorarioDistribucionBaseForm,
     HorarioDistribucionFormSet,
+    MateriaForm,
     HorarioAsignacionBaseForm,
     HorarioAsignacionFormSet,
     HorarioClaseForm,
@@ -41,6 +42,7 @@ from .models import (
     HorarioAulaCurso,
     HorarioClase,
     HorarioDia,
+    Materia,
     PlanificacionClase,
     Pregunta,
     Tema,
@@ -140,6 +142,48 @@ class AulaUpdateView(InstitutoUpdateView):
     cancel_url = reverse_lazy("academico:aula_list")
 
 
+class MateriaListView(InstitutoListView):
+    model = Materia
+    template_name = "academico/materia_list.html"
+    title = "Materias"
+    create_url_name = "academico:materia_nueva"
+    update_url_name = "academico:materia_editar"
+    columns = (
+        ("Nombre", "nombre"),
+        ("Nombre corto", "nombre_corto"),
+        ("Descripcion", "descripcion"),
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        q = self.request.GET.get("q")
+        if q:
+            queryset = queryset.filter(
+                Q(nombre__icontains=q)
+                | Q(nombre_corto__icontains=q)
+                | Q(descripcion__icontains=q)
+            )
+        return queryset
+
+
+class MateriaCreateView(InstitutoCreateView):
+    model = Materia
+    form_class = MateriaForm
+    template_name = "academico/materia_form.html"
+    title = "Nueva materia"
+    success_url = reverse_lazy("academico:materia_list")
+    cancel_url = reverse_lazy("academico:materia_list")
+
+
+class MateriaUpdateView(InstitutoUpdateView):
+    model = Materia
+    form_class = MateriaForm
+    template_name = "academico/materia_form.html"
+    title = "Editar materia"
+    success_url = reverse_lazy("academico:materia_list")
+    cancel_url = reverse_lazy("academico:materia_list")
+
+
 class HorarioDistribucionListView(LoginRequiredMixin, PermissionRequiredMixin, View):
     permission_required = "academico.view_horarioaulacurso"
     template_name = "academico/horario_distribucion_list.html"
@@ -197,9 +241,11 @@ class HorarioDistribucionCreateView(LoginRequiredMixin, PermissionRequiredMixin,
         formset = HorarioDistribucionFormSet(request.POST)
         if base_form.is_valid() and formset.is_valid():
             curso = base_form.cleaned_data["curso"]
-            schedule_rows = [form.cleaned_data for form in formset if form.has_schedule_data()]
+            schedule_rows = [(form, form.cleaned_data) for form in formset if form.has_schedule_data()]
             if not schedule_rows:
                 base_form.add_error(None, "Agrega al menos un horario.")
+                return render(request, self.template_name, self.get_context(base_form, formset))
+            if self.has_schedule_conflicts(curso, schedule_rows):
                 return render(request, self.template_name, self.get_context(base_form, formset))
 
             saved = 0
@@ -207,7 +253,7 @@ class HorarioDistribucionCreateView(LoginRequiredMixin, PermissionRequiredMixin,
             with transaction.atomic():
                 if self.replace_existing:
                     HorarioAulaCurso.objects.filter(aula_curso__curso=curso).delete()
-                for row in schedule_rows:
+                for _, row in schedule_rows:
                     aula = row["aula"]
                     dia = row["dia"]
                     hora_inicio = row["hora_inicio"]
@@ -245,6 +291,49 @@ class HorarioDistribucionCreateView(LoginRequiredMixin, PermissionRequiredMixin,
                 messages.info(request, f"{duplicates} horario(s) ya estaban asignados.")
                 return redirect(f"{reverse_lazy('academico:horario_distribucion')}?curso={curso.pk}")
         return render(request, self.template_name, self.get_context(base_form, formset))
+
+    def has_schedule_conflicts(self, curso, schedule_rows):
+        has_conflicts = False
+        seen = {}
+        for form, row in schedule_rows:
+            aula = row["aula"]
+            dia = row["dia"]
+            hora_inicio = row["hora_inicio"]
+            hora_fin = row["hora_fin"]
+            key = (aula.pk, dia.pk, hora_inicio, hora_fin)
+            if key in seen:
+                form.add_error("hora_inicio", f"Este horario esta repetido para {aula} el dia {dia}.")
+                has_conflicts = True
+                continue
+            seen[key] = True
+
+            conflict = (
+                HorarioAulaCurso.objects.select_related(
+                    "aula_curso__curso",
+                    "horario_dia__horario",
+                )
+                .filter(
+                    aula_curso__aula=aula,
+                    horario_dia__dia=dia,
+                    horario_dia__horario__hora_inicio__lt=hora_fin,
+                    horario_dia__horario__hora_fin__gt=hora_inicio,
+                )
+                .exclude(aula_curso__curso=curso)
+                .first()
+            )
+            if conflict:
+                horario = conflict.horario_dia.horario
+                form.add_error(
+                    "hora_inicio",
+                    (
+                        f"El horario de {hora_inicio:%H:%M} a {hora_fin:%H:%M} "
+                        f"ya esta asignado al aula {aula} en el grupo "
+                        f"{conflict.aula_curso.curso} de {horario.hora_inicio:%H:%M} "
+                        f"a {horario.hora_fin:%H:%M}."
+                    ),
+                )
+                has_conflicts = True
+        return has_conflicts
 
     def get_curso(self):
         curso_pk = self.kwargs.get("curso_pk") or self.request.GET.get("curso")

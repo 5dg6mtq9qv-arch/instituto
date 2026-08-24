@@ -7,7 +7,7 @@ from apps.core.models import Partner
 
 from apps.matricula.models import Aula as MatriculaAula, PeriodoAcademico
 
-from .models import Asignatura, Aula, BancoPregunta, Curso, Dia, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
+from .models import Asignatura, Aula, BancoPregunta, Curso, Dia, HorarioClase, Materia, PlanificacionClase, Pregunta, Tema, Temario
 
 
 class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):
@@ -137,6 +137,15 @@ class AulaForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = Aula
         fields = ["nombre", "descripcion"]
+        widgets = {
+            "descripcion": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+class MateriaForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Materia
+        fields = ["nombre", "nombre_corto", "descripcion"]
         widgets = {
             "descripcion": forms.Textarea(attrs={"rows": 3}),
         }

@@ -1,0 +1,84 @@
+{% extends "web/base.html" %}
+
+{% block title %}Materias | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>Materias</h1>
+    </div>
+    {% if create_url_name %}
+      <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
+        <i class="ri-add-line"></i>
+        <span>Nueva materia</span>
+      </a>
+    {% endif %}
+  </header>
+
+  <section class="panel list-panel">
+    <form class="list-toolbar" method="get">
+      <div class="list-search">
+        <i class="ri-search-line"></i>
+        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar materia">
+      </div>
+      <button class="btn btn-primary-600 list-search-btn" type="submit">Buscar</button>
+    </form>
+
+    <div class="table-responsive list-table-responsive">
+      <table class="table table-hover align-middle app-table">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Nombre corto</th>
+            <th>Descripcion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for materia in object_list %}
+            <tr>
+              <td>
+                {% if update_url_name and perms.academico.change_materia %}
+                  <a class="table-primary-link" href="{% url update_url_name materia.pk %}">{{ materia.nombre }}</a>
+                {% else %}
+                  {{ materia.nombre }}
+                {% endif %}
+              </td>
+              <td>{{ materia.nombre_corto|default:"-" }}</td>
+              <td>{{ materia.descripcion|default:"-" }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="3" class="text-center text-muted py-4">Sin materias registradas.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if is_paginated %}
+      <div class="list-pagination">
+        <span>Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+        <nav aria-label="Paginacion">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-left-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-left-s-line"></i></span>
+          {% endif %}
+          {% for number in page_obj.paginator.page_range %}
+            {% if number == page_obj.number %}
+              <span class="active">{{ number }}</span>
+            {% elif number >= page_obj.number|add:-2 and number <= page_obj.number|add:2 %}
+              <a href="?page={{ number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}">{{ number }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-right-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-right-s-line"></i></span>
+          {% endif %}
+        </nav>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
