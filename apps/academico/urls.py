@@ -5,6 +5,10 @@ from . import views
 app_name = "academico"
 
 urlpatterns = [
+    path("cursos/", views.CursoListView.as_view(), name="curso_list"),
+    path("cursos/nuevo/", views.CursoCreateView.as_view(), name="curso_nuevo"),
+    path("cursos/<int:pk>/editar/", views.CursoUpdateView.as_view(), name="curso_editar"),
+    path("cursos/<int:pk>/toggle-activo/", views.CursoToggleActivoView.as_view(), name="curso_toggle_activo"),
     path("asignaturas/", views.AsignaturaListView.as_view(), name="asignatura_list"),
     path("asignaturas/nueva/", views.AsignaturaCreateView.as_view(), name="asignatura_nueva"),
     path("asignaturas/<int:pk>/editar/", views.AsignaturaUpdateView.as_view(), name="asignatura_editar"),

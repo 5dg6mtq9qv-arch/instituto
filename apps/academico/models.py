@@ -687,3 +687,150 @@ class EvaluacionResultado(models.Model):
 
     def __str__(self):
         return f"{self.estudiante} - {self.nota}"
+
+
+class Curso(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    nombre = models.CharField(max_length=150)
+    activo = models.BooleanField(default=True)
+    descripcion = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    usuario_updated = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario_updated",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="academico_cursos_actualizados",
+    )
+
+    class Meta:
+        db_table = '"academico"."curso"'
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class Aula(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    nombre = models.CharField(max_length=100)
+    descripcion = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = '"academico"."aula"'
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class AulaCurso(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    aula = models.ForeignKey(
+        Aula,
+        db_column="id_aula",
+        on_delete=models.RESTRICT,
+        related_name="aula_cursos",
+    )
+    curso = models.ForeignKey(
+        Curso,
+        db_column="id_curso",
+        on_delete=models.RESTRICT,
+        related_name="aula_cursos",
+    )
+    nombre = models.CharField(max_length=150, blank=True, null=True)
+    descripcion = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = '"academico"."aula_curso"'
+        unique_together = (("aula", "curso"),)
+        ordering = ["aula", "curso"]
+
+    def __str__(self):
+        return self.nombre or f"{self.aula} - {self.curso}"
+
+
+class Dia(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    dia = models.CharField(max_length=20, unique=True)
+
+    class Meta:
+        db_table = '"academico"."dia"'
+        ordering = ["id"]
+
+    def __str__(self):
+        return self.dia
+
+
+class Horario(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    hora_inicio = models.TimeField()
+    hora_fin = models.TimeField()
+
+    class Meta:
+        db_table = '"academico"."horario"'
+        ordering = ["hora_inicio", "hora_fin"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(hora_fin__gt=models.F("hora_inicio")),
+                name="chk_horario_horas",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.hora_inicio and self.hora_fin and self.hora_fin <= self.hora_inicio:
+            raise ValidationError({"hora_fin": "La hora fin debe ser mayor que la hora inicio."})
+
+    def __str__(self):
+        return f"{self.hora_inicio} - {self.hora_fin}"
+
+
+class HorarioDia(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    dia = models.ForeignKey(
+        Dia,
+        db_column="id_dia",
+        on_delete=models.CASCADE,
+        related_name="horario_dias",
+    )
+    horario = models.ForeignKey(
+        Horario,
+        db_column="id_horario",
+        on_delete=models.CASCADE,
+        related_name="horario_dias",
+    )
+
+    class Meta:
+        db_table = '"academico"."horario_dia"'
+        unique_together = (("dia", "horario"),)
+        ordering = ["dia", "horario"]
+
+    def __str__(self):
+        return f"{self.dia} {self.horario}"
+
+
+class HorarioAulaCurso(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    aula_curso = models.ForeignKey(
+        AulaCurso,
+        db_column="id_aula_curso",
+        on_delete=models.CASCADE,
+        related_name="horario_aula_cursos",
+    )
+    horario_dia = models.ForeignKey(
+        HorarioDia,
+        db_column="id_horario_dia",
+        on_delete=models.CASCADE,
+        related_name="horario_aula_cursos",
+    )
+
+    class Meta:
+        db_table = '"academico"."horario_aula_curso"'
+        unique_together = (("aula_curso", "horario_dia"),)
+        ordering = ["aula_curso", "horario_dia"]
+
+    def __str__(self):
+        return f"{self.aula_curso} - {self.horario_dia}"

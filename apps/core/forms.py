@@ -103,9 +103,17 @@ class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
             .order_by("content_type__app_label", "content_type__model", "codename")
         )
         self.fields["permissions"].queryset = permission_queryset
+        self.fields["permissions"].label_from_instance = self.permission_label
         self.fields["users"].queryset = get_user_model().objects.filter(is_active=True).order_by("username")
         if self.instance.pk:
             self.fields["users"].initial = self.instance.user_set.all()
+
+    @staticmethod
+    def permission_label(permission):
+        content_type = permission.content_type
+        schema = content_type.app_label.replace("_", " ").title()
+        model = content_type.model.replace("_", " ").title()
+        return f"{schema} / {model} / {permission.name}"
 
     def save(self, commit=True):
         group = super().save(commit=commit)

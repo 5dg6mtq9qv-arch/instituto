@@ -4,6 +4,7 @@ from .models import (
     Asignatura,
     Asistencia,
     BancoPregunta,
+    Curso,
     DocenteAsignatura,
     Evaluacion,
     EvaluacionResultado,
@@ -30,6 +31,13 @@ class RecursoClaseInline(admin.TabularInline):
 class EvaluacionResultadoInline(admin.TabularInline):
     model = EvaluacionResultado
     extra = 0
+
+
+@admin.register(Curso)
+class CursoAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "activo", "created_at", "updated_at")
+    list_filter = ("activo",)
+    search_fields = ("nombre", "descripcion")
 
 
 @admin.register(Asignatura)

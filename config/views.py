@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.academico.models import Asignatura, BancoPregunta, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
+from apps.academico.models import Curso as CursoAcademico
 from apps.cartera.models import Cuota, Pago
 from apps.core.models import Empresa, Partner
 from apps.matricula.models import Aula, Curso, FichaInscripcion, PeriodoAcademico
@@ -71,15 +71,11 @@ def home(request):
         },
         {
             "slug": "educativo",
-            "title": "Educativo",
-            "description": "Materias, horarios, docentes, temarios y planificacion.",
+            "title": "Academico",
+            "description": "Distribucion de cursos, aulas, grupos y horarios.",
             "cards": visible_cards(
                 [
-                    card("Horarios", "Clases por aula, fecha, hora y docente.", HorarioClase.objects.count(), "academico:horario_list", "ri-calendar-schedule-line", "primary", "academico.view_horarioclase", "academico:horario_nuevo"),
-                    card("Asignaturas", "Materias usadas en horarios y temarios.", Asignatura.objects.count(), "academico:asignatura_list", "ri-book-open-line", "info", "academico.view_asignatura", "academico:asignatura_nueva"),
-                    card("Temarios", "Plan curricular por periodo y asignatura.", Temario.objects.count(), "academico:temario_list", "ri-list-check-3", "purple", "academico.view_temario", "academico:temario_nuevo"),
-                    card("Planificaciones", "Detalle pedagogico preparado por docentes.", PlanificacionClase.objects.count(), "academico:planificacion_list", "ri-file-edit-line", "warning", "academico.view_planificacionclase", "academico:planificacion_nueva"),
-                    card("Preguntas", "Banco de preguntas y simuladores.", Pregunta.objects.count(), "academico:pregunta_list", "ri-question-answer-line", "success", "academico.view_pregunta", "academico:pregunta_nueva"),
+                    card("Cursos", "Crear y editar cursos academicos.", CursoAcademico.objects.count(), "academico:curso_list", "ri-graduation-cap-line", "primary", "academico.view_curso", "academico:curso_nuevo"),
                 ]
             ),
         },
@@ -91,7 +87,6 @@ def home(request):
                 [
                     card("Cuotas pendientes", "Valores por cobrar y vencimientos.", Cuota.objects.exclude(estado="pagada").count(), "cartera:cuota_list", "ri-bill-line", "danger", "cartera.view_cuota", "cartera:cuota_nueva"),
                     card("Pagos", "Abonos y comprobantes registrados.", Pago.objects.count(), "cartera:pago_list", "ri-bank-card-line", "success", "cartera.view_pago", "cartera:pago_nuevo"),
-                    card("Bancos", "Bancos de preguntas ligados al proceso.", BancoPregunta.objects.count(), "academico:banco_list", "ri-database-2-line", "info", "academico.view_bancopregunta", "academico:banco_nuevo"),
                 ]
             ),
         },

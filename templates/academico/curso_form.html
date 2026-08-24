@@ -1,0 +1,91 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+  </header>
+
+  <form class="panel form-panel" method="post" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label" for="{{ form.nombre.id_for_label }}">{{ form.nombre.label }}</label>
+        {{ form.nombre }}
+        {% for error in form.nombre.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+
+      <div class="col-md-6 d-flex align-items-end">
+        <div class="curso-switch-field mb-2">
+          {{ form.activo }}
+          <label for="{{ form.activo.id_for_label }}">{{ form.activo.label }}</label>
+        </div>
+        {% for error in form.activo.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+
+      <div class="col-12">
+        <label class="form-label" for="{{ form.descripcion.id_for_label }}">{{ form.descripcion.label }}</label>
+        {{ form.descripcion }}
+        {% for error in form.descripcion.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="form-actions">      
+      <button class="btn btn-primary" type="submit">Guardar</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      if (!window.Switchery) return;
+
+      document.querySelectorAll(".js-switch").forEach(function (element) {
+        if (element.dataset.switchery === "true") return;
+
+        new Switchery(element, {
+          color: "#16a34a",
+          secondaryColor: "#d1d5db",
+          jackColor: "#ffffff",
+          size: "small"
+        });
+      });
+    });
+  </script>
+  <style>
+    .curso-switch-field {
+      align-items: center;
+      display: flex;
+      gap: 12px;
+      min-height: 44px;
+    }
+
+    .curso-switch-field label {
+      color: #1f2937;
+      cursor: pointer;
+      margin: 0;
+    }
+  </style>
+{% endblock %}

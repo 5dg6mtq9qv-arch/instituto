@@ -111,6 +111,7 @@ class InstitutoFormMixin(LoginRequiredMixin, PermissionRequiredMixin):
         context = super().get_context_data(**kwargs)
         context["title"] = self.title
         context["cancel_url"] = self.cancel_url
+        context.setdefault("show_save_button", True)
         return context
 
     def get_initial(self):

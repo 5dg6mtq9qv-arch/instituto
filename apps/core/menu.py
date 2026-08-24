@@ -17,22 +17,10 @@ MENU_ITEMS = [
     {"label": "Cuotas", "url_name": "cartera:cuota_list", "perm": "cartera.view_cuota", "icon": "ri-bill-line"},
     {"label": "Pagos", "url_name": "cartera:pago_list", "perm": "cartera.view_pago", "icon": "ri-bank-card-line"},
     {
-        "label": "Planificacion",
-        "url_name": "academico:planificacion_list",
-        "perm": "academico.view_planificacionclase",
+        "label": "Cursos academicos",
+        "url_name": "academico:curso_list",
+        "perm": "academico.view_curso",
         "icon": "ri-calendar-check-line",
-    },
-    {
-        "label": "Horarios",
-        "url_name": "academico:horario_list",
-        "perm": "academico.view_horarioclase",
-        "icon": "ri-calendar-schedule-line",
-    },
-    {
-        "label": "Preguntas",
-        "url_name": "academico:pregunta_list",
-        "perm": "academico.view_pregunta",
-        "icon": "ri-question-answer-line",
     },
     {"label": "Grupos", "url_name": "core:grupo_list", "perm": "auth.view_group", "icon": "ri-shield-user-line"},
     {
@@ -76,18 +64,11 @@ MENU_GROUPS = [
         ],
     },
     {
-        "label": "Educativo",
+        "label": "Academico",
         "icon": "ri-graduation-cap-line",
         "items": [
-            {"label": "Horarios", "url_name": "academico:horario_list", "perm": "academico.view_horarioclase"},
-            {"label": "Calendario", "url_name": "academico:horario_calendario", "perm": "academico.view_horarioclase"},
-            {"label": "Asignar horarios", "url_name": "academico:horario_asignacion", "perm": "academico.add_horarioclase"},
-            {"label": "Nuevo horario", "url_name": "academico:horario_nuevo", "perm": "academico.add_horarioclase"},
-            {"label": "Asignaturas", "url_name": "academico:asignatura_list", "perm": "academico.view_asignatura"},
-            {"label": "Temarios", "url_name": "academico:temario_list", "perm": "academico.view_temario"},
-            {"label": "Temas", "url_name": "academico:tema_list", "perm": "academico.view_tema"},
-            {"label": "Planificaciones", "url_name": "academico:planificacion_list", "perm": "academico.view_planificacionclase"},
-            {"label": "Preguntas", "url_name": "academico:pregunta_list", "perm": "academico.view_pregunta"},
+            {"label": "Cursos", "url_name": "academico:curso_list", "perm": "academico.view_curso"},
+            {"label": "Nuevo curso", "url_name": "academico:curso_nuevo", "perm": "academico.add_curso"},
         ],
     },
     {

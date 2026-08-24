@@ -1,0 +1,106 @@
+{% extends "web/base.html" %}
+
+{% block title %}Cursos | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>Cursos</h1>
+    </div>
+    {% if create_url_name %}
+      <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
+        <i class="ri-add-line"></i>
+        <span>Nuevo curso</span>
+      </a>
+    {% endif %}
+  </header>
+
+  <section class="panel list-panel">
+    <form class="list-toolbar" method="get">
+      <div class="list-search">
+        <i class="ri-search-line"></i>
+        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar curso">
+      </div>
+      <button class="btn btn-primary-600 list-search-btn" type="submit">Buscar</button>
+    </form>
+
+    <div class="table-responsive list-table-responsive">
+      <table class="table table-hover align-middle app-table">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Descripcion</th>
+            <th>Activo</th>
+            <th class="text-end">Accion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for curso in object_list %}
+            <tr>
+              <td>
+                {% if update_url_name and perms.academico.change_curso %}
+                  <a class="table-primary-link" href="{% url update_url_name curso.pk %}">{{ curso.nombre }}</a>
+                {% else %}
+                  {{ curso.nombre }}
+                {% endif %}
+              </td>
+              <td>{{ curso.descripcion|default:"-" }}</td>
+              <td><span class="status-badge status-{{ curso.activo|slugify }}">{{ curso.activo }}</span></td>
+              <td class="text-end">
+                {% if perms.academico.change_curso %}
+                  <div class="dropdown table-action">
+                    <button class="table-action-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Acciones">
+                      <i class="ri-more-2-fill"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li>
+                        <form method="post" action="{% url 'academico:curso_toggle_activo' curso.pk %}">
+                          {% csrf_token %}
+                          <button class="dropdown-item" type="submit">
+                            {% if curso.activo %}Desactivar{% else %}Activar{% endif %}
+                          </button>
+                        </form>
+                      </li>
+                    </ul>
+                  </div>
+                {% else %}
+                  <span class="text-muted">-</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4" class="text-center text-muted py-4">Sin cursos registrados.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if is_paginated %}
+      <div class="list-pagination">
+        <span>Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+        <nav aria-label="Paginacion">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-left-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-left-s-line"></i></span>
+          {% endif %}
+          {% for number in page_obj.paginator.page_range %}
+            {% if number == page_obj.number %}
+              <span class="active">{{ number }}</span>
+            {% elif number >= page_obj.number|add:-2 and number <= page_obj.number|add:2 %}
+              <a href="?page={{ number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}">{{ number }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-right-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-right-s-line"></i></span>
+          {% endif %}
+        </nav>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

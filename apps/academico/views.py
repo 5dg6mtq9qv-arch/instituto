@@ -8,7 +8,7 @@ from django.db.models import Q
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import ValidationError
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
 
@@ -18,6 +18,7 @@ from apps.core.web_views import InstitutoCreateView, InstitutoListView, Institut
 from .forms import (
     AsignaturaForm,
     BancoPreguntaForm,
+    CursoForm,
     HorarioAsignacionBaseForm,
     HorarioAsignacionFormSet,
     HorarioClaseForm,
@@ -26,11 +27,62 @@ from .forms import (
     TemaForm,
     TemarioForm,
 )
-from .models import Asignatura, BancoPregunta, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
+from .models import Asignatura, BancoPregunta, Curso, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
 
 
 def can_view_all_horarios(user):
     return user.is_superuser or user.groups.filter(name="Director").exists() or user.has_perm("academico.view_all_horarioclase")
+
+
+class CursoListView(InstitutoListView):
+    model = Curso
+    template_name = "academico/curso_list.html"
+    title = "Cursos"
+    create_url_name = "academico:curso_nuevo"
+    update_url_name = "academico:curso_editar"
+    columns = (
+        ("Nombre", "nombre"),
+        ("Activo", "activo"),
+        ("Descripcion", "descripcion"),
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        q = self.request.GET.get("q")
+        if q:
+            queryset = queryset.filter(Q(nombre__icontains=q) | Q(descripcion__icontains=q))
+        return queryset
+
+
+class CursoCreateView(InstitutoCreateView):
+    model = Curso
+    form_class = CursoForm
+    template_name = "academico/curso_form.html"
+    title = "Nuevo curso"
+    success_url = reverse_lazy("academico:curso_list")
+    cancel_url = reverse_lazy("academico:curso_list")
+
+
+class CursoUpdateView(InstitutoUpdateView):
+    model = Curso
+    form_class = CursoForm
+    template_name = "academico/curso_form.html"
+    title = "Editar curso"
+    success_url = reverse_lazy("academico:curso_list")
+    cancel_url = reverse_lazy("academico:curso_list")
+
+
+class CursoToggleActivoView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.change_curso"
+
+    def post(self, request, pk):
+        curso = get_object_or_404(Curso, pk=pk)
+        curso.activo = not curso.activo
+        curso.usuario_updated = request.user
+        curso.save(update_fields=["activo", "updated_at", "usuario_updated"])
+        estado = "activado" if curso.activo else "desactivado"
+        messages.success(request, f"Curso {estado} correctamente.")
+        return redirect("academico:curso_list")
 
 
 class AsignaturaListView(InstitutoListView):

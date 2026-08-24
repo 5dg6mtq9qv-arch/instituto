@@ -7,7 +7,7 @@ from apps.core.models import Partner
 
 from apps.matricula.models import Aula, PeriodoAcademico
 
-from .models import Asignatura, BancoPregunta, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
+from .models import Asignatura, BancoPregunta, Curso, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
 
 
 class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):
@@ -121,6 +121,16 @@ class AsignaturaForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = Asignatura
         fields = ["empresa", "codigo", "nombre", "activo"]
+
+
+class CursoForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Curso
+        fields = ["nombre", "activo", "descripcion"]
+        widgets = {
+            "activo": forms.CheckboxInput(attrs={"class": "js-switch"}),
+            "descripcion": forms.Textarea(attrs={"rows": 3}),
+        }
 
 
 class TemarioForm(BootstrapFormMixin, forms.ModelForm):
