@@ -17,6 +17,7 @@ from apps.core.web_views import InstitutoCreateView, InstitutoListView, Institut
 
 from .forms import (
     AsignaturaForm,
+    AulaForm,
     BancoPreguntaForm,
     CursoForm,
     HorarioAsignacionBaseForm,
@@ -27,7 +28,7 @@ from .forms import (
     TemaForm,
     TemarioForm,
 )
-from .models import Asignatura, BancoPregunta, Curso, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
+from .models import Asignatura, Aula, BancoPregunta, Curso, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
 
 
 def can_view_all_horarios(user):
@@ -83,6 +84,43 @@ class CursoToggleActivoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         estado = "activado" if curso.activo else "desactivado"
         messages.success(request, f"Curso {estado} correctamente.")
         return redirect("academico:curso_list")
+
+
+class AulaListView(InstitutoListView):
+    model = Aula
+    template_name = "academico/aula_list.html"
+    title = "Aulas"
+    create_url_name = "academico:aula_nueva"
+    update_url_name = "academico:aula_editar"
+    columns = (
+        ("Nombre", "nombre"),
+        ("Descripcion", "descripcion"),
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        q = self.request.GET.get("q")
+        if q:
+            queryset = queryset.filter(Q(nombre__icontains=q) | Q(descripcion__icontains=q))
+        return queryset
+
+
+class AulaCreateView(InstitutoCreateView):
+    model = Aula
+    form_class = AulaForm
+    template_name = "academico/aula_form.html"
+    title = "Nueva aula"
+    success_url = reverse_lazy("academico:aula_list")
+    cancel_url = reverse_lazy("academico:aula_list")
+
+
+class AulaUpdateView(InstitutoUpdateView):
+    model = Aula
+    form_class = AulaForm
+    template_name = "academico/aula_form.html"
+    title = "Editar aula"
+    success_url = reverse_lazy("academico:aula_list")
+    cancel_url = reverse_lazy("academico:aula_list")
 
 
 class AsignaturaListView(InstitutoListView):

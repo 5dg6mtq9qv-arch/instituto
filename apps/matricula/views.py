@@ -91,7 +91,6 @@ class CursoCreateView(InstitutoCreateView):
     form_class = CursoForm
     title = "Nuevo curso"
     success_url = reverse_lazy("matricula:curso_list")
-    cancel_url = reverse_lazy("matricula:curso_list")
 
 
 class CursoUpdateView(InstitutoUpdateView):
@@ -99,7 +98,6 @@ class CursoUpdateView(InstitutoUpdateView):
     form_class = CursoForm
     title = "Editar curso"
     success_url = reverse_lazy("matricula:curso_list")
-    cancel_url = reverse_lazy("matricula:curso_list")
 
 
 class AulaListView(InstitutoListView):

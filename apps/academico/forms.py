@@ -5,14 +5,14 @@ from apps.core.forms import BootstrapFormMixin
 
 from apps.core.models import Partner
 
-from apps.matricula.models import Aula, PeriodoAcademico
+from apps.matricula.models import Aula as MatriculaAula, PeriodoAcademico
 
-from .models import Asignatura, BancoPregunta, Curso, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
+from .models import Asignatura, Aula, BancoPregunta, Curso, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
 
 
 class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):
     periodo_academico = forms.ModelChoiceField(label="Periodo", queryset=PeriodoAcademico.objects.none())
-    aula = forms.ModelChoiceField(queryset=Aula.objects.none())
+    aula = forms.ModelChoiceField(queryset=MatriculaAula.objects.none())
     asignatura = forms.ModelChoiceField(queryset=Asignatura.objects.none())
     docente = forms.ModelChoiceField(queryset=Partner.objects.none())
     tutor = forms.ModelChoiceField(queryset=Partner.objects.none(), required=False)
@@ -40,12 +40,12 @@ class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):
         asignaturas = Asignatura.objects.filter(activo=True).order_by("nombre")
         if empresa:
             self.fields["periodo_academico"].queryset = PeriodoAcademico.objects.filter(empresa=empresa, activo=True)
-            self.fields["aula"].queryset = Aula.objects.filter(empresa=empresa, activo=True)
+            self.fields["aula"].queryset = MatriculaAula.objects.filter(empresa=empresa, activo=True)
             docentes = docentes.filter(empresa=empresa)
             asignaturas = asignaturas.filter(empresa=empresa)
         else:
             self.fields["periodo_academico"].queryset = PeriodoAcademico.objects.filter(activo=True)
-            self.fields["aula"].queryset = Aula.objects.filter(activo=True)
+            self.fields["aula"].queryset = MatriculaAula.objects.filter(activo=True)
         self.fields["asignatura"].queryset = asignaturas
         self.fields["docente"].queryset = docentes
         self.fields["tutor"].queryset = docentes
@@ -129,6 +129,15 @@ class CursoForm(BootstrapFormMixin, forms.ModelForm):
         fields = ["nombre", "activo", "descripcion"]
         widgets = {
             "activo": forms.CheckboxInput(attrs={"class": "js-switch"}),
+            "descripcion": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+class AulaForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Aula
+        fields = ["nombre", "descripcion"]
+        widgets = {
             "descripcion": forms.Textarea(attrs={"rows": 3}),
         }
 

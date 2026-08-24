@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 from django.urls import reverse
 
-from apps.academico.models import Curso as CursoAcademico
+from apps.academico.models import Aula as AulaAcademica
 from apps.cartera.models import Cuota, Pago
 from apps.core.models import Empresa, Partner
 from apps.matricula.models import Aula, Curso, FichaInscripcion, PeriodoAcademico
@@ -75,7 +75,7 @@ def home(request):
             "description": "Distribucion de cursos, aulas, grupos y horarios.",
             "cards": visible_cards(
                 [
-                    card("Cursos", "Crear y editar cursos academicos.", CursoAcademico.objects.count(), "academico:curso_list", "ri-graduation-cap-line", "primary", "academico.view_curso", "academico:curso_nuevo"),
+                    card("Aulas", "Crear y editar aulas academicas.", AulaAcademica.objects.count(), "academico:aula_list", "ri-door-open-line", "primary", "academico.view_aula", "academico:aula_nueva"),
                 ]
             ),
         },
