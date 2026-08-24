@@ -840,42 +840,50 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                 {
                     "title": "Mis horarios",
                     "docente": None,
-                    "grupos_detalle": [],
+                    "calendar_events_json": json.dumps([]),
+                    "calendar_default_date": timezone.localdate().isoformat(),
+                    "has_events": False,
                 },
             )
 
-        asignaciones = (
-            ProfesorMateriaCurso.objects.select_related("materia_curso__grupo", "materia_curso__materia")
-            .filter(partner=docente)
-            .order_by("materia_curso__grupo__nombre", "materia_curso__materia__nombre")
-        )
-        grupos = {item.materia_curso.grupo_id: item.materia_curso.grupo for item in asignaciones}
-        horarios_by_grupo = {}
-        horarios = (
-            HorarioAulaCurso.objects.select_related(
-                "aula_curso__curso",
-                "aula_curso__aula",
-                "horario_dia__dia",
-                "horario_dia__horario",
+        clases = (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__aula_curso__curso",
+                "horario_aula_curso__horario_dia__horario",
             )
-            .filter(aula_curso__curso_id__in=grupos.keys())
-            .order_by(
-                "aula_curso__curso__nombre",
-                "horario_dia__dia__id",
-                "horario_dia__horario__hora_inicio",
-                "aula_curso__aula__nombre",
-            )
+            .filter(materia_curso__profesor_materia_cursos__partner=docente)
+            .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
         )
-        for horario in horarios:
-            horarios_by_grupo.setdefault(horario.aula_curso.curso_id, []).append(horario)
+        calendar_events = []
+        calendar_default_date = timezone.localdate().isoformat()
+        first_clase = clases.first()
+        if first_clase:
+            calendar_default_date = first_clase.fecha.isoformat()
 
-        grupos_detalle = []
-        for grupo_id, grupo in sorted(grupos.items(), key=lambda item: item[1].nombre):
-            grupos_detalle.append(
+        for clase in clases:
+            horario = clase.horario_aula_curso.horario_dia.horario
+            materia = clase.materia_curso.materia
+            aula = clase.horario_aula_curso.aula_curso.aula
+            grupo = clase.materia_curso.grupo
+            event_color = materia.color
+            calendar_events.append(
                 {
-                    "grupo": grupo,
-                    "materias": [item.materia_curso.materia for item in asignaciones if item.materia_curso.grupo_id == grupo_id],
-                    "horarios": horarios_by_grupo.get(grupo_id, []),
+                    "id": clase.pk,
+                    "title": f"{grupo.nombre} · {aula} · {materia.nombre}",
+                    "start": f"{clase.fecha.isoformat()}T{horario.hora_inicio:%H:%M:%S}",
+                    "end": f"{clase.fecha.isoformat()}T{horario.hora_fin:%H:%M:%S}",
+                    "allDay": False,
+                    "className": "materia-event",
+                    "backgroundColor": event_color,
+                    "borderColor": event_color,
+                    "textColor": readable_text_color(event_color),
+                    "grupo": grupo.nombre,
+                    "aula": str(aula),
+                    "materia": materia.nombre,
+                    "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
                 }
             )
 
@@ -885,7 +893,9 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             {
                 "title": "Mis horarios",
                 "docente": docente,
-                "grupos_detalle": grupos_detalle,
+                "calendar_events_json": json.dumps(calendar_events),
+                "calendar_default_date": calendar_default_date,
+                "has_events": bool(calendar_events),
             },
         )
 

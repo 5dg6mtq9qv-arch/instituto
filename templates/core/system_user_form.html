@@ -28,7 +28,6 @@
         {% include "web/form_field.html" with field=form.last_name cols="col-md-6" %}
         {% include "web/form_field.html" with field=form.email cols="col-md-6" %}
         {% include "web/form_field.html" with field=form.is_active cols="col-md-3" %}
-        {% include "web/form_field.html" with field=form.is_staff cols="col-md-3" %}
       </div>
     </section>
 
@@ -39,12 +38,24 @@
       {% for error in form.groups.errors %}
         <div class="invalid-feedback d-block">{{ error }}</div>
       {% endfor %}
-      <div class="permission-grid permission-grid-users">
-        {% for checkbox in form.groups %}
-          <label class="permission-option">{{ checkbox.tag }} <span>{{ checkbox.choice_label }}</span></label>
-        {% empty %}
+      {{ form.groups }}
+      <div class="tag-picker" data-group-picker>
+        <div class="tag-picker-row">
+          <select class="form-select" data-group-select>
+            <option value="">Seleccionar grupo</option>
+            {% for value, label in form.groups.field.choices %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-outline-primary" type="button" data-group-add>
+            <i class="ri-add-line"></i>
+            Agregar
+          </button>
+        </div>
+        <div class="tag-chip-list" data-group-tags></div>
+        {% if not form.groups.field.choices %}
           <p class="text-muted">No hay grupos creados.</p>
-        {% endfor %}
+        {% endif %}
       </div>
     </section>
 
@@ -53,4 +64,106 @@
       <button class="btn btn-primary" type="submit">Guardar usuario</button>
     </div>
   </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const hiddenSelect = document.querySelector("[data-group-hidden]");
+      const pickerSelect = document.querySelector("[data-group-select]");
+      const addButton = document.querySelector("[data-group-add]");
+      const tags = document.querySelector("[data-group-tags]");
+      if (!hiddenSelect || !pickerSelect || !addButton || !tags) return;
+
+      const groupLabels = {};
+      Array.from(hiddenSelect.options).forEach(function (option) {
+        groupLabels[option.value] = option.textContent;
+      });
+
+      function selectedValues() {
+        return Array.from(hiddenSelect.selectedOptions).map(function (option) {
+          return option.value;
+        });
+      }
+
+      function renderTags() {
+        tags.innerHTML = "";
+        selectedValues().forEach(function (value) {
+          const chip = document.createElement("span");
+          chip.className = "tag-chip";
+          chip.innerHTML = `<span>${groupLabels[value]}</span><button type="button" aria-label="Quitar grupo"><i class="ri-close-line"></i></button>`;
+          chip.querySelector("button").addEventListener("click", function () {
+            hiddenSelect.querySelector(`option[value="${value}"]`).selected = false;
+            renderTags();
+          });
+          tags.appendChild(chip);
+        });
+      }
+
+      addButton.addEventListener("click", function () {
+        if (!pickerSelect.value) return;
+        hiddenSelect.querySelector(`option[value="${pickerSelect.value}"]`).selected = true;
+        pickerSelect.value = "";
+        renderTags();
+      });
+
+      pickerSelect.addEventListener("change", function () {
+        if (!this.value) return;
+        hiddenSelect.querySelector(`option[value="${this.value}"]`).selected = true;
+        this.value = "";
+        renderTags();
+      });
+
+      renderTags();
+    });
+  </script>
+  <style>
+    .tag-picker {
+      display: grid;
+      gap: 12px;
+    }
+
+    .tag-picker-row {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: minmax(220px, 360px) auto;
+      justify-content: start;
+    }
+
+    .tag-chip-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 34px;
+    }
+
+    .tag-chip {
+      align-items: center;
+      background: #eef6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      color: #1e3a8a;
+      display: inline-flex;
+      gap: 8px;
+      padding: 6px 8px 6px 12px;
+    }
+
+    .tag-chip button {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      color: #1e40af;
+      display: inline-flex;
+      height: 22px;
+      justify-content: center;
+      padding: 0;
+      width: 22px;
+    }
+
+    @media (max-width: 640px) {
+      .tag-picker-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 {% endblock %}

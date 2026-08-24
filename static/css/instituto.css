@@ -130,6 +130,14 @@ body.overlay-active .instituto-overlay {
   width: 40px;
 }
 
+.avatar-image {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  height: 40px;
+  object-fit: cover;
+  width: 40px;
+}
+
 .sidebar-menu li a {
   gap: 12px;
 }

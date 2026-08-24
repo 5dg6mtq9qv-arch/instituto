@@ -1,0 +1,94 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Cuenta</p>
+      <h1>{{ title }}</h1>
+    </div>
+  </header>
+
+  <form class="panel form-panel profile-form" method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <section class="form-section form-section-current">
+      <div class="section-heading">
+        <h2>Datos personales</h2>
+      </div>
+
+      <div class="profile-edit-layout">
+        <div class="profile-photo-panel">
+          {% if form.instance.foto %}
+            <img src="{{ form.instance.foto.url }}" alt="{{ form.instance.nombre }}">
+          {% else %}
+            <span>{{ request.user.username|first|upper }}</span>
+          {% endif %}
+          <label class="form-label" for="{{ form.foto.id_for_label }}">{{ form.foto.label }}</label>
+          <input class="form-control" type="file" name="{{ form.foto.html_name }}" id="{{ form.foto.id_for_label }}" accept="image/*">
+          {% for error in form.foto.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+
+        <div class="row g-3 profile-fields">
+          {% include "web/form_field.html" with field=form.nombre cols="col-12" %}
+          {% include "web/form_field.html" with field=form.email cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.telefono cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.telefono_celular cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.fecha_nacimiento cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.genero cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.ocupacion cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.direccion cols="col-12" %}
+        </div>
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{% url 'home' %}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar perfil</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .profile-edit-layout {
+      display: grid;
+      gap: 24px;
+      grid-template-columns: 140px minmax(0, 1fr);
+    }
+
+    .profile-photo-panel {
+      align-content: start;
+      display: grid;
+      gap: 12px;
+    }
+
+    .profile-photo-panel img,
+    .profile-photo-panel > span {
+      align-items: center;
+      background: #eef6ff;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      color: #1e40af;
+      display: flex;
+      font-size: 48px;
+      font-weight: 800;
+      height: 96px;
+      justify-content: center;
+      object-fit: cover;
+      width: 96px;
+    }
+
+    @media (max-width: 768px) {
+      .profile-edit-layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+{% endblock %}

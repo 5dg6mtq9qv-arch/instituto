@@ -1,6 +1,11 @@
 {% extends "web/base.html" %}
+{% load static %}
 
 {% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
+{% endblock %}
 
 {% block content %}
   <header class="page-header">
@@ -20,59 +25,98 @@
       <span>{{ docente.identificacion|default:"" }}</span>
     </section>
 
-    {% for bloque in grupos_detalle %}
-      <section class="panel docente-detail-panel">
-        <div class="docente-detail-header">
-          <div>
-            <span>Grupo</span>
-            <h2>{{ bloque.grupo.nombre }}</h2>
-          </div>
-          <div class="docente-materia-list">
-            {% for materia in bloque.materias %}
-              <span class="docente-materia-chip" style="border-color: {{ materia.color }};">
-                <span style="background-color: {{ materia.color }};"></span>
-                {{ materia.nombre }}
-              </span>
-            {% endfor %}
-          </div>
+    <section class="panel edudash-calendar-panel docente-calendar-panel">
+      <div class="edudash-calendar-wrap docente-calendar-wrap">
+        <div id="calendar"></div>
+      </div>
+      {% if not has_events %}
+        <div class="academic-empty-state">
+          No tienes clases asignadas en el calendario.
         </div>
-
-        <div class="table-responsive list-table-responsive">
-          <table class="table align-middle app-table">
-            <thead>
-              <tr>
-                <th>Aula</th>
-                <th>Dia</th>
-                <th>Hora inicio</th>
-                <th>Hora fin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for horario in bloque.horarios %}
-                <tr>
-                  <td>{{ horario.aula_curso.aula }}</td>
-                  <td>{{ horario.horario_dia.dia }}</td>
-                  <td>{{ horario.horario_dia.horario.hora_inicio|time:"H:i" }}</td>
-                  <td>{{ horario.horario_dia.horario.hora_fin|time:"H:i" }}</td>
-                </tr>
-              {% empty %}
-                <tr>
-                  <td colspan="4" class="text-center text-muted py-4">Este grupo no tiene horarios configurados.</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    {% empty %}
-      <section class="panel">
-        <p class="text-muted mb-0">No tienes materias asignadas.</p>
-      </section>
-    {% endfor %}
+      {% endif %}
+    </section>
   {% endif %}
 {% endblock %}
 
 {% block extra_scripts %}
+  <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
+  <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
+  <script src="{% static 'assets/js/full-calendar.js' %}"></script>
+  <script>
+    (function () {
+      const events = {{ calendar_events_json|safe }};
+      const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
+      const hasCalendar = document.getElementById("calendar");
+
+      function paintEvent(element, event) {
+        if (!event.backgroundColor) return;
+        const node = element.get(0);
+        const innerNode = element.find(".fc-event-inner").get(0);
+        const textNodes = element.find(".fc-event-title, .fc-event-time").toArray();
+        const background = event.backgroundColor;
+        const border = event.borderColor || background;
+        const text = event.textColor || "#ffffff";
+
+        [node, innerNode].filter(Boolean).forEach(function (target) {
+          target.style.setProperty("background-color", background, "important");
+          target.style.setProperty("border-color", border, "important");
+          target.style.setProperty("color", text, "important");
+        });
+        textNodes.forEach(function (target) {
+          target.style.setProperty("color", text, "important");
+        });
+      }
+
+      if (hasCalendar) {
+        $(function () {
+          const $calendar = $("#calendar");
+          if ($calendar.data("fullCalendar")) {
+            $calendar.fullCalendar("destroy");
+          }
+          $calendar.fullCalendar({
+            header: {
+              left: "title",
+              center: "agendaDay,agendaWeek,month",
+              right: "prev,next today"
+            },
+            defaultView: "agendaWeek",
+            year: defaultDate.getFullYear(),
+            month: defaultDate.getMonth(),
+            date: defaultDate.getDate(),
+            firstDay: 1,
+            editable: false,
+            selectable: false,
+            allDaySlot: false,
+            minTime: 7,
+            maxTime: 18,
+            slotMinutes: 30,
+            firstHour: 7,
+            slotEventOverlap: false,
+            timeFormat: "H:mm",
+            axisFormat: "H:mm",
+            buttonText: {
+              today: "hoy",
+              month: "mes",
+              week: "semana",
+              day: "dia"
+            },
+            monthNames: ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
+            monthNamesShort: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+            dayNames: ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"],
+            dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+            events: events,
+            eventRender: function (event, element) {
+              element.attr("title", [event.grupo, event.aula, event.hora, event.materia].filter(Boolean).join(" - "));
+              paintEvent(element, event);
+            },
+            eventAfterRender: function (event, element) {
+              paintEvent(element, event);
+            }
+          });
+        });
+      }
+    })();
+  </script>
   <style>
     .docente-summary-panel {
       display: grid;
@@ -89,53 +133,20 @@
       color: #667085;
     }
 
-    .docente-detail-panel + .docente-detail-panel {
-      margin-top: 16px;
+    .docente-calendar-wrap {
+      min-height: 680px;
     }
 
-    .docente-detail-header {
-      align-items: start;
-      display: flex;
-      gap: 16px;
-      justify-content: space-between;
-      margin-bottom: 16px;
-    }
-
-    .docente-detail-header > div > span {
+    .academic-empty-state {
+      background: #ffffff;
       color: #667085;
-      font-size: 12px;
-      font-weight: 700;
-      text-transform: uppercase;
+      margin-top: 16px;
+      padding: 28px;
+      text-align: center;
     }
 
-    .docente-detail-header h2 {
-      color: #111827;
-      font-size: 22px;
-      margin: 4px 0 0;
-    }
-
-    .docente-materia-list {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      justify-content: flex-end;
-    }
-
-    .docente-materia-chip {
-      align-items: center;
-      border: 1px solid #d0d5dd;
-      border-radius: 6px;
-      color: #1f2937;
-      display: inline-flex;
-      gap: 8px;
-      padding: 6px 10px;
-    }
-
-    .docente-materia-chip span {
-      border-radius: 3px;
-      display: inline-block;
-      height: 14px;
-      width: 20px;
+    #calendar .fc-event {
+      cursor: default;
     }
   </style>
 {% endblock %}

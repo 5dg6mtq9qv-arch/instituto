@@ -1,10 +1,14 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.mixins import UserPassesTestMixin
 from django.contrib.auth.models import Group
+from django.contrib import messages
 from django.db.models import Q
 from django.urls import reverse_lazy
+from django.shortcuts import redirect, render
+from django.views import View
 
-from apps.core.forms import EmpresaForm, GroupPermissionForm, PartnerForm, SystemUserForm
+from apps.core.forms import EmpresaForm, GroupPermissionForm, MiPerfilPartnerForm, PartnerForm, SystemUserForm
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 
 from .models import Empresa, Partner
@@ -80,6 +84,31 @@ class PartnerUpdateView(InstitutoUpdateView):
     title = "Editar persona"
     success_url = reverse_lazy("core:partner_list")
     cancel_url = reverse_lazy("core:partner_list")
+
+
+class MiPerfilView(LoginRequiredMixin, UserPassesTestMixin, View):
+    template_name = "core/mi_perfil.html"
+
+    def test_func(self):
+        return hasattr(self.request.user, "partner")
+
+    def handle_no_permission(self):
+        messages.warning(self.request, "Tu usuario no tiene un perfil vinculado.")
+        return redirect("home")
+
+    def get(self, request):
+        form = MiPerfilPartnerForm(instance=request.user.partner)
+        return render(request, self.template_name, {"title": "Mi perfil", "form": form})
+
+    def post(self, request):
+        form = MiPerfilPartnerForm(request.POST, request.FILES, instance=request.user.partner)
+        if form.is_valid():
+            perfil = form.save(commit=False)
+            perfil.usuario_updated = request.user
+            perfil.save()
+            messages.success(request, "Perfil actualizado correctamente.")
+            return redirect("core:mi_perfil")
+        return render(request, self.template_name, {"title": "Mi perfil", "form": form})
 
 
 class SecurityAccessMixin(UserPassesTestMixin):

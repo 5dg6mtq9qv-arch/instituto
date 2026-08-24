@@ -37,7 +37,11 @@
       <div class="dropdown profile-dropdown">
         <button type="button" class="profile-dropdown__button d-flex align-items-center justify-content-between p-10 w-100 overflow-hidden bg-neutral-50 radius-12" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
           <span class="d-flex align-items-center gap-10 min-w-0">
-            <span class="avatar-initial">{{ request.user.username|first|upper }}</span>
+            {% if request.user.partner.foto %}
+              <img class="avatar-image" src="{{ request.user.partner.foto.url }}" alt="{{ request.user.get_full_name|default:request.user.username }}">
+            {% else %}
+              <span class="avatar-initial">{{ request.user.username|first|upper }}</span>
+            {% endif %}
             <span class="profile-dropdown__contents min-w-0">
               <span class="h6 mb-0 text-md d-block text-primary-light text-truncate">{{ request.user.get_full_name|default:request.user.username }}</span>
               <span class="text-secondary-light text-sm mb-0 d-block">Usuario</span>
@@ -48,6 +52,12 @@
           </span>
         </button>
         <ul class="dropdown-menu dropdown-menu-lg-end border p-12">
+          <li>
+            <a class="dropdown-item rounded text-secondary-light bg-hover-neutral-200 text-hover-neutral-900 d-flex align-items-center gap-2 py-6" href="{% url 'core:mi_perfil' %}">
+              <i class="ri-user-settings-line"></i>
+              Mi perfil
+            </a>
+          </li>
           <li>
             <form method="post" action="{% url 'logout' %}">
               {% csrf_token %}
