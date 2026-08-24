@@ -166,8 +166,9 @@ class AulaForm(BootstrapFormMixin, forms.ModelForm):
 class MateriaForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = Materia
-        fields = ["nombre", "nombre_corto", "descripcion"]
+        fields = ["nombre", "nombre_corto", "color", "descripcion"]
         widgets = {
+            "color": forms.TextInput(attrs={"type": "color"}),
             "descripcion": forms.Textarea(attrs={"rows": 3}),
         }
 

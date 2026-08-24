@@ -31,6 +31,7 @@
           <tr>
             <th>Nombre</th>
             <th>Nombre corto</th>
+            <th>Color</th>
             <th>Descripcion</th>
           </tr>
         </thead>
@@ -45,11 +46,15 @@
                 {% endif %}
               </td>
               <td>{{ materia.nombre_corto|default:"-" }}</td>
+              <td>
+                <span class="materia-color-swatch" style="background-color: {{ materia.color }};"></span>
+                <span>{{ materia.color }}</span>
+              </td>
               <td>{{ materia.descripcion|default:"-" }}</td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="3" class="text-center text-muted py-4">Sin materias registradas.</td>
+              <td colspan="4" class="text-center text-muted py-4">Sin materias registradas.</td>
             </tr>
           {% endfor %}
         </tbody>
@@ -81,4 +86,18 @@
       </div>
     {% endif %}
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .materia-color-swatch {
+      border: 1px solid #d0d5dd;
+      border-radius: 4px;
+      display: inline-block;
+      height: 18px;
+      margin-right: 8px;
+      vertical-align: middle;
+      width: 28px;
+    }
+  </style>
 {% endblock %}

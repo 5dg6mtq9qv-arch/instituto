@@ -840,6 +840,7 @@ class Materia(models.Model):
     id = models.BigAutoField(primary_key=True)
     nombre = models.CharField(max_length=150)
     nombre_corto = models.CharField(max_length=50, blank=True, null=True)
+    color = models.CharField(max_length=7, default="#2563eb")
     descripcion = models.TextField(blank=True, null=True)
 
     class Meta:
@@ -945,3 +946,29 @@ class CursoPeriodo(models.Model):
 
     def __str__(self):
         return f"{self.curso} - {self.periodo}"
+
+
+class Clase(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    horario_aula_curso = models.ForeignKey(
+        HorarioAulaCurso,
+        db_column="id_horario_aula_curso",
+        on_delete=models.CASCADE,
+        related_name="clases",
+    )
+    materia_curso = models.ForeignKey(
+        MateriaCurso,
+        db_column="id_materia_curso",
+        on_delete=models.RESTRICT,
+        related_name="clases",
+    )
+    fecha = models.DateField()
+    descripcion = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = '"academico"."clase"'
+        unique_together = (("horario_aula_curso", "fecha"),)
+        ordering = ["fecha", "horario_aula_curso"]
+
+    def __str__(self):
+        return f"{self.fecha} - {self.horario_aula_curso} - {self.materia_curso}"

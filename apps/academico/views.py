@@ -38,6 +38,7 @@ from .models import (
     Aula,
     AulaCurso,
     BancoPregunta,
+    Clase,
     Curso,
     CursoPeriodo,
     Dia,
@@ -47,7 +48,6 @@ from .models import (
     HorarioDia,
     Materia,
     MateriaCurso,
-    MateriaHorario,
     Periodo,
     PlanificacionClase,
     Pregunta,
@@ -58,6 +58,20 @@ from .models import (
 
 def can_view_all_horarios(user):
     return user.is_superuser or user.groups.filter(name="Director").exists() or user.has_perm("academico.view_all_horarioclase")
+
+
+def readable_text_color(hex_color):
+    color = (hex_color or "").lstrip("#")
+    if len(color) != 6:
+        return "#ffffff"
+    try:
+        red = int(color[0:2], 16)
+        green = int(color[2:4], 16)
+        blue = int(color[4:6], 16)
+    except ValueError:
+        return "#ffffff"
+    brightness = (red * 299 + green * 587 + blue * 114) / 1000
+    return "#111827" if brightness > 160 else "#ffffff"
 
 
 class CursoListView(InstitutoListView):
@@ -171,6 +185,7 @@ class MateriaListView(InstitutoListView):
     columns = (
         ("Nombre", "nombre"),
         ("Nombre corto", "nombre_corto"),
+        ("Color", "color"),
         ("Descripcion", "descripcion"),
     )
 
@@ -443,7 +458,7 @@ class HorarioDistribucionUpdateView(HorarioDistribucionCreateView):
 
 
 class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, View):
-    permission_required = "academico.view_materiahorario"
+    permission_required = "academico.view_clase"
     template_name = "academico/planificacion_academica.html"
 
     def get(self, request):
@@ -451,35 +466,63 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
 
     def post(self, request):
         if not (
-            request.user.has_perm("academico.add_materiahorario")
-            or request.user.has_perm("academico.change_materiahorario")
+            request.user.has_perm("academico.add_clase")
+            or request.user.has_perm("academico.change_clase")
             or request.user.is_superuser
         ):
             return self.handle_no_permission()
 
         curso = get_object_or_404(Curso, pk=request.POST.get("curso"))
-        horarios = HorarioAulaCurso.objects.filter(aula_curso__curso=curso)
-        horario_ids = {str(pk) for pk in horarios.values_list("pk", flat=True)}
-        materias = {str(pk): pk for pk in Materia.objects.values_list("pk", flat=True)}
+        horario_id = request.POST.get("horario_aula_curso")
+        if horario_id:
+            fecha_value = request.POST.get("fecha") or ""
+            horario_aula_curso = get_object_or_404(
+                HorarioAulaCurso,
+                pk=horario_id,
+                aula_curso__curso=curso,
+            )
+            try:
+                fecha_clase = date.fromisoformat(fecha_value)
+            except ValueError:
+                messages.error(request, "La fecha seleccionada no es valida.")
+                return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
-        with transaction.atomic():
-            for horario_id in horario_ids:
-                materia_id = request.POST.get(f"materia_{horario_id}") or ""
-                horario_aula_curso = horarios.get(pk=horario_id)
-                MateriaHorario.objects.filter(horario_aula_curso=horario_aula_curso).delete()
-                if not materia_id or materia_id not in materias:
-                    continue
-                materia = Materia.objects.get(pk=materia_id)
-                materia_grupo, _ = MateriaCurso.objects.get_or_create(
-                    materia=materia,
-                    grupo=curso,
-                )
-                MateriaHorario.objects.get_or_create(
-                    materia_grupo=materia_grupo,
-                    horario_aula_curso=horario_aula_curso,
-                )
+            curso_periodo = (
+                CursoPeriodo.objects.select_related("periodo")
+                .filter(curso=curso, periodo__fecha_inicio__lte=fecha_clase, periodo__fecha_fin__gte=fecha_clase)
+                .first()
+            )
+            weekday_to_dia = {
+                0: "Lunes",
+                1: "Martes",
+                2: "Miercoles",
+                3: "Jueves",
+                4: "Viernes",
+                5: "Sabado",
+                6: "Domingo",
+            }
+            if not curso_periodo or horario_aula_curso.horario_dia.dia.dia != weekday_to_dia[fecha_clase.weekday()]:
+                messages.error(request, "La fecha seleccionada no corresponde al horario del grupo.")
+                return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
-        messages.success(request, "Planificacion academica guardada correctamente.")
+            materia_id = request.POST.get("materia") or ""
+            with transaction.atomic():
+                Clase.objects.filter(horario_aula_curso=horario_aula_curso, fecha=fecha_clase).delete()
+                if materia_id:
+                    materia = get_object_or_404(Materia, pk=materia_id)
+                    materia_grupo, _ = MateriaCurso.objects.get_or_create(
+                        materia=materia,
+                        grupo=curso,
+                    )
+                    Clase.objects.create(
+                        horario_aula_curso=horario_aula_curso,
+                        materia_curso=materia_grupo,
+                        fecha=fecha_clase,
+                    )
+            messages.success(request, "Clase asignada correctamente.")
+            return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
+
+        messages.error(request, "Selecciona un horario del calendario para asignar la clase.")
         return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
     def get_context(self):
@@ -489,6 +532,8 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         selected_curso = None
         selected_curso_periodo = None
         rows = []
+        calendar_events = []
+        calendar_default_date = timezone.localdate().isoformat()
 
         if selected_curso_id:
             selected_curso = get_object_or_404(Curso, pk=selected_curso_id)
@@ -513,12 +558,16 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     "aula_curso__aula__nombre",
                 )
             )
-            assigned = {
-                item.horario_aula_curso_id: item.materia_grupo.materia_id
-                for item in MateriaHorario.objects.select_related("materia_grupo__materia").filter(
-                    horario_aula_curso__in=horarios
-                )
-            }
+            clases = {}
+            if selected_curso_periodo:
+                clases = {
+                    (item.horario_aula_curso_id, item.fecha): item.materia_curso.materia_id
+                    for item in Clase.objects.select_related("materia_curso__materia").filter(
+                        horario_aula_curso__in=horarios,
+                        fecha__gte=selected_curso_periodo.periodo.fecha_inicio,
+                        fecha__lte=selected_curso_periodo.periodo.fecha_fin,
+                    )
+                }
             weekday_to_dia = {
                 0: "Lunes",
                 1: "Martes",
@@ -531,6 +580,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             if selected_curso_periodo:
                 current_date = selected_curso_periodo.periodo.fecha_inicio
                 end_date = selected_curso_periodo.periodo.fecha_fin
+                calendar_default_date = current_date.isoformat()
                 while current_date <= end_date:
                     day_name = weekday_to_dia[current_date.weekday()]
                     day_horarios = [
@@ -548,7 +598,30 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 "id": horario_aula_curso.pk,
                                 "aula": horario_aula_curso.aula_curso.aula,
                                 "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
-                                "materia_id": assigned.get(horario_aula_curso.pk),
+                                "materia_id": clases.get((horario_aula_curso.pk, current_date)),
+                            }
+                        )
+                        materia_id = clases.get((horario_aula_curso.pk, current_date))
+                        materia = next((item for item in materias if item.pk == materia_id), None)
+                        event_color = materia.color if materia else "#dff1ff"
+                        calendar_events.append(
+                            {
+                                "id": f"{horario_aula_curso.pk}-{current_date.isoformat()}",
+                                "horarioId": horario_aula_curso.pk,
+                                "fecha": current_date.isoformat(),
+                                "title": f"{horario_aula_curso.aula_curso.aula} · {getattr(materia, 'nombre_corto', None) or getattr(materia, 'nombre', 'Sin materia')}",
+                                "start": f"{current_date.isoformat()}T{horario.hora_inicio:%H:%M:%S}",
+                                "end": f"{current_date.isoformat()}T{horario.hora_fin:%H:%M:%S}",
+                                "allDay": False,
+                                "className": "materia-event" if materia else "sin-materia-event",
+                                "color": event_color,
+                                "backgroundColor": event_color,
+                                "borderColor": event_color,
+                                "textColor": readable_text_color(event_color) if materia else "#7c3aed",
+                                "aula": str(horario_aula_curso.aula_curso.aula),
+                                "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
+                                "materiaId": materia_id or "",
+                                "materia": getattr(materia, "nombre", "") if materia else "",
                             }
                         )
                     if blocks:
@@ -561,12 +634,14 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "cursos": cursos,
             "materias": materias,
             "rows": rows,
+            "calendar_events_json": json.dumps(calendar_events),
+            "calendar_default_date": calendar_default_date,
             "selected_curso": selected_curso,
             "selected_curso_periodo": selected_curso_periodo,
             "selected_curso_id": selected_curso_id,
             "can_save": self.request.user.is_superuser
-            or self.request.user.has_perm("academico.add_materiahorario")
-            or self.request.user.has_perm("academico.change_materiahorario"),
+            or self.request.user.has_perm("academico.add_clase")
+            or self.request.user.has_perm("academico.change_clase"),
         }
 
 

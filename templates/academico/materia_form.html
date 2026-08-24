@@ -34,6 +34,14 @@
         {% endfor %}
       </div>
 
+      <div class="col-md-3">
+        <label class="form-label" for="{{ form.color.id_for_label }}">{{ form.color.label }}</label>
+        {{ form.color }}
+        {% for error in form.color.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+
       <div class="col-12">
         <label class="form-label" for="{{ form.descripcion.id_for_label }}">{{ form.descripcion.label }}</label>
         {{ form.descripcion }}

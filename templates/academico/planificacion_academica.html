@@ -1,6 +1,11 @@
 {% extends "web/base.html" %}
+{% load static %}
 
 {% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
+{% endblock %}
 
 {% block content %}
   <header class="page-header">
@@ -24,10 +29,7 @@
     </form>
 
     {% if selected_curso %}
-      <form method="post" novalidate>
-        {% csrf_token %}
-        <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
-
+      <div class="planning-status">
         {% if selected_curso_periodo %}
           <div class="alert alert-info">
             Periodo: {{ selected_curso_periodo.periodo.nombre }} ({{ selected_curso_periodo.periodo.fecha_inicio|date:"d/m/Y" }} - {{ selected_curso_periodo.periodo.fecha_fin|date:"d/m/Y" }})
@@ -38,132 +40,227 @@
             <a href="{{ periodo_create_url }}">Crear periodo</a>
           </div>
         {% endif %}
+      </div>
 
-        <div class="academic-calendar-wrap">
-          <div class="academic-date-list">
-            {% for row in rows %}
-              <section class="academic-date-row">
-                <div class="academic-date-cell">
-                  <strong>{{ row.fecha|date:"d/m/Y" }}</strong>
-                  <span>{{ row.dia }}</span>
-                </div>
-                <div class="academic-date-blocks">
-                  {% for block in row.blocks %}
-                    <article class="academic-schedule-block">
-                      <div>
-                        <strong>{{ block.aula }}</strong>
-                        <span>{{ block.hora }}</span>
-                      </div>
-                      <select class="form-select form-select-sm" name="materia_{{ block.id }}">
-                        <option value="">Materia</option>
-                        {% for materia in materias %}
-                          <option value="{{ materia.pk }}"{% if block.materia_id == materia.pk %} selected{% endif %}>
-                            {% firstof materia.nombre_corto materia.nombre %}
-                          </option>
-                        {% endfor %}
-                      </select>
-                    </article>
-                  {% endfor %}
-                </div>
-              </section>
-            {% empty %}
-              {% if selected_curso_periodo %}
-                <div class="academic-empty-state">
-                  No hay horarios creados para este grupo dentro del periodo.
-                </div>
-              {% endif %}
-              {% endfor %}
+      {% if selected_curso_periodo %}
+        <div class="edudash-calendar-wrap planning-calendar-wrap">
+          <div id="calendar"></div>
+        </div>
+
+        {% if not rows %}
+          <div class="academic-empty-state">
+            No hay horarios creados para este grupo dentro del periodo.
           </div>
-        </div>
-
-        <div class="form-actions">
-          {% if can_save and rows %}
-            <button class="btn btn-primary" type="submit">Guardar planificacion</button>
-          {% endif %}
-        </div>
-      </form>
+        {% endif %}
+      {% endif %}
     {% else %}
       <div class="calendar-empty">
         Selecciona un grupo para cargar sus horarios.
       </div>
     {% endif %}
   </section>
+
+  <div class="offcanvas offcanvas-end schedule-offcanvas" tabindex="-1" id="planificacionMateriaOffcanvas" aria-labelledby="planificacionMateriaTitle">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title" id="planificacionMateriaTitle">Asignar materia</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div class="planning-selection-summary">
+        <span data-planning-date></span>
+        <strong data-planning-aula></strong>
+        <small data-planning-time></small>
+      </div>
+
+      {% if can_save and selected_curso %}
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
+          <input type="hidden" name="horario_aula_curso" data-planning-horario>
+          <input type="hidden" name="fecha" data-planning-fecha>
+
+          <div class="mb-3">
+            <label class="form-label" for="materiaPlanificacion">Materia</label>
+            <select class="form-select" id="materiaPlanificacion" name="materia" data-planning-materia>
+              <option value="">Sin materia</option>
+              {% for materia in materias %}
+                <option value="{{ materia.pk }}">{% firstof materia.nombre_corto materia.nombre %}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <button class="btn btn-primary-600 w-100" type="submit">Guardar materia</button>
+        </form>
+      {% else %}
+        <p class="text-muted mb-0">No tienes permiso para asignar materias.</p>
+      {% endif %}
+    </div>
+  </div>
 {% endblock %}
 
 {% block extra_scripts %}
+  <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
+  <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
+  <script src="{% static 'assets/js/full-calendar.js' %}"></script>
   <script>
-    document.addEventListener("DOMContentLoaded", function () {
+    (function () {
       const groupSelect = document.querySelector("[data-group-select]");
-      if (!groupSelect) return;
-      groupSelect.addEventListener("change", function () {
-        this.form.submit();
-      });
-    });
+      if (groupSelect) {
+        groupSelect.addEventListener("change", function () {
+          this.form.submit();
+        });
+      }
+
+      const events = {{ calendar_events_json|safe }};
+      const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
+      const hasCalendar = document.getElementById("calendar");
+      const canSave = {{ can_save|yesno:"true,false" }};
+
+      function formatDate(date) {
+        return date.toLocaleDateString("es-EC", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          year: "numeric"
+        });
+      }
+
+      function openMateriaPanel(event) {
+        if (!canSave) return;
+        document.querySelector("[data-planning-horario]").value = event.horarioId;
+        document.querySelector("[data-planning-fecha]").value = event.fecha;
+        document.querySelector("[data-planning-materia]").value = event.materiaId || "";
+        document.querySelector("[data-planning-date]").textContent = formatDate(event.start);
+        document.querySelector("[data-planning-aula]").textContent = event.aula || "";
+        document.querySelector("[data-planning-time]").textContent = event.hora || "";
+        bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("planificacionMateriaOffcanvas")).show();
+      }
+
+      function paintEvent(element, event) {
+        if (!event.backgroundColor) return;
+        const node = element.get(0);
+        const innerNode = element.find(".fc-event-inner").get(0);
+        const textNodes = element.find(".fc-event-title, .fc-event-time").toArray();
+        const background = event.backgroundColor;
+        const border = event.borderColor || background;
+        const text = event.textColor || "#ffffff";
+
+        [node, innerNode].filter(Boolean).forEach(function (target) {
+          target.style.setProperty("background-color", background, "important");
+          target.style.setProperty("border-color", border, "important");
+          target.style.setProperty("color", text, "important");
+        });
+        textNodes.forEach(function (target) {
+          target.style.setProperty("color", text, "important");
+        });
+      }
+
+      if (hasCalendar) {
+        $(function () {
+          const $calendar = $("#calendar");
+          if ($calendar.data("fullCalendar")) {
+            $calendar.fullCalendar("destroy");
+          }
+          $calendar.fullCalendar({
+            header: {
+              left: "title",
+              center: "agendaDay,agendaWeek,month",
+              right: "prev,next today"
+            },
+            defaultView: "agendaWeek",
+            year: defaultDate.getFullYear(),
+            month: defaultDate.getMonth(),
+            date: defaultDate.getDate(),
+            firstDay: 1,
+            editable: false,
+            selectable: false,
+            allDaySlot: false,
+            minTime: 7,
+            maxTime: 18,
+            slotMinutes: 30,
+            firstHour: 7,
+            slotEventOverlap: false,
+            timeFormat: "H:mm",
+            axisFormat: "H:mm",
+            buttonText: {
+              today: "hoy",
+              month: "mes",
+              week: "semana",
+              day: "dia"
+            },
+            monthNames: ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
+            monthNamesShort: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+            dayNames: ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"],
+            dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+            events: events,
+            eventRender: function (event, element) {
+              element.attr("title", [event.aula, event.hora, event.materia || "Sin materia"].filter(Boolean).join(" - "));
+              paintEvent(element, event);
+            },
+            eventAfterRender: function (event, element) {
+              paintEvent(element, event);
+            },
+            eventClick: function (event) {
+              openMateriaPanel(event);
+            }
+          });
+        });
+      }
+    })();
   </script>
   <style>
     .academic-planning-panel {
       overflow: hidden;
     }
 
-    .academic-calendar-wrap {
-      overflow-x: auto;
-      padding-top: 16px;
+    .planning-status {
+      margin-top: 16px;
     }
 
-    .academic-date-list {
-      display: grid;
-      gap: 10px;
-      min-width: 760px;
-    }
-
-    .academic-date-row {
-      background: #ffffff;
-      display: grid;
-      gap: 12px;
-      grid-template-columns: 130px 1fr;
-      padding: 12px;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-    }
-
-    .academic-date-cell {
-      display: grid;
-      align-content: start;
-    }
-
-    .academic-date-cell span,
-    .academic-schedule-block span {
-      color: #667085;
-      font-size: 12px;
-    }
-
-    .academic-date-blocks {
-      display: grid;
-      gap: 10px;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    }
-
-    .academic-schedule-block {
-      background: #f8fafc;
-      border: 1px solid #d0d5dd;
-      border-left: 4px solid #2563eb;
-      border-radius: 8px;
-      display: grid;
-      gap: 8px;
-      padding: 10px;
-    }
-
-    .academic-schedule-block strong {
-      color: #111827;
-      font-size: 13px;
+    .planning-calendar-wrap {
+      margin-top: 16px;
+      min-height: 680px;
     }
 
     .academic-empty-state {
       background: #ffffff;
       color: #667085;
-      grid-column: 1 / -1;
+      margin-top: 16px;
       padding: 28px;
       text-align: center;
+    }
+
+    .planning-selection-summary {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      display: grid;
+      gap: 4px;
+      margin-bottom: 16px;
+      padding: 14px;
+    }
+
+    .planning-selection-summary span,
+    .planning-selection-summary small {
+      color: #667085;
+    }
+
+    .planning-selection-summary strong {
+      color: #111827;
+    }
+
+    #calendar .fc-event {
+      cursor: pointer;
+    }
+
+    #calendar .fc-event.materia-event {
+      border-width: 1px;
+    }
+
+    #calendar .fc-event.sin-materia-event {
+      background-color: #ead7ff;
+      border-color: #d8b4fe;
+      color: #7c3aed;
     }
   </style>
 {% endblock %}
