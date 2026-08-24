@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 
 from django.urls import reverse_lazy
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import ValidationError
@@ -13,7 +13,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
 
-from apps.core.models import Empresa
+from apps.core.models import Empresa, Partner
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 
 from .forms import (
@@ -28,6 +28,8 @@ from .forms import (
     HorarioAsignacionBaseForm,
     HorarioAsignacionFormSet,
     HorarioClaseForm,
+    PlanificacionDocenteBaseForm,
+    PlanificacionDocenteFormSet,
     PlanificacionClaseForm,
     PreguntaForm,
     TemaForm,
@@ -50,6 +52,7 @@ from .models import (
     MateriaCurso,
     Periodo,
     PlanificacionClase,
+    ProfesorMateriaCurso,
     Pregunta,
     Tema,
     Temario,
@@ -262,8 +265,36 @@ class HorarioDistribucionListView(LoginRequiredMixin, PermissionRequiredMixin, V
     template_name = "academico/horario_distribucion_list.html"
 
     def get(self, request, *args, **kwargs):
-        cursos = Curso.objects.filter(activo=True).order_by("nombre")
-        selected_curso = request.GET.get("curso")
+        q = request.GET.get("q")
+        grupos = (
+            Curso.objects.filter(aula_cursos__horario_aula_cursos__isnull=False)
+            .annotate(total_horarios=Count("aula_cursos__horario_aula_cursos", distinct=True))
+            .order_by("nombre")
+            .distinct()
+        )
+        if q:
+            grupos = grupos.filter(nombre__icontains=q)
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Horarios",
+                "grupos": grupos,
+                "can_edit": request.user.has_perm("academico.change_horarioaulacurso"),
+                "create_url_name": "academico:horario_distribucion_nuevo"
+                if request.user.has_perm("academico.add_horarioaulacurso")
+                else "",
+            },
+        )
+
+
+class HorarioDistribucionDetalleView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.view_horarioaulacurso"
+    template_name = "academico/horario_distribucion_detalle.html"
+
+    def get(self, request, curso_pk):
+        curso = get_object_or_404(Curso, pk=curso_pk)
         horarios = (
             HorarioAulaCurso.objects.select_related(
                 "aula_curso__curso",
@@ -277,22 +308,16 @@ class HorarioDistribucionListView(LoginRequiredMixin, PermissionRequiredMixin, V
                 "horario_dia__horario__hora_inicio",
                 "aula_curso__aula__nombre",
             )
+            .filter(aula_curso__curso=curso)
         )
-        if selected_curso:
-            horarios = horarios.filter(aula_curso__curso_id=selected_curso)
-
         return render(
             request,
             self.template_name,
             {
-                "title": "Horarios",
-                "cursos": cursos,
-                "selected_curso": selected_curso,
+                "title": "Detalle de horario",
+                "curso": curso,
                 "horarios": horarios,
                 "can_edit": request.user.has_perm("academico.change_horarioaulacurso"),
-                "create_url_name": "academico:horario_distribucion_nuevo"
-                if request.user.has_perm("academico.add_horarioaulacurso")
-                else "",
             },
         )
 
@@ -461,10 +486,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
     permission_required = "academico.view_clase"
     template_name = "academico/planificacion_academica.html"
 
-    def get(self, request):
+    def get(self, request, *args, **kwargs):
         return render(request, self.template_name, self.get_context())
 
-    def post(self, request):
+    def post(self, request, *args, **kwargs):
         if not (
             request.user.has_perm("academico.add_clase")
             or request.user.has_perm("academico.change_clase")
@@ -506,6 +531,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
             materia_id = request.POST.get("materia") or ""
+            asignar_periodo = request.POST.get("asignar_periodo") == "on"
             with transaction.atomic():
                 Clase.objects.filter(horario_aula_curso=horario_aula_curso, fecha=fecha_clase).delete()
                 if materia_id:
@@ -519,7 +545,28 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                         materia_curso=materia_grupo,
                         fecha=fecha_clase,
                     )
-            messages.success(request, "Clase asignada correctamente.")
+                    created_count = 1
+                    if asignar_periodo:
+                        current_date = curso_periodo.periodo.fecha_inicio
+                        while current_date <= curso_periodo.periodo.fecha_fin:
+                            if (
+                                current_date != fecha_clase
+                                and weekday_to_dia[current_date.weekday()] == horario_aula_curso.horario_dia.dia.dia
+                            ):
+                                _, created = Clase.objects.get_or_create(
+                                    horario_aula_curso=horario_aula_curso,
+                                    fecha=current_date,
+                                    defaults={"materia_curso": materia_grupo},
+                                )
+                                if created:
+                                    created_count += 1
+                            current_date += timedelta(days=1)
+                    if asignar_periodo:
+                        messages.success(request, f"Clase asignada correctamente en {created_count} fecha(s) libre(s).")
+                    else:
+                        messages.success(request, "Clase asignada correctamente.")
+                else:
+                    messages.success(request, "Clase removida correctamente.")
             return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
         messages.error(request, "Selecciona un horario del calendario para asignar la clase.")
@@ -559,13 +606,20 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 )
             )
             clases = {}
+            docentes_by_materia_curso = {}
             if selected_curso_periodo:
                 clases = {
-                    (item.horario_aula_curso_id, item.fecha): item.materia_curso.materia_id
+                    (item.horario_aula_curso_id, item.fecha): item
                     for item in Clase.objects.select_related("materia_curso__materia").filter(
                         horario_aula_curso__in=horarios,
                         fecha__gte=selected_curso_periodo.periodo.fecha_inicio,
                         fecha__lte=selected_curso_periodo.periodo.fecha_fin,
+                    )
+                }
+                docentes_by_materia_curso = {
+                    item.materia_curso_id: item.partner
+                    for item in ProfesorMateriaCurso.objects.select_related("partner").filter(
+                        materia_curso__grupo=selected_curso,
                     )
                 }
             weekday_to_dia = {
@@ -598,18 +652,28 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 "id": horario_aula_curso.pk,
                                 "aula": horario_aula_curso.aula_curso.aula,
                                 "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
-                                "materia_id": clases.get((horario_aula_curso.pk, current_date)),
+                                "materia_id": getattr(clases.get((horario_aula_curso.pk, current_date)), "materia_curso", None).materia_id
+                                if clases.get((horario_aula_curso.pk, current_date))
+                                else None,
                             }
                         )
-                        materia_id = clases.get((horario_aula_curso.pk, current_date))
+                        clase = clases.get((horario_aula_curso.pk, current_date))
+                        materia_id = clase.materia_curso.materia_id if clase else None
                         materia = next((item for item in materias if item.pk == materia_id), None)
+                        docente = docentes_by_materia_curso.get(clase.materia_curso_id) if clase else None
                         event_color = materia.color if materia else "#dff1ff"
+                        title_parts = [
+                            str(horario_aula_curso.aula_curso.aula),
+                            getattr(materia, "nombre_corto", None) or getattr(materia, "nombre", "Sin materia"),
+                        ]
+                        if docente:
+                            title_parts.append(docente.nombre)
                         calendar_events.append(
                             {
                                 "id": f"{horario_aula_curso.pk}-{current_date.isoformat()}",
                                 "horarioId": horario_aula_curso.pk,
                                 "fecha": current_date.isoformat(),
-                                "title": f"{horario_aula_curso.aula_curso.aula} · {getattr(materia, 'nombre_corto', None) or getattr(materia, 'nombre', 'Sin materia')}",
+                                "title": " · ".join(title_parts),
                                 "start": f"{current_date.isoformat()}T{horario.hora_inicio:%H:%M:%S}",
                                 "end": f"{current_date.isoformat()}T{horario.hora_fin:%H:%M:%S}",
                                 "allDay": False,
@@ -622,6 +686,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
                                 "materiaId": materia_id or "",
                                 "materia": getattr(materia, "nombre", "") if materia else "",
+                                "docente": docente.nombre if docente else "",
                             }
                         )
                     if blocks:
@@ -643,6 +708,186 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             or self.request.user.has_perm("academico.add_clase")
             or self.request.user.has_perm("academico.change_clase"),
         }
+
+
+class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.view_profesormateriacurso"
+    template_name = "academico/planificacion_docente_list.html"
+
+    def get(self, request):
+        docentes = (
+            Partner.objects.filter(profesor_materia_cursos__isnull=False)
+            .annotate(total_asignaciones=Count("profesor_materia_cursos", distinct=True))
+            .order_by("nombre")
+            .distinct()
+        )
+        q = request.GET.get("q")
+        if q:
+            docentes = docentes.filter(Q(nombre__icontains=q) | Q(identificacion__icontains=q))
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Planificacion docente",
+                "docentes": docentes,
+            },
+        )
+
+
+class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.view_profesormateriacurso"
+    template_name = "academico/planificacion_docente.html"
+
+    def get(self, request, *args, **kwargs):
+        docente = self.get_docente()
+        base_form = PlanificacionDocenteBaseForm(initial={"docente": docente})
+        formset = self.get_formset(docente=docente)
+        return render(request, self.template_name, self.get_context(base_form, formset, docente))
+
+    def post(self, request, *args, **kwargs):
+        if not (
+            request.user.has_perm("academico.add_profesormateriacurso")
+            or request.user.has_perm("academico.change_profesormateriacurso")
+            or request.user.is_superuser
+        ):
+            return self.handle_no_permission()
+
+        base_form = PlanificacionDocenteBaseForm(request.POST)
+        docente = None
+        if base_form.is_valid():
+            docente = base_form.cleaned_data["docente"]
+        formset = PlanificacionDocenteFormSet(request.POST, form_kwargs={"docente": docente})
+
+        if base_form.is_valid() and formset.is_valid():
+            rows = []
+            materia_ids = set()
+            duplicate = False
+            for form in formset:
+                if form.cleaned_data.get("DELETE") or not form.has_assignment_data():
+                    continue
+                materia_curso = form.cleaned_data["materia_curso"]
+                if materia_curso.pk in materia_ids:
+                    form.add_error("materia_curso", "Esta materia ya esta repetida en el formulario.")
+                    duplicate = True
+                    continue
+                materia_ids.add(materia_curso.pk)
+                rows.append(materia_curso)
+
+            if not duplicate:
+                with transaction.atomic():
+                    ProfesorMateriaCurso.objects.filter(partner=docente).exclude(materia_curso_id__in=materia_ids).delete()
+                    for materia_curso in rows:
+                        ProfesorMateriaCurso.objects.get_or_create(partner=docente, materia_curso=materia_curso)
+                messages.success(request, "Planificacion docente guardada correctamente.")
+                return redirect("academico:planificacion_docente")
+
+        return render(request, self.template_name, self.get_context(base_form, formset, docente))
+
+    def get_docente(self):
+        docente_id = self.kwargs.get("docente_pk") or self.request.GET.get("docente")
+        if not docente_id:
+            return None
+        return get_object_or_404(Partner, pk=docente_id, es_docente=True, activo=True)
+
+    def get_formset(self, docente=None):
+        initial = []
+        if docente:
+            initial = [
+                {
+                    "grupo": item.materia_curso.grupo,
+                    "materia_curso": item.materia_curso,
+                }
+                for item in ProfesorMateriaCurso.objects.select_related(
+                    "materia_curso__grupo",
+                    "materia_curso__materia",
+                )
+                .filter(partner=docente)
+                .order_by("materia_curso__grupo__nombre", "materia_curso__materia__nombre")
+            ]
+        if not initial:
+            initial = [{}]
+        return PlanificacionDocenteFormSet(initial=initial, form_kwargs={"docente": docente})
+
+    def get_context(self, base_form, formset, docente):
+        materia_options = [
+            {
+                "id": item.pk,
+                "grupo_id": item.grupo_id,
+                "nombre": item.materia.nombre,
+            }
+            for item in MateriaCurso.objects.select_related("materia", "grupo").order_by("grupo__nombre", "materia__nombre")
+        ]
+        return {
+            "title": "Planificacion docente",
+            "base_form": base_form,
+            "formset": formset,
+            "selected_docente": docente,
+            "materia_options_json": json.dumps(materia_options),
+            "list_url": reverse_lazy("academico:planificacion_docente"),
+            "assign_url": reverse_lazy("academico:planificacion_docente_asignar"),
+        }
+
+
+class DocenteHorariosView(LoginRequiredMixin, View):
+    template_name = "academico/docente_horarios.html"
+
+    def get(self, request):
+        docente = getattr(request.user, "partner", None)
+        if not docente or not docente.es_docente:
+            return render(
+                request,
+                self.template_name,
+                {
+                    "title": "Mis horarios",
+                    "docente": None,
+                    "grupos_detalle": [],
+                },
+            )
+
+        asignaciones = (
+            ProfesorMateriaCurso.objects.select_related("materia_curso__grupo", "materia_curso__materia")
+            .filter(partner=docente)
+            .order_by("materia_curso__grupo__nombre", "materia_curso__materia__nombre")
+        )
+        grupos = {item.materia_curso.grupo_id: item.materia_curso.grupo for item in asignaciones}
+        horarios_by_grupo = {}
+        horarios = (
+            HorarioAulaCurso.objects.select_related(
+                "aula_curso__curso",
+                "aula_curso__aula",
+                "horario_dia__dia",
+                "horario_dia__horario",
+            )
+            .filter(aula_curso__curso_id__in=grupos.keys())
+            .order_by(
+                "aula_curso__curso__nombre",
+                "horario_dia__dia__id",
+                "horario_dia__horario__hora_inicio",
+                "aula_curso__aula__nombre",
+            )
+        )
+        for horario in horarios:
+            horarios_by_grupo.setdefault(horario.aula_curso.curso_id, []).append(horario)
+
+        grupos_detalle = []
+        for grupo_id, grupo in sorted(grupos.items(), key=lambda item: item[1].nombre):
+            grupos_detalle.append(
+                {
+                    "grupo": grupo,
+                    "materias": [item.materia_curso.materia for item in asignaciones if item.materia_curso.grupo_id == grupo_id],
+                    "horarios": horarios_by_grupo.get(grupo_id, []),
+                }
+            )
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Mis horarios",
+                "docente": docente,
+                "grupos_detalle": grupos_detalle,
+            },
+        )
 
 
 class AsignaturaListView(InstitutoListView):

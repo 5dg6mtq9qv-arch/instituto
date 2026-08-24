@@ -8,7 +8,23 @@ from apps.core.models import Partner
 
 from apps.matricula.models import Aula as MatriculaAula, PeriodoAcademico
 
-from .models import Asignatura, Aula, BancoPregunta, Curso, CursoPeriodo, Dia, HorarioClase, Materia, Periodo, PlanificacionClase, Pregunta, Tema, Temario
+from .models import (
+    Asignatura,
+    Aula,
+    BancoPregunta,
+    Curso,
+    CursoPeriodo,
+    Dia,
+    HorarioClase,
+    Materia,
+    MateriaCurso,
+    Periodo,
+    PlanificacionClase,
+    ProfesorMateriaCurso,
+    Pregunta,
+    Tema,
+    Temario,
+)
 
 
 class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):
@@ -247,6 +263,63 @@ HorarioDistribucionFormSet = formset_factory(
     HorarioDistribucionItemForm,
     extra=0,
     can_delete=False,
+)
+
+
+class PlanificacionDocenteBaseForm(BootstrapFormMixin, forms.Form):
+    docente = forms.ModelChoiceField(queryset=Partner.objects.none())
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["docente"].queryset = Partner.objects.filter(es_docente=True, activo=True).order_by("nombre")
+
+
+class PlanificacionDocenteItemForm(BootstrapFormMixin, forms.Form):
+    grupo = forms.ModelChoiceField(queryset=Curso.objects.none(), required=False)
+    materia_curso = forms.ModelChoiceField(label="Materia", queryset=MateriaCurso.objects.none(), required=False)
+
+    def __init__(self, *args, **kwargs):
+        self.docente = kwargs.pop("docente", None)
+        super().__init__(*args, **kwargs)
+        self.fields["grupo"].queryset = Curso.objects.filter(activo=True).order_by("nombre")
+        self.fields["materia_curso"].queryset = MateriaCurso.objects.select_related("materia", "grupo").order_by("grupo__nombre", "materia__nombre")
+        self.fields["materia_curso"].label_from_instance = lambda obj: obj.materia.nombre
+
+    def has_assignment_data(self):
+        return any(self.cleaned_data.get(field) for field in ["grupo", "materia_curso"])
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.cleaned_data.get("DELETE"):
+            return cleaned_data
+        if not self.has_assignment_data():
+            return cleaned_data
+
+        grupo = cleaned_data.get("grupo")
+        materia_curso = cleaned_data.get("materia_curso")
+        if not grupo:
+            self.add_error("grupo", "Selecciona un grupo.")
+        if not materia_curso:
+            self.add_error("materia_curso", "Selecciona una materia.")
+        if grupo and materia_curso and materia_curso.grupo_id != grupo.pk:
+            self.add_error("materia_curso", "La materia no pertenece al grupo seleccionado.")
+        if materia_curso:
+            assigned = ProfesorMateriaCurso.objects.select_related("partner").filter(materia_curso=materia_curso)
+            if self.docente:
+                assigned = assigned.exclude(partner=self.docente)
+            existing = assigned.first()
+            if existing:
+                self.add_error(
+                    "materia_curso",
+                    f"Esta materia del grupo ya esta asignada a {existing.partner}.",
+                )
+        return cleaned_data
+
+
+PlanificacionDocenteFormSet = formset_factory(
+    PlanificacionDocenteItemForm,
+    extra=0,
+    can_delete=True,
 )
 
 

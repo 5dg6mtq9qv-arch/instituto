@@ -73,6 +73,14 @@ MENU_GROUPS = [
             {"label": "Periodos", "url_name": "academico:periodo_list", "perm": "academico.view_periodo"},
             {"label": "Horario", "url_name": "academico:horario_distribucion", "perm": "academico.view_horarioaulacurso"},
             {"label": "Planificacion academica", "url_name": "academico:planificacion_academica", "perm": "academico.view_clase"},
+            {"label": "Planificacion docente", "url_name": "academico:planificacion_docente", "perm": "academico.view_profesormateriacurso"},
+        ],
+    },
+    {
+        "label": "Docente",
+        "icon": "ri-user-star-line",
+        "items": [
+            {"label": "Mis horarios", "url_name": "academico:docente_horarios", "perm": None},
         ],
     },
     {

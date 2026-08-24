@@ -1,0 +1,141 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Docente</p>
+      <h1>{{ title }}</h1>
+    </div>
+  </header>
+
+  {% if not docente %}
+    <section class="panel">
+      <p class="text-muted mb-0">Tu usuario no esta vinculado a un docente activo.</p>
+    </section>
+  {% else %}
+    <section class="panel docente-summary-panel">
+      <strong>{{ docente.nombre }}</strong>
+      <span>{{ docente.identificacion|default:"" }}</span>
+    </section>
+
+    {% for bloque in grupos_detalle %}
+      <section class="panel docente-detail-panel">
+        <div class="docente-detail-header">
+          <div>
+            <span>Grupo</span>
+            <h2>{{ bloque.grupo.nombre }}</h2>
+          </div>
+          <div class="docente-materia-list">
+            {% for materia in bloque.materias %}
+              <span class="docente-materia-chip" style="border-color: {{ materia.color }};">
+                <span style="background-color: {{ materia.color }};"></span>
+                {{ materia.nombre }}
+              </span>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="table-responsive list-table-responsive">
+          <table class="table align-middle app-table">
+            <thead>
+              <tr>
+                <th>Aula</th>
+                <th>Dia</th>
+                <th>Hora inicio</th>
+                <th>Hora fin</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for horario in bloque.horarios %}
+                <tr>
+                  <td>{{ horario.aula_curso.aula }}</td>
+                  <td>{{ horario.horario_dia.dia }}</td>
+                  <td>{{ horario.horario_dia.horario.hora_inicio|time:"H:i" }}</td>
+                  <td>{{ horario.horario_dia.horario.hora_fin|time:"H:i" }}</td>
+                </tr>
+              {% empty %}
+                <tr>
+                  <td colspan="4" class="text-center text-muted py-4">Este grupo no tiene horarios configurados.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    {% empty %}
+      <section class="panel">
+        <p class="text-muted mb-0">No tienes materias asignadas.</p>
+      </section>
+    {% endfor %}
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .docente-summary-panel {
+      display: grid;
+      gap: 4px;
+      margin-bottom: 16px;
+    }
+
+    .docente-summary-panel strong {
+      color: #111827;
+      font-size: 18px;
+    }
+
+    .docente-summary-panel span {
+      color: #667085;
+    }
+
+    .docente-detail-panel + .docente-detail-panel {
+      margin-top: 16px;
+    }
+
+    .docente-detail-header {
+      align-items: start;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .docente-detail-header > div > span {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .docente-detail-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 4px 0 0;
+    }
+
+    .docente-materia-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .docente-materia-chip {
+      align-items: center;
+      border: 1px solid #d0d5dd;
+      border-radius: 6px;
+      color: #1f2937;
+      display: inline-flex;
+      gap: 8px;
+      padding: 6px 10px;
+    }
+
+    .docente-materia-chip span {
+      border-radius: 3px;
+      display: inline-block;
+      height: 14px;
+      width: 20px;
+    }
+  </style>
+{% endblock %}

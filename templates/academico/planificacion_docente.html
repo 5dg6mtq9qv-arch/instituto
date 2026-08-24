@@ -1,0 +1,192 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ list_url }}">Volver</a>
+  </header>
+
+  <form class="panel form-panel horario-distribucion-form" method="post" novalidate>
+    {% csrf_token %}
+    {{ formset.management_form }}
+
+    {% if base_form.non_field_errors %}
+      <div class="alert alert-danger">{{ base_form.non_field_errors }}</div>
+    {% endif %}
+    {% if formset.non_form_errors %}
+      <div class="alert alert-danger">{{ formset.non_form_errors }}</div>
+    {% endif %}
+
+    <section class="form-section form-section-current">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="{{ base_form.docente.id_for_label }}">{{ base_form.docente.label }}</label>
+          {{ base_form.docente }}
+          {% for error in base_form.docente.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <div class="section-heading">
+        <h2>Asignacion de materias</h2>
+        <button class="btn btn-outline-primary btn-sm" type="button" data-add-row>
+          <i class="ri-add-line"></i>
+          Agregar
+        </button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table align-middle app-table docente-plan-table">
+          <thead>
+            <tr>
+              <th>Grupo</th>
+              <th>Materia</th>
+              <th class="text-end">Accion</th>
+            </tr>
+          </thead>
+          <tbody data-formset-body>
+            {% for form in formset %}
+              <tr data-form-row>
+                <td>
+                  {{ form.grupo }}
+                  {% for error in form.grupo.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </td>
+                <td>
+                  {{ form.materia_curso }}
+                  {% for error in form.materia_curso.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                  {% for error in form.non_field_errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </td>
+                <td class="text-end">
+                  {{ form.DELETE }}
+                  <button class="btn btn-outline-danger btn-sm" type="button" data-remove-row aria-label="Eliminar fila">
+                    <i class="ri-delete-bin-line"></i>
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <template data-empty-form>
+        <tr data-form-row>
+          <td>{{ formset.empty_form.grupo }}</td>
+          <td>{{ formset.empty_form.materia_curso }}</td>
+          <td class="text-end">
+            {{ formset.empty_form.DELETE }}
+            <button class="btn btn-outline-danger btn-sm" type="button" data-remove-row aria-label="Eliminar fila">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </td>
+        </tr>
+      </template>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ list_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar planificacion</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    (function () {
+      const materiaOptions = {{ materia_options_json|safe }};
+      const docenteSelect = document.getElementById("id_docente");
+      const body = document.querySelector("[data-formset-body]");
+      const template = document.querySelector("[data-empty-form]");
+      const totalForms = document.querySelector("[name='form-TOTAL_FORMS']");
+
+      if (docenteSelect) {
+        docenteSelect.addEventListener("change", function () {
+          if (!this.value) return;
+          window.location.href = `{{ assign_url }}?docente=${this.value}`;
+        });
+      }
+
+      function filterMateriaSelect(row) {
+        const grupoSelect = row.querySelector("select[name$='-grupo']");
+        const materiaSelect = row.querySelector("select[name$='-materia_curso']");
+        if (!grupoSelect || !materiaSelect) return;
+
+        const selected = materiaSelect.value;
+        const grupoId = grupoSelect.value;
+        materiaSelect.innerHTML = '<option value="">---------</option>';
+        materiaOptions
+          .filter(function (item) {
+            return !grupoId || String(item.grupo_id) === String(grupoId);
+          })
+          .forEach(function (item) {
+            const option = document.createElement("option");
+            option.value = item.id;
+            option.textContent = item.nombre;
+            if (String(item.id) === String(selected)) {
+              option.selected = true;
+            }
+            materiaSelect.appendChild(option);
+          });
+      }
+
+      function wireRow(row) {
+        const grupoSelect = row.querySelector("select[name$='-grupo']");
+        const deleteInput = row.querySelector("input[name$='-DELETE']");
+        if (deleteInput) {
+          deleteInput.classList.add("d-none");
+        }
+        if (grupoSelect) {
+          grupoSelect.addEventListener("change", function () {
+            const materiaSelect = row.querySelector("select[name$='-materia_curso']");
+            if (materiaSelect) materiaSelect.value = "";
+            filterMateriaSelect(row);
+          });
+        }
+        filterMateriaSelect(row);
+      }
+
+      document.querySelectorAll("[data-form-row]").forEach(wireRow);
+
+      document.querySelector("[data-add-row]").addEventListener("click", function () {
+        const index = Number(totalForms.value);
+        const html = template.innerHTML.replaceAll("__prefix__", index);
+        body.insertAdjacentHTML("beforeend", html);
+        totalForms.value = index + 1;
+        wireRow(body.lastElementChild);
+      });
+
+      body.addEventListener("click", function (event) {
+        const removeButton = event.target.closest("[data-remove-row]");
+        if (!removeButton) return;
+        const row = removeButton.closest("[data-form-row]");
+        const deleteInput = row.querySelector("input[name$='-DELETE']");
+        if (deleteInput) {
+          deleteInput.checked = true;
+          row.classList.add("d-none");
+        }
+      });
+    })();
+  </script>
+  <style>
+    .docente-plan-table th {
+      white-space: nowrap;
+    }
+
+    .docente-plan-table select {
+      min-width: 240px;
+    }
+  </style>
+{% endblock %}

@@ -5,6 +5,7 @@
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -89,6 +90,11 @@
             </select>
           </div>
 
+          <div class="planning-period-switch">
+            <input class="js-switch" id="asignarPeriodoPlanificacion" type="checkbox" name="asignar_periodo" data-planning-periodo-switch>
+            <label for="asignarPeriodoPlanificacion">Asignar a todo el periodo</label>
+          </div>
+
           <button class="btn btn-primary-600 w-100" type="submit">Guardar materia</button>
         </form>
       {% else %}
@@ -102,6 +108,7 @@
   <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
   <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
   <script src="{% static 'assets/js/full-calendar.js' %}"></script>
+  <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
   <script>
     (function () {
       const groupSelect = document.querySelector("[data-group-select]");
@@ -115,6 +122,28 @@
       const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
       const hasCalendar = document.getElementById("calendar");
       const canSave = {{ can_save|yesno:"true,false" }};
+      let periodSwitchery = null;
+
+      if (window.Switchery) {
+        const switchInput = document.querySelector("[data-planning-periodo-switch]");
+        if (switchInput && switchInput.dataset.switchery !== "true") {
+          periodSwitchery = new Switchery(switchInput, {
+            color: "#16a34a",
+            secondaryColor: "#d1d5db",
+            jackColor: "#ffffff",
+            size: "small"
+          });
+        }
+      }
+
+      function resetPeriodSwitch() {
+        const switchInput = document.querySelector("[data-planning-periodo-switch]");
+        if (!switchInput) return;
+        switchInput.checked = false;
+        if (periodSwitchery) {
+          periodSwitchery.setPosition();
+        }
+      }
 
       function formatDate(date) {
         return date.toLocaleDateString("es-EC", {
@@ -133,6 +162,7 @@
         document.querySelector("[data-planning-date]").textContent = formatDate(event.start);
         document.querySelector("[data-planning-aula]").textContent = event.aula || "";
         document.querySelector("[data-planning-time]").textContent = event.hora || "";
+        resetPeriodSwitch();
         bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("planificacionMateriaOffcanvas")).show();
       }
 
@@ -194,7 +224,7 @@
             dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
             events: events,
             eventRender: function (event, element) {
-              element.attr("title", [event.aula, event.hora, event.materia || "Sin materia"].filter(Boolean).join(" - "));
+              element.attr("title", [event.aula, event.hora, event.materia || "Sin materia", event.docente].filter(Boolean).join(" - "));
               paintEvent(element, event);
             },
             eventAfterRender: function (event, element) {
@@ -247,6 +277,20 @@
 
     .planning-selection-summary strong {
       color: #111827;
+    }
+
+    .planning-period-switch {
+      align-items: center;
+      display: flex;
+      gap: 12px;
+      margin-bottom: 18px;
+      min-height: 36px;
+    }
+
+    .planning-period-switch label {
+      color: #1f2937;
+      cursor: pointer;
+      margin: 0;
     }
 
     #calendar .fc-event {

@@ -972,3 +972,27 @@ class Clase(models.Model):
 
     def __str__(self):
         return f"{self.fecha} - {self.horario_aula_curso} - {self.materia_curso}"
+
+
+class ProfesorMateriaCurso(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    partner = models.ForeignKey(
+        "core.Partner",
+        db_column="id_partner",
+        on_delete=models.RESTRICT,
+        related_name="profesor_materia_cursos",
+    )
+    materia_curso = models.ForeignKey(
+        MateriaCurso,
+        db_column="id_materia_curso",
+        on_delete=models.CASCADE,
+        related_name="profesor_materia_cursos",
+    )
+
+    class Meta:
+        db_table = '"academico"."profesor_materia_curso"'
+        unique_together = (("partner", "materia_curso"),)
+        ordering = ["materia_curso", "partner"]
+
+    def __str__(self):
+        return f"{self.partner} - {self.materia_curso}"
