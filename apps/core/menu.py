@@ -68,7 +68,6 @@ MENU_GROUPS = [
         "icon": "ri-graduation-cap-line",
         "items": [
             {"label": "Cursos", "url_name": "academico:curso_list", "perm": "academico.view_curso"},
-            {"label": "Nuevo curso", "url_name": "academico:curso_nuevo", "perm": "academico.add_curso"},
         ],
     },
     {

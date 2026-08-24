@@ -11,7 +11,7 @@
     {% if create_url_name %}
       <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
         <i class="ri-add-line"></i>
-        <span>Nuevo curso</span>
+        
       </a>
     {% endif %}
   </header>
@@ -46,7 +46,7 @@
                 {% endif %}
               </td>
               <td>{{ curso.descripcion|default:"-" }}</td>
-              <td><span class="status-badge status-{{ curso.activo|slugify }}">{{ curso.activo }}</span></td>
+              <td><span class="status-badge status-{{ curso.activo|slugify }}">{%if curso.activo%}✓{%else%}X{%endif%}</span></td>
               <td class="text-end">
                 {% if perms.academico.change_curso %}
                   <div class="dropdown table-action">
