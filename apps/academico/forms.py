@@ -7,7 +7,7 @@ from apps.core.models import Partner
 
 from apps.matricula.models import Aula as MatriculaAula, PeriodoAcademico
 
-from .models import Asignatura, Aula, BancoPregunta, Curso, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
+from .models import Asignatura, Aula, BancoPregunta, Curso, Dia, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
 
 
 class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):
@@ -140,6 +140,65 @@ class AulaForm(BootstrapFormMixin, forms.ModelForm):
         widgets = {
             "descripcion": forms.Textarea(attrs={"rows": 3}),
         }
+
+
+class HorarioDistribucionBaseForm(BootstrapFormMixin, forms.Form):
+    curso = forms.ModelChoiceField(
+        label="Grupo",
+        queryset=Curso.objects.none(),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["curso"].queryset = Curso.objects.filter(activo=True).order_by("nombre")
+
+
+class HorarioDistribucionItemForm(BootstrapFormMixin, forms.Form):
+    aula = forms.ModelChoiceField(queryset=Aula.objects.none(), required=False)
+    dia = forms.ModelChoiceField(queryset=Dia.objects.none(), required=False)
+    hora_inicio = forms.TimeField(
+        label="Hora inicio",
+        required=False,
+        widget=forms.TimeInput(attrs={"type": "text", "class": "form-control js-time-picker"}),
+    )
+    hora_fin = forms.TimeField(
+        label="Hora fin",
+        required=False,
+        widget=forms.TimeInput(attrs={"type": "text", "class": "form-control js-time-picker"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["aula"].queryset = Aula.objects.order_by("nombre")
+        self.fields["dia"].queryset = Dia.objects.order_by("id")
+
+    def has_schedule_data(self):
+        return any(
+            self.cleaned_data.get(field)
+            for field in ["aula", "dia", "hora_inicio", "hora_fin"]
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not self.has_schedule_data():
+            return cleaned_data
+
+        for field in ["aula", "dia", "hora_inicio", "hora_fin"]:
+            if not cleaned_data.get(field):
+                self.add_error(field, "Completa este campo.")
+
+        hora_inicio = cleaned_data.get("hora_inicio")
+        hora_fin = cleaned_data.get("hora_fin")
+        if hora_inicio and hora_fin and hora_fin <= hora_inicio:
+            self.add_error("hora_fin", "La hora fin debe ser mayor que la hora inicio.")
+        return cleaned_data
+
+
+HorarioDistribucionFormSet = formset_factory(
+    HorarioDistribucionItemForm,
+    extra=0,
+    can_delete=False,
+)
 
 
 class TemarioForm(BootstrapFormMixin, forms.ModelForm):

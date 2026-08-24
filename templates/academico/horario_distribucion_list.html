@@ -1,0 +1,77 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>{{ title }}</h1>
+    </div>
+    {% if create_url_name %}
+      <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
+        <i class="ri-add-line"></i>
+        <span>Nuevo horario</span>
+      </a>
+    {% endif %}
+  </header>
+
+  <section class="panel list-panel">
+    <form class="list-toolbar" method="get">
+      <select class="form-select" name="curso">
+        <option value="">Todos los grupos</option>
+        {% for curso in cursos %}
+          <option value="{{ curso.pk }}"{% if selected_curso == curso.pk|stringformat:"s" %} selected{% endif %}>
+            {{ curso.nombre }}
+          </option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary-600 list-search-btn" type="submit">Filtrar</button>
+    </form>
+
+    <div class="table-responsive list-table-responsive">
+      <table class="table table-hover align-middle app-table">
+        <thead>
+          <tr>
+            <th>Grupo</th>
+              <th>Aula</th>
+              <th>Dia</th>
+              <th>Hora inicio</th>
+              <th>Hora fin</th>
+              <th class="text-end">Accion</th>
+            </tr>
+          </thead>
+        <tbody>
+          {% for horario in horarios %}
+            <tr>
+              <td>
+                {% if can_edit %}
+                  <a class="table-primary-link" href="{% url 'academico:horario_distribucion_editar' horario.aula_curso.curso.pk %}">
+                    {{ horario.aula_curso.curso.nombre }}
+                  </a>
+                {% else %}
+                  {{ horario.aula_curso.curso.nombre }}
+                {% endif %}
+              </td>
+              <td>{{ horario.aula_curso.aula.nombre }}</td>
+              <td>{{ horario.horario_dia.dia.dia }}</td>
+              <td>{{ horario.horario_dia.horario.hora_inicio|time:"H:i" }}</td>
+              <td>{{ horario.horario_dia.horario.hora_fin|time:"H:i" }}</td>
+              <td class="text-end">
+                {% if can_edit %}
+                  <a class="btn btn-outline-primary btn-sm" href="{% url 'academico:horario_distribucion_editar' horario.aula_curso.curso.pk %}">Editar</a>
+                {% else %}
+                  <span class="text-muted">-</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="text-center text-muted py-4">Sin horarios registrados.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

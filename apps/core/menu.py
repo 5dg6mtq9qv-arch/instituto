@@ -69,6 +69,7 @@ MENU_GROUPS = [
         "items": [
             {"label": "Cursos", "url_name": "academico:curso_list", "perm": "academico.view_curso"},
             {"label": "Aulas", "url_name": "academico:aula_list", "perm": "academico.view_aula"},
+            {"label": "Horario", "url_name": "academico:horario_distribucion", "perm": "academico.view_horarioaulacurso"},
         ],
     },
     {

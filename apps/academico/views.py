@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from urllib.parse import urlencode
 
 from django.urls import reverse_lazy
+from django.db import transaction
 from django.db.models import Q
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
@@ -20,6 +21,8 @@ from .forms import (
     AulaForm,
     BancoPreguntaForm,
     CursoForm,
+    HorarioDistribucionBaseForm,
+    HorarioDistribucionFormSet,
     HorarioAsignacionBaseForm,
     HorarioAsignacionFormSet,
     HorarioClaseForm,
@@ -28,7 +31,21 @@ from .forms import (
     TemaForm,
     TemarioForm,
 )
-from .models import Asignatura, Aula, BancoPregunta, Curso, HorarioClase, PlanificacionClase, Pregunta, Tema, Temario
+from .models import (
+    Asignatura,
+    Aula,
+    AulaCurso,
+    BancoPregunta,
+    Curso,
+    Horario,
+    HorarioAulaCurso,
+    HorarioClase,
+    HorarioDia,
+    PlanificacionClase,
+    Pregunta,
+    Tema,
+    Temario,
+)
 
 
 def can_view_all_horarios(user):
@@ -121,6 +138,161 @@ class AulaUpdateView(InstitutoUpdateView):
     title = "Editar aula"
     success_url = reverse_lazy("academico:aula_list")
     cancel_url = reverse_lazy("academico:aula_list")
+
+
+class HorarioDistribucionListView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.view_horarioaulacurso"
+    template_name = "academico/horario_distribucion_list.html"
+
+    def get(self, request, *args, **kwargs):
+        cursos = Curso.objects.filter(activo=True).order_by("nombre")
+        selected_curso = request.GET.get("curso")
+        horarios = (
+            HorarioAulaCurso.objects.select_related(
+                "aula_curso__curso",
+                "aula_curso__aula",
+                "horario_dia__dia",
+                "horario_dia__horario",
+            )
+            .order_by(
+                "aula_curso__curso__nombre",
+                "horario_dia__dia__id",
+                "horario_dia__horario__hora_inicio",
+                "aula_curso__aula__nombre",
+            )
+        )
+        if selected_curso:
+            horarios = horarios.filter(aula_curso__curso_id=selected_curso)
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Horarios",
+                "cursos": cursos,
+                "selected_curso": selected_curso,
+                "horarios": horarios,
+                "can_edit": request.user.has_perm("academico.change_horarioaulacurso"),
+                "create_url_name": "academico:horario_distribucion_nuevo"
+                if request.user.has_perm("academico.add_horarioaulacurso")
+                else "",
+            },
+        )
+
+
+class HorarioDistribucionCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.add_horarioaulacurso"
+    template_name = "academico/horario_distribucion_form.html"
+    replace_existing = False
+
+    def get(self, request, *args, **kwargs):
+        curso = self.get_curso()
+        base_initial = {"curso": curso.pk} if curso else None
+        base_form = HorarioDistribucionBaseForm(initial=base_initial)
+        formset = self.get_formset(curso=curso)
+        return render(request, self.template_name, self.get_context(base_form, formset))
+
+    def post(self, request, *args, **kwargs):
+        base_form = HorarioDistribucionBaseForm(request.POST)
+        formset = HorarioDistribucionFormSet(request.POST)
+        if base_form.is_valid() and formset.is_valid():
+            curso = base_form.cleaned_data["curso"]
+            schedule_rows = [form.cleaned_data for form in formset if form.has_schedule_data()]
+            if not schedule_rows:
+                base_form.add_error(None, "Agrega al menos un horario.")
+                return render(request, self.template_name, self.get_context(base_form, formset))
+
+            saved = 0
+            duplicates = 0
+            with transaction.atomic():
+                if self.replace_existing:
+                    HorarioAulaCurso.objects.filter(aula_curso__curso=curso).delete()
+                for row in schedule_rows:
+                    aula = row["aula"]
+                    dia = row["dia"]
+                    hora_inicio = row["hora_inicio"]
+                    hora_fin = row["hora_fin"]
+
+                    aula_curso, _ = AulaCurso.objects.get_or_create(
+                        aula=aula,
+                        curso=curso,
+                        defaults={"nombre": f"{aula} - {curso}"},
+                    )
+                    horario, _ = Horario.objects.get_or_create(
+                        hora_inicio=hora_inicio,
+                        hora_fin=hora_fin,
+                    )
+                    horario_dia, _ = HorarioDia.objects.get_or_create(
+                        dia=dia,
+                        horario=horario,
+                    )
+                    _, created = HorarioAulaCurso.objects.get_or_create(
+                        aula_curso=aula_curso,
+                        horario_dia=horario_dia,
+                    )
+                    if created:
+                        saved += 1
+                    else:
+                        duplicates += 1
+
+            if saved:
+                message = f"{saved} horario(s) asignado(s)."
+                if duplicates:
+                    message += f" {duplicates} ya existian."
+                messages.success(request, message)
+                return redirect(f"{reverse_lazy('academico:horario_distribucion')}?curso={curso.pk}")
+            if duplicates:
+                messages.info(request, f"{duplicates} horario(s) ya estaban asignados.")
+                return redirect(f"{reverse_lazy('academico:horario_distribucion')}?curso={curso.pk}")
+        return render(request, self.template_name, self.get_context(base_form, formset))
+
+    def get_curso(self):
+        curso_pk = self.kwargs.get("curso_pk") or self.request.GET.get("curso")
+        if not curso_pk:
+            return None
+        return get_object_or_404(Curso, pk=curso_pk)
+
+    def get_formset(self, curso=None):
+        initial = []
+        if curso:
+            horarios = (
+                HorarioAulaCurso.objects.select_related(
+                    "aula_curso__aula",
+                    "horario_dia__dia",
+                    "horario_dia__horario",
+                )
+                .filter(aula_curso__curso=curso)
+                .order_by("horario_dia__dia__id", "horario_dia__horario__hora_inicio", "aula_curso__aula__nombre")
+            )
+            initial = [
+                {
+                    "aula": horario.aula_curso.aula,
+                    "dia": horario.horario_dia.dia,
+                    "hora_inicio": horario.horario_dia.horario.hora_inicio,
+                    "hora_fin": horario.horario_dia.horario.hora_fin,
+                }
+                for horario in horarios
+            ]
+        return HorarioDistribucionFormSet(initial=initial or [{}])
+
+    def get_context(self, base_form, formset):
+        return {
+            "title": "Nuevo horario",
+            "base_form": base_form,
+            "formset": formset,
+            "cancel_url": reverse_lazy("academico:horario_distribucion"),
+            "edit_url_template": "/academico/horario-distribucion/__curso__/editar/",
+        }
+
+
+class HorarioDistribucionUpdateView(HorarioDistribucionCreateView):
+    permission_required = "academico.change_horarioaulacurso"
+    replace_existing = True
+
+    def get_context(self, base_form, formset):
+        context = super().get_context(base_form, formset)
+        context["title"] = "Editar horario"
+        return context
 
 
 class AsignaturaListView(InstitutoListView):

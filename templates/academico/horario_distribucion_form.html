@@ -1,0 +1,195 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>{{ title }}</h1>
+    </div>
+  </header>
+
+  <form class="panel form-panel horario-distribucion-form" method="post" novalidate>
+    {% csrf_token %}
+    {{ formset.management_form }}
+
+    {% if base_form.non_field_errors %}
+      <div class="alert alert-danger">{{ base_form.non_field_errors }}</div>
+    {% endif %}
+    {% if formset.non_form_errors %}
+      <div class="alert alert-danger">{{ formset.non_form_errors }}</div>
+    {% endif %}
+
+    <section class="form-section form-section-current">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="{{ base_form.curso.id_for_label }}">{{ base_form.curso.label }}</label>
+          {{ base_form.curso }}
+          {% for error in base_form.curso.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <div class="section-heading">
+        <h2>Asignacion de horarios</h2>
+        <button class="btn btn-outline-primary btn-sm" type="button" data-add-row>
+          <i class="ri-add-line"></i>
+          Agregar
+        </button>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table align-middle app-table horario-distribucion-table">
+          <thead>
+            <tr>
+              <th>Aula</th>
+              <th>Dia</th>
+              <th>Hora inicio</th>
+              <th>Hora fin</th>
+              <th class="text-end">Accion</th>
+            </tr>
+          </thead>
+          <tbody data-formset-body>
+            {% for form in formset %}
+              <tr data-form-row>
+                <td>
+                  {{ form.aula }}
+                  {% for error in form.aula.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </td>
+                <td>
+                  {{ form.dia }}
+                  {% for error in form.dia.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </td>
+                <td>
+                  {{ form.hora_inicio }}
+                  {% for error in form.hora_inicio.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </td>
+                <td>
+                  {{ form.hora_fin }}
+                  {% for error in form.hora_fin.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                  {% for error in form.non_field_errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </td>
+                <td class="text-end">
+                  <button class="btn btn-outline-danger btn-sm" type="button" data-remove-row aria-label="Eliminar fila">
+                    <i class="ri-delete-bin-line"></i>
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <template data-empty-form-template>
+        <tr data-form-row>
+          <td>{{ formset.empty_form.aula }}</td>
+          <td>{{ formset.empty_form.dia }}</td>
+          <td>{{ formset.empty_form.hora_inicio }}</td>
+          <td>{{ formset.empty_form.hora_fin }}</td>
+          <td class="text-end">
+            <button class="btn btn-outline-danger btn-sm" type="button" data-remove-row aria-label="Eliminar fila">
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </td>
+        </tr>
+      </template>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar horario</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      function initTimePickers(scope) {
+        flatpickr(scope.querySelectorAll(".js-time-picker"), {
+          enableTime: true,
+          noCalendar: true,
+          dateFormat: "H:i",
+          time_24hr: true,
+          minuteIncrement: 5,
+          allowInput: true,
+          disableMobile: true
+        });
+      }
+
+      function renumberRows() {
+        const rows = Array.from(body.querySelectorAll("[data-form-row]"));
+        rows.forEach((row, index) => {
+          row.querySelectorAll("input, select, textarea, label").forEach((element) => {
+            ["name", "id", "for"].forEach((attr) => {
+              const value = element.getAttribute(attr);
+              if (!value) return;
+              element.setAttribute(attr, value.replace(/form-(\d+|__prefix__)-/g, `form-${index}-`));
+            });
+          });
+        });
+        totalForms.value = rows.length;
+      }
+
+      function bindRemove(row) {
+        row.querySelector("[data-remove-row]").addEventListener("click", function () {
+          if (body.querySelectorAll("[data-form-row]").length === 1) {
+            row.querySelectorAll("input, select, textarea").forEach((field) => {
+              if (field.tagName === "SELECT") field.selectedIndex = 0;
+              else field.value = "";
+            });
+            return;
+          }
+          row.remove();
+          renumberRows();
+        });
+      }
+
+      const body = document.querySelector("[data-formset-body]");
+      const template = document.querySelector("[data-empty-form-template]");
+      const totalForms = document.querySelector("#id_form-TOTAL_FORMS");
+      const addButton = document.querySelector("[data-add-row]");
+      const cursoField = document.querySelector("#{{ base_form.curso.id_for_label }}");
+      const editUrlTemplate = "{{ edit_url_template }}";
+
+      body.querySelectorAll("[data-form-row]").forEach(bindRemove);
+      initTimePickers(document);
+
+      addButton.addEventListener("click", function () {
+        const index = Number(totalForms.value);
+        const html = template.innerHTML.replace(/__prefix__/g, index);
+        body.insertAdjacentHTML("beforeend", html);
+        const row = body.lastElementChild;
+        bindRemove(row);
+        totalForms.value = index + 1;
+        initTimePickers(row);
+      });
+
+      if (cursoField) {
+        cursoField.addEventListener("change", function () {
+          if (!this.value) return;
+          window.location.href = editUrlTemplate.replace("__curso__", this.value);
+        });
+      }
+    });
+  </script>
+{% endblock %}
