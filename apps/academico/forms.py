@@ -1,5 +1,6 @@
 from django import forms
 from django.forms import formset_factory
+from django.utils import timezone
 
 from apps.core.forms import BootstrapFormMixin
 
@@ -7,7 +8,7 @@ from apps.core.models import Partner
 
 from apps.matricula.models import Aula as MatriculaAula, PeriodoAcademico
 
-from .models import Asignatura, Aula, BancoPregunta, Curso, Dia, HorarioClase, Materia, PlanificacionClase, Pregunta, Tema, Temario
+from .models import Asignatura, Aula, BancoPregunta, Curso, CursoPeriodo, Dia, HorarioClase, Materia, Periodo, PlanificacionClase, Pregunta, Tema, Temario
 
 
 class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):
@@ -124,13 +125,33 @@ class AsignaturaForm(BootstrapFormMixin, forms.ModelForm):
 
 
 class CursoForm(BootstrapFormMixin, forms.ModelForm):
+    periodo = forms.ModelChoiceField(label="Periodo", queryset=Periodo.objects.none())
+
     class Meta:
         model = Curso
-        fields = ["nombre", "activo", "descripcion"]
+        fields = ["nombre", "periodo", "activo", "descripcion"]
         widgets = {
             "activo": forms.CheckboxInput(attrs={"class": "js-switch"}),
             "descripcion": forms.Textarea(attrs={"rows": 3}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        today = timezone.localdate()
+        self.fields["periodo"].queryset = Periodo.objects.filter(
+            fecha_fin__gte=today,
+        ).order_by("-fecha_inicio", "nombre")
+        if self.instance.pk:
+            curso_periodo = self.instance.curso_periodos.select_related("periodo").order_by("-periodo__fecha_inicio").first()
+            if curso_periodo:
+                self.fields["periodo"].initial = curso_periodo.periodo
+
+    def save(self, commit=True):
+        curso = super().save(commit=commit)
+        if commit:
+            CursoPeriodo.objects.filter(curso=curso).exclude(periodo=self.cleaned_data["periodo"]).delete()
+            CursoPeriodo.objects.get_or_create(curso=curso, periodo=self.cleaned_data["periodo"])
+        return curso
 
 
 class AulaForm(BootstrapFormMixin, forms.ModelForm):
@@ -149,6 +170,24 @@ class MateriaForm(BootstrapFormMixin, forms.ModelForm):
         widgets = {
             "descripcion": forms.Textarea(attrs={"rows": 3}),
         }
+
+
+class PeriodoForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Periodo
+        fields = ["nombre", "fecha_inicio", "fecha_fin"]
+        widgets = {
+            "fecha_inicio": forms.DateInput(attrs={"type": "date"}),
+            "fecha_fin": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        instance = self.instance
+        for field, value in cleaned_data.items():
+            setattr(instance, field, value)
+        instance.clean()
+        return cleaned_data
 
 
 class HorarioDistribucionBaseForm(BootstrapFormMixin, forms.Form):

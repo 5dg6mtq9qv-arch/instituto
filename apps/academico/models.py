@@ -896,3 +896,52 @@ class MateriaHorario(models.Model):
 
     def __str__(self):
         return f"{self.materia_grupo} - {self.horario_aula_curso}"
+
+
+class Periodo(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    nombre = models.CharField(max_length=150)
+    fecha_inicio = models.DateField()
+    fecha_fin = models.DateField()
+
+    class Meta:
+        db_table = '"academico"."periodo"'
+        ordering = ["-fecha_inicio", "nombre"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(fecha_fin__gte=models.F("fecha_inicio")),
+                name="chk_periodo_fechas",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.fecha_inicio and self.fecha_fin and self.fecha_fin < self.fecha_inicio:
+            raise ValidationError({"fecha_fin": "La fecha fin debe ser mayor o igual que la fecha inicio."})
+
+    def __str__(self):
+        return self.nombre
+
+
+class CursoPeriodo(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    curso = models.ForeignKey(
+        Curso,
+        db_column="id_curso",
+        on_delete=models.CASCADE,
+        related_name="curso_periodos",
+    )
+    periodo = models.ForeignKey(
+        Periodo,
+        db_column="id_periodo",
+        on_delete=models.RESTRICT,
+        related_name="curso_periodos",
+    )
+
+    class Meta:
+        db_table = '"academico"."curso_periodo"'
+        unique_together = (("curso", "periodo"),)
+        ordering = ["periodo", "curso"]
+
+    def __str__(self):
+        return f"{self.curso} - {self.periodo}"

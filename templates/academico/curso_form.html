@@ -31,6 +31,14 @@
         {% endfor %}
       </div>
 
+      <div class="col-md-6">
+        <label class="form-label" for="{{ form.periodo.id_for_label }}">{{ form.periodo.label }}</label>
+        {{ form.periodo }}
+        {% for error in form.periodo.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+
       <div class="col-md-6 d-flex align-items-end">
         <div class="curso-switch-field mb-2">
           {{ form.activo }}
@@ -50,8 +58,9 @@
       </div>
     </div>
 
-    <div class="form-actions">      
-      <button class="btn btn-primary" type="submit">Guardar</button>
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar curso</button>
     </div>
   </form>
 {% endblock %}

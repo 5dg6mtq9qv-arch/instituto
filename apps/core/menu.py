@@ -70,7 +70,9 @@ MENU_GROUPS = [
             {"label": "Cursos", "url_name": "academico:curso_list", "perm": "academico.view_curso"},
             {"label": "Aulas", "url_name": "academico:aula_list", "perm": "academico.view_aula"},
             {"label": "Materias", "url_name": "academico:materia_list", "perm": "academico.view_materia"},
+            {"label": "Periodos", "url_name": "academico:periodo_list", "perm": "academico.view_periodo"},
             {"label": "Horario", "url_name": "academico:horario_distribucion", "perm": "academico.view_horarioaulacurso"},
+            {"label": "Planificacion academica", "url_name": "academico:planificacion_academica", "perm": "academico.view_materiahorario"},
         ],
     },
     {

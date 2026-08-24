@@ -24,6 +24,7 @@ from .forms import (
     HorarioDistribucionBaseForm,
     HorarioDistribucionFormSet,
     MateriaForm,
+    PeriodoForm,
     HorarioAsignacionBaseForm,
     HorarioAsignacionFormSet,
     HorarioClaseForm,
@@ -38,11 +39,16 @@ from .models import (
     AulaCurso,
     BancoPregunta,
     Curso,
+    CursoPeriodo,
+    Dia,
     Horario,
     HorarioAulaCurso,
     HorarioClase,
     HorarioDia,
     Materia,
+    MateriaCurso,
+    MateriaHorario,
+    Periodo,
     PlanificacionClase,
     Pregunta,
     Tema,
@@ -81,6 +87,20 @@ class CursoCreateView(InstitutoCreateView):
     title = "Nuevo curso"
     success_url = reverse_lazy("academico:curso_list")
     cancel_url = reverse_lazy("academico:curso_list")
+
+    def dispatch(self, request, *args, **kwargs):
+        today = timezone.localdate()
+        if not Periodo.objects.filter(fecha_fin__gte=today).exists():
+            return render(
+                request,
+                "academico/curso_sin_periodo.html",
+                {
+                    "title": "Nuevo curso",
+                    "periodo_create_url": reverse_lazy("academico:periodo_nuevo"),
+                    "cancel_url": reverse_lazy("academico:curso_list"),
+                },
+            )
+        return super().dispatch(request, *args, **kwargs)
 
 
 class CursoUpdateView(InstitutoUpdateView):
@@ -182,6 +202,44 @@ class MateriaUpdateView(InstitutoUpdateView):
     title = "Editar materia"
     success_url = reverse_lazy("academico:materia_list")
     cancel_url = reverse_lazy("academico:materia_list")
+
+
+class PeriodoListView(InstitutoListView):
+    model = Periodo
+    template_name = "academico/periodo_list.html"
+    title = "Periodos"
+    create_url_name = "academico:periodo_nuevo"
+    update_url_name = "academico:periodo_editar"
+    columns = (
+        ("Nombre", "nombre"),
+        ("Inicio", "fecha_inicio"),
+        ("Fin", "fecha_fin"),
+    )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        q = self.request.GET.get("q")
+        if q:
+            queryset = queryset.filter(Q(nombre__icontains=q))
+        return queryset
+
+
+class PeriodoCreateView(InstitutoCreateView):
+    model = Periodo
+    form_class = PeriodoForm
+    template_name = "academico/periodo_form.html"
+    title = "Nuevo periodo"
+    success_url = reverse_lazy("academico:periodo_list")
+    cancel_url = reverse_lazy("academico:periodo_list")
+
+
+class PeriodoUpdateView(InstitutoUpdateView):
+    model = Periodo
+    form_class = PeriodoForm
+    template_name = "academico/periodo_form.html"
+    title = "Editar periodo"
+    success_url = reverse_lazy("academico:periodo_list")
+    cancel_url = reverse_lazy("academico:periodo_list")
 
 
 class HorarioDistribucionListView(LoginRequiredMixin, PermissionRequiredMixin, View):
@@ -382,6 +440,134 @@ class HorarioDistribucionUpdateView(HorarioDistribucionCreateView):
         context = super().get_context(base_form, formset)
         context["title"] = "Editar horario"
         return context
+
+
+class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.view_materiahorario"
+    template_name = "academico/planificacion_academica.html"
+
+    def get(self, request):
+        return render(request, self.template_name, self.get_context())
+
+    def post(self, request):
+        if not (
+            request.user.has_perm("academico.add_materiahorario")
+            or request.user.has_perm("academico.change_materiahorario")
+            or request.user.is_superuser
+        ):
+            return self.handle_no_permission()
+
+        curso = get_object_or_404(Curso, pk=request.POST.get("curso"))
+        horarios = HorarioAulaCurso.objects.filter(aula_curso__curso=curso)
+        horario_ids = {str(pk) for pk in horarios.values_list("pk", flat=True)}
+        materias = {str(pk): pk for pk in Materia.objects.values_list("pk", flat=True)}
+
+        with transaction.atomic():
+            for horario_id in horario_ids:
+                materia_id = request.POST.get(f"materia_{horario_id}") or ""
+                horario_aula_curso = horarios.get(pk=horario_id)
+                MateriaHorario.objects.filter(horario_aula_curso=horario_aula_curso).delete()
+                if not materia_id or materia_id not in materias:
+                    continue
+                materia = Materia.objects.get(pk=materia_id)
+                materia_grupo, _ = MateriaCurso.objects.get_or_create(
+                    materia=materia,
+                    grupo=curso,
+                )
+                MateriaHorario.objects.get_or_create(
+                    materia_grupo=materia_grupo,
+                    horario_aula_curso=horario_aula_curso,
+                )
+
+        messages.success(request, "Planificacion academica guardada correctamente.")
+        return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
+
+    def get_context(self):
+        cursos = Curso.objects.filter(activo=True).order_by("nombre")
+        materias = Materia.objects.order_by("nombre")
+        selected_curso_id = self.request.GET.get("curso") or ""
+        selected_curso = None
+        selected_curso_periodo = None
+        rows = []
+
+        if selected_curso_id:
+            selected_curso = get_object_or_404(Curso, pk=selected_curso_id)
+            selected_curso_periodo = (
+                CursoPeriodo.objects.select_related("periodo")
+                .filter(curso=selected_curso)
+                .order_by("-periodo__fecha_inicio")
+                .first()
+            )
+            horarios = (
+                HorarioAulaCurso.objects.select_related(
+                    "aula_curso__aula",
+                    "aula_curso__curso",
+                    "horario_dia__dia",
+                    "horario_dia__horario",
+                )
+                .filter(aula_curso__curso=selected_curso)
+                .order_by(
+                    "horario_dia__horario__hora_inicio",
+                    "horario_dia__horario__hora_fin",
+                    "horario_dia__dia__id",
+                    "aula_curso__aula__nombre",
+                )
+            )
+            assigned = {
+                item.horario_aula_curso_id: item.materia_grupo.materia_id
+                for item in MateriaHorario.objects.select_related("materia_grupo__materia").filter(
+                    horario_aula_curso__in=horarios
+                )
+            }
+            weekday_to_dia = {
+                0: "Lunes",
+                1: "Martes",
+                2: "Miercoles",
+                3: "Jueves",
+                4: "Viernes",
+                5: "Sabado",
+                6: "Domingo",
+            }
+            if selected_curso_periodo:
+                current_date = selected_curso_periodo.periodo.fecha_inicio
+                end_date = selected_curso_periodo.periodo.fecha_fin
+                while current_date <= end_date:
+                    day_name = weekday_to_dia[current_date.weekday()]
+                    day_horarios = [
+                        horario_aula_curso
+                        for horario_aula_curso in horarios
+                        if horario_aula_curso.horario_dia.dia.dia == day_name
+                    ]
+                    blocks = []
+                    for horario_aula_curso in horarios:
+                        if horario_aula_curso not in day_horarios:
+                            continue
+                        horario = horario_aula_curso.horario_dia.horario
+                        blocks.append(
+                            {
+                                "id": horario_aula_curso.pk,
+                                "aula": horario_aula_curso.aula_curso.aula,
+                                "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
+                                "materia_id": assigned.get(horario_aula_curso.pk),
+                            }
+                        )
+                    if blocks:
+                        rows.append({"fecha": current_date, "dia": day_name, "blocks": blocks})
+                    current_date += timedelta(days=1)
+
+        return {
+            "title": "Planificacion academica",
+            "periodo_create_url": reverse_lazy("academico:periodo_nuevo"),
+            "cursos": cursos,
+            "materias": materias,
+            "rows": rows,
+            "selected_curso": selected_curso,
+            "selected_curso_periodo": selected_curso_periodo,
+            "selected_curso_id": selected_curso_id,
+            "can_save": self.request.user.is_superuser
+            or self.request.user.has_perm("academico.add_materiahorario")
+            or self.request.user.has_perm("academico.change_materiahorario"),
+        }
 
 
 class AsignaturaListView(InstitutoListView):

@@ -1,0 +1,169 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>{{ title }}</h1>
+    </div>
+  </header>
+
+  <section class="panel academic-planning-panel">
+    <form class="calendar-filters calendar-filters-compact" method="get">
+      <select class="form-select" name="curso" data-group-select>
+        <option value="">Selecciona un grupo</option>
+        {% for curso in cursos %}
+          <option value="{{ curso.pk }}"{% if selected_curso_id == curso.pk|stringformat:"s" %} selected{% endif %}>
+            {{ curso.nombre }}
+          </option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-primary-600" type="submit">Cargar</button>
+    </form>
+
+    {% if selected_curso %}
+      <form method="post" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
+
+        {% if selected_curso_periodo %}
+          <div class="alert alert-info">
+            Periodo: {{ selected_curso_periodo.periodo.nombre }} ({{ selected_curso_periodo.periodo.fecha_inicio|date:"d/m/Y" }} - {{ selected_curso_periodo.periodo.fecha_fin|date:"d/m/Y" }})
+          </div>
+        {% else %}
+          <div class="alert alert-warning">
+            Este grupo no tiene periodo asignado. Edita el curso y selecciona un periodo, o crea un periodo si aun no existe.
+            <a href="{{ periodo_create_url }}">Crear periodo</a>
+          </div>
+        {% endif %}
+
+        <div class="academic-calendar-wrap">
+          <div class="academic-date-list">
+            {% for row in rows %}
+              <section class="academic-date-row">
+                <div class="academic-date-cell">
+                  <strong>{{ row.fecha|date:"d/m/Y" }}</strong>
+                  <span>{{ row.dia }}</span>
+                </div>
+                <div class="academic-date-blocks">
+                  {% for block in row.blocks %}
+                    <article class="academic-schedule-block">
+                      <div>
+                        <strong>{{ block.aula }}</strong>
+                        <span>{{ block.hora }}</span>
+                      </div>
+                      <select class="form-select form-select-sm" name="materia_{{ block.id }}">
+                        <option value="">Materia</option>
+                        {% for materia in materias %}
+                          <option value="{{ materia.pk }}"{% if block.materia_id == materia.pk %} selected{% endif %}>
+                            {% firstof materia.nombre_corto materia.nombre %}
+                          </option>
+                        {% endfor %}
+                      </select>
+                    </article>
+                  {% endfor %}
+                </div>
+              </section>
+            {% empty %}
+              {% if selected_curso_periodo %}
+                <div class="academic-empty-state">
+                  No hay horarios creados para este grupo dentro del periodo.
+                </div>
+              {% endif %}
+              {% endfor %}
+          </div>
+        </div>
+
+        <div class="form-actions">
+          {% if can_save and rows %}
+            <button class="btn btn-primary" type="submit">Guardar planificacion</button>
+          {% endif %}
+        </div>
+      </form>
+    {% else %}
+      <div class="calendar-empty">
+        Selecciona un grupo para cargar sus horarios.
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const groupSelect = document.querySelector("[data-group-select]");
+      if (!groupSelect) return;
+      groupSelect.addEventListener("change", function () {
+        this.form.submit();
+      });
+    });
+  </script>
+  <style>
+    .academic-planning-panel {
+      overflow: hidden;
+    }
+
+    .academic-calendar-wrap {
+      overflow-x: auto;
+      padding-top: 16px;
+    }
+
+    .academic-date-list {
+      display: grid;
+      gap: 10px;
+      min-width: 760px;
+    }
+
+    .academic-date-row {
+      background: #ffffff;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 130px 1fr;
+      padding: 12px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+    }
+
+    .academic-date-cell {
+      display: grid;
+      align-content: start;
+    }
+
+    .academic-date-cell span,
+    .academic-schedule-block span {
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .academic-date-blocks {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .academic-schedule-block {
+      background: #f8fafc;
+      border: 1px solid #d0d5dd;
+      border-left: 4px solid #2563eb;
+      border-radius: 8px;
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+    }
+
+    .academic-schedule-block strong {
+      color: #111827;
+      font-size: 13px;
+    }
+
+    .academic-empty-state {
+      background: #ffffff;
+      color: #667085;
+      grid-column: 1 / -1;
+      padding: 28px;
+      text-align: center;
+    }
+  </style>
+{% endblock %}

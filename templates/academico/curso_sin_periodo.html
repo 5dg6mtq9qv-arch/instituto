@@ -1,0 +1,20 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+  </header>
+
+  <section class="panel form-panel">
+    <div class="alert alert-warning d-flex align-items-center justify-content-between gap-3 mb-0">
+      <span>No tiene periodo activo creado.</span>
+      <a class="btn btn-primary-600" href="{{ periodo_create_url }}">Crear periodo</a>
+    </div>
+  </section>
+{% endblock %}
