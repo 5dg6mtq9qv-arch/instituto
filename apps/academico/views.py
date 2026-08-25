@@ -1,8 +1,10 @@
 import calendar as calendar_module
 import json
+from io import BytesIO
 from datetime import date, timedelta
 from urllib.parse import urlencode
 
+from django.http import HttpResponse
 from django.urls import reverse_lazy
 from django.db import transaction
 from django.db.models import Count, Q
@@ -12,6 +14,9 @@ from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views import View
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 from apps.core.models import Empresa, Partner
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
@@ -75,6 +80,16 @@ def readable_text_color(hex_color):
         return "#ffffff"
     brightness = (red * 299 + green * 587 + blue * 114) / 1000
     return "#111827" if brightness > 160 else "#ffffff"
+
+
+def xlsx_color(hex_color):
+    return (hex_color or "#2563eb").replace("#", "").upper()
+
+
+def safe_sheet_title(title):
+    invalid = '[]:*?/\\'
+    cleaned = "".join("_" if char in invalid else char for char in str(title or "Hoja"))
+    return cleaned[:31] or "Hoja"
 
 
 class CursoListView(InstitutoListView):
@@ -708,6 +723,177 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             or self.request.user.has_perm("academico.add_clase")
             or self.request.user.has_perm("academico.change_clase"),
         }
+
+
+class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.view_clase"
+
+    weekday_headers = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
+
+    def get(self, request):
+        export_type = request.GET.get("tipo") or "general"
+        rows = self.get_rows()
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+
+        if export_type == "docente":
+            grouped = self.group_rows(rows, lambda row: row["docente"] or "Sin docente")
+            filename = "horarios_por_docente.xlsx"
+        elif export_type == "aula":
+            grouped = self.group_rows(rows, lambda row: row["aula"] or "Sin aula")
+            filename = "horarios_por_aula.xlsx"
+        else:
+            grouped = {"General": rows}
+            filename = "horarios_general.xlsx"
+
+        for title, sheet_rows in grouped.items():
+            self.write_sheet(workbook, title, sheet_rows)
+
+        if not grouped:
+            self.write_sheet(workbook, "General", [])
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    def get_rows(self):
+        queryset = (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__dia",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .order_by(
+                "fecha",
+                "horario_aula_curso__horario_dia__horario__hora_inicio",
+                "materia_curso__grupo__nombre",
+            )
+        )
+        curso_id = self.request.GET.get("curso")
+        if curso_id:
+            queryset = queryset.filter(materia_curso__grupo_id=curso_id)
+
+        docentes = {
+            item.materia_curso_id: item.partner.nombre
+            for item in ProfesorMateriaCurso.objects.select_related("partner", "materia_curso")
+        }
+        rows = []
+        for clase in queryset:
+            horario = clase.horario_aula_curso.horario_dia.horario
+            materia = clase.materia_curso.materia
+            rows.append(
+                {
+                    "fecha": clase.fecha,
+                    "dia": clase.horario_aula_curso.horario_dia.dia.dia,
+                    "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
+                    "grupo": clase.materia_curso.grupo.nombre,
+                    "aula": str(clase.horario_aula_curso.aula_curso.aula),
+                    "materia": materia.nombre,
+                    "docente": docentes.get(clase.materia_curso_id, ""),
+                    "color": materia.color,
+                }
+            )
+        return rows
+
+    def group_rows(self, rows, key_func):
+        grouped = {}
+        for row in rows:
+            grouped.setdefault(key_func(row), []).append(row)
+        return dict(sorted(grouped.items(), key=lambda item: item[0]))
+
+    def write_sheet(self, workbook, title, rows):
+        sheet = workbook.create_sheet(safe_sheet_title(title))
+        title_fill = PatternFill("solid", fgColor="DCEBFF")
+        header_fill = PatternFill("solid", fgColor="4F81BD")
+        time_fill = PatternFill("solid", fgColor="5B9BD5")
+        thin = Side(style="thin", color="D7DEE8")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
+        title_cell = sheet.cell(row=1, column=1, value=f"Horario - {title}")
+        title_cell.font = Font(bold=True, size=14, color="111827")
+        title_cell.fill = title_fill
+        title_cell.alignment = center
+
+        current_row = 3
+        for week_start, week_rows in self.group_rows_by_week(rows).items():
+            week_end = week_start + timedelta(days=6)
+            sheet.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=8)
+            week_cell = sheet.cell(
+                row=current_row,
+                column=1,
+                value=f"Semana {week_start:%d/%m/%Y} - {week_end:%d/%m/%Y}",
+            )
+            week_cell.font = Font(bold=True, color="111827")
+            week_cell.fill = title_fill
+            week_cell.alignment = center
+            current_row += 1
+
+            sheet.cell(row=current_row, column=1, value="Hora")
+            for col, day in enumerate(self.weekday_headers, start=2):
+                sheet.cell(row=current_row, column=col, value=day)
+            for col in range(1, 9):
+                cell = sheet.cell(row=current_row, column=col)
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = header_fill
+                cell.border = border
+                cell.alignment = center
+            current_row += 1
+
+            time_slots = sorted({row["hora"] for row in week_rows})
+            week_matrix = {(row["hora"], row["fecha"].weekday()): row for row in week_rows}
+            for time_slot in time_slots:
+                time_cell = sheet.cell(row=current_row, column=1, value=time_slot)
+                time_cell.font = Font(bold=True, color="FFFFFF")
+                time_cell.fill = time_fill
+                time_cell.border = border
+                time_cell.alignment = center
+                for weekday in range(7):
+                    cell = sheet.cell(row=current_row, column=weekday + 2)
+                    item = week_matrix.get((time_slot, weekday))
+                    if item:
+                        cell.value = self.schedule_label(item)
+                        cell.fill = PatternFill("solid", fgColor=xlsx_color(item["color"]))
+                        cell.font = Font(color=xlsx_color(readable_text_color(item["color"])), bold=True)
+                    else:
+                        cell.value = ""
+                        cell.fill = PatternFill("solid", fgColor="FFFFFF")
+                    cell.border = border
+                    cell.alignment = center
+                sheet.row_dimensions[current_row].height = 46
+                current_row += 1
+
+            current_row += 2
+
+        if not rows:
+            sheet.cell(row=3, column=1, value="Sin horarios registrados.")
+
+        widths = [18, 24, 24, 24, 24, 24, 24, 24]
+        for col, width in enumerate(widths, start=1):
+            sheet.column_dimensions[get_column_letter(col)].width = width
+        sheet.freeze_panes = "B5"
+
+    def group_rows_by_week(self, rows):
+        grouped = {}
+        for row in rows:
+            week_start = row["fecha"] - timedelta(days=row["fecha"].weekday())
+            grouped.setdefault(week_start, []).append(row)
+        return dict(sorted(grouped.items(), key=lambda item: item[0]))
+
+    def schedule_label(self, row):
+        parts = [row["materia"], row["grupo"], row["aula"]]
+        if row["docente"]:
+            parts.append(row["docente"])
+        return "\n".join(parts)
 
 
 class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, View):

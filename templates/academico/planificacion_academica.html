@@ -14,6 +14,28 @@
       <p class="eyebrow">Academico</p>
       <h1>{{ title }}</h1>
     </div>
+    <div class="dropdown">
+      <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        Exportar XLS
+      </button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li>
+          <a class="dropdown-item" href="{% url 'academico:planificacion_academica_exportar' %}?tipo=general{% if selected_curso_id %}&curso={{ selected_curso_id }}{% endif %}">
+            General
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item" href="{% url 'academico:planificacion_academica_exportar' %}?tipo=docente{% if selected_curso_id %}&curso={{ selected_curso_id }}{% endif %}">
+            Por docente
+          </a>
+        </li>
+        <li>
+          <a class="dropdown-item" href="{% url 'academico:planificacion_academica_exportar' %}?tipo=aula{% if selected_curso_id %}&curso={{ selected_curso_id }}{% endif %}">
+            Por aula
+          </a>
+        </li>
+      </ul>
+    </div>
   </header>
 
   <section class="panel academic-planning-panel">

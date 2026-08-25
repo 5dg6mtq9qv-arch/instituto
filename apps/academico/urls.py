@@ -23,6 +23,7 @@ urlpatterns = [
     path("horario-distribucion/<int:curso_pk>/detalle/", views.HorarioDistribucionDetalleView.as_view(), name="horario_distribucion_detalle"),
     path("horario-distribucion/<int:curso_pk>/editar/", views.HorarioDistribucionUpdateView.as_view(), name="horario_distribucion_editar"),
     path("planificacion-academica/", views.PlanificacionAcademicaView.as_view(), name="planificacion_academica"),
+    path("planificacion-academica/exportar/", views.PlanificacionAcademicaExportView.as_view(), name="planificacion_academica_exportar"),
     path("planificacion-docente/", views.PlanificacionDocenteListView.as_view(), name="planificacion_docente"),
     path("planificacion-docente/asignar/", views.PlanificacionDocenteAsignadorView.as_view(), name="planificacion_docente_asignar"),
     path("planificacion-docente/<int:docente_pk>/asignar/", views.PlanificacionDocenteAsignadorView.as_view(), name="planificacion_docente_editar"),
