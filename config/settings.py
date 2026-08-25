@@ -21,7 +21,8 @@ env = environ.Env(
     DJANGO_DEBUG=(bool, True),
     DJANGO_ALLOWED_HOSTS=(list, ["localhost", 
                                  "127.0.0.1",
-                                 "181.199.80.6"]),
+                                 "181.199.80.6",
+                                 "instituto.solucionesintegrales.xyz"]),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
