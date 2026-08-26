@@ -1,11 +1,12 @@
 from datetime import date
 
-from django.contrib.auth.models import Group, Permission, User
+from django.contrib.auth.models import Group, User
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from apps.academico.models import Asignatura, BancoPregunta, Tema, Temario
+from apps.academico.models import Asignatura, BancoPregunta, Temario
 from apps.cartera.models import FormaPago
+from apps.core.group_seed import seed_default_groups
 from apps.core.models import Empresa, TipoIdentificacion
 from apps.matricula.models import Aula, Curso, PeriodoAcademico
 
@@ -66,23 +67,7 @@ class Command(BaseCommand):
             )
 
     def crear_grupos(self):
-        nombres = ["Administrador", "Direccion", "Coordinacion", "Docente"]
-        grupos = {nombre: Group.objects.get_or_create(name=nombre)[0] for nombre in nombres}
-
-        grupos["Administrador"].permissions.set(Permission.objects.all())
-        grupos["Direccion"].permissions.set(Permission.objects.filter(codename__startswith="view_"))
-        grupos["Coordinacion"].permissions.set(
-            Permission.objects.filter(
-                content_type__app_label__in=["core", "matricula", "academico"],
-                codename__regex=r"^(add|change|view)_",
-            )
-        )
-        grupos["Docente"].permissions.set(
-            Permission.objects.filter(
-                content_type__app_label="academico",
-                codename__regex=r"^(add|change|view)_",
-            )
-        )
+        seed_default_groups()
 
     def crear_formas_pago(self, empresa):
         datos = [
@@ -162,32 +147,19 @@ class Command(BaseCommand):
                 nombre=f"Temario beta {nombre}",
                 defaults={"estado": "activo", "activo": True},
             )
-            tema, _ = Tema.objects.get_or_create(
-                temario=temario,
-                orden=1,
-                defaults={
-                    "nombre": "Tema inicial",
-                    "objetivo": "Validar flujo academico completo con contenido minimo.",
-                    "numero_clases": 2,
-                    "dificultad": "media",
-                    "meta_preguntas_proceso": 10,
-                    "meta_preguntas_final": 10,
-                    "activo": True,
-                },
-            )
             BancoPregunta.objects.get_or_create(
                 empresa=empresa,
                 asignatura=asignatura,
-                tema=tema,
+                tema=None,
                 tipo="proceso",
-                defaults={"meta_preguntas": tema.meta_preguntas_proceso, "activo": True},
+                defaults={"meta_preguntas": 10, "activo": True},
             )
             BancoPregunta.objects.get_or_create(
                 empresa=empresa,
                 asignatura=asignatura,
-                tema=tema,
+                tema=None,
                 tipo="final",
-                defaults={"meta_preguntas": tema.meta_preguntas_final, "activo": True},
+                defaults={"meta_preguntas": 10, "activo": True},
             )
 
     def crear_usuario_admin(self, options):

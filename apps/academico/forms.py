@@ -12,16 +12,22 @@ from .models import (
     Asignatura,
     Aula,
     BancoPregunta,
+    Clase,
+    Competencia,
     Curso,
     CursoPeriodo,
     Dia,
+    Estrategia,
     HorarioClase,
     Materia,
     MateriaCurso,
     Periodo,
     PlanificacionClase,
+    PlanificacionDocente,
     ProfesorMateriaCurso,
     Pregunta,
+    Recurso,
+    Subtema,
     Tema,
     Temario,
 )
@@ -323,6 +329,96 @@ PlanificacionDocenteFormSet = formset_factory(
 )
 
 
+class CoordinacionPlanificacionForm(BootstrapFormMixin, forms.Form):
+    materia_curso = forms.ModelChoiceField(
+        label="Materia / grupo",
+        queryset=MateriaCurso.objects.none(),
+    )
+
+    def __init__(self, *args, **kwargs):
+        materia_curso = kwargs.pop("materia_curso", None)
+        super().__init__(*args, **kwargs)
+        self.fields["materia_curso"].queryset = (
+            MateriaCurso.objects.select_related("materia", "grupo")
+            .order_by("grupo__nombre", "materia__nombre")
+        )
+        self.fields["materia_curso"].label_from_instance = lambda obj: f"{obj.grupo} - {obj.materia}"
+        if materia_curso:
+            self.fields["materia_curso"].initial = materia_curso
+            self.fields["materia_curso"].disabled = True
+
+
+class CoordinacionTemaForm(BootstrapFormMixin, forms.Form):
+    tema_id = forms.IntegerField(required=False, widget=forms.HiddenInput)
+    nombre = forms.CharField(max_length=200, required=False)
+    detalle = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}))
+    orden = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
+
+    def has_topic_data(self):
+        return any(
+            self.cleaned_data.get(field)
+            for field in ["tema_id", "nombre", "detalle", "orden"]
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("DELETE") or not self.has_topic_data():
+            return cleaned_data
+        if not cleaned_data.get("nombre"):
+            self.add_error("nombre", "Escribe el nombre del tema.")
+        if not cleaned_data.get("orden"):
+            cleaned_data["orden"] = 1
+        return cleaned_data
+
+CoordinacionTemaFormSet = formset_factory(
+    CoordinacionTemaForm,
+    extra=0,
+    can_delete=True,
+)
+
+
+class DocenteClasePlanificacionForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Clase
+        fields = [
+            "tema",
+            "subtema",
+            "descripcion",
+        ]
+        widgets = {
+            "descripcion": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        clase = kwargs.pop("clase", None)
+        super().__init__(*args, **kwargs)
+        clase = clase or self.instance
+        temas = Tema.objects.none()
+        subtemas = Subtema.objects.none()
+        if clase and clase.pk:
+            temas = Tema.objects.filter(planificacion__materia_curso=clase.materia_curso).order_by("orden", "nombre")
+            subtemas = Subtema.objects.filter(tema__planificacion__materia_curso=clase.materia_curso).order_by("tema__orden", "orden", "nombre")
+        self.fields["tema"].queryset = temas
+        self.fields["subtema"].queryset = subtemas
+        self.fields["tema"].required = False
+        self.fields["subtema"].required = False
+
+    def clean(self):
+        cleaned_data = super().clean()
+        tema = cleaned_data.get("tema")
+        subtema = cleaned_data.get("subtema")
+        if subtema and tema and subtema.tema_id != tema.pk:
+            self.add_error("subtema", "El subtema no pertenece al tema seleccionado.")
+        return cleaned_data
+
+    def save(self, commit=True):
+        clase = super().save(commit=commit)
+        if not commit:
+            return clase
+        self._save_m2m()
+        return clase
+
+
 class TemarioForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = Temario
@@ -370,17 +466,12 @@ class TemaForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = Tema
         fields = [
-            "temario",
+            "planificacion",
             "nombre",
+            "detalle",
             "orden",
-            "objetivo",
-            "numero_clases",
-            "dificultad",
-            "meta_preguntas_proceso",
-            "meta_preguntas_final",
-            "activo",
         ]
-        widgets = {"objetivo": forms.Textarea(attrs={"rows": 3})}
+        widgets = {"detalle": forms.Textarea(attrs={"rows": 3})}
 
 
 class PlanificacionClaseForm(BootstrapFormMixin, forms.ModelForm):

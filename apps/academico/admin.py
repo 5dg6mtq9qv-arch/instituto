@@ -4,13 +4,21 @@ from .models import (
     Asignatura,
     Asistencia,
     BancoPregunta,
+    ClaseEstrategia,
+    ClasePlanificacion,
+    Competencia,
     Curso,
     DocenteAsignatura,
+    Estrategia,
     Evaluacion,
     EvaluacionResultado,
     HorarioClase,
     PlanificacionClase,
+    PlanificacionCompetencia,
+    PlanificacionDocente,
+    PlanificacionRecurso,
     Pregunta,
+    Recurso,
     RecursoClase,
     Subtema,
     Tema,
@@ -30,6 +38,31 @@ class RecursoClaseInline(admin.TabularInline):
 
 class EvaluacionResultadoInline(admin.TabularInline):
     model = EvaluacionResultado
+    extra = 0
+
+
+class TemaInline(admin.TabularInline):
+    model = Tema
+    extra = 0
+
+
+class ClasePlanificacionInline(admin.TabularInline):
+    model = ClasePlanificacion
+    extra = 0
+
+
+class PlanificacionCompetenciaInline(admin.TabularInline):
+    model = PlanificacionCompetencia
+    extra = 0
+
+
+class PlanificacionRecursoInline(admin.TabularInline):
+    model = PlanificacionRecurso
+    extra = 0
+
+
+class ClaseEstrategiaInline(admin.TabularInline):
+    model = ClaseEstrategia
     extra = 0
 
 
@@ -56,26 +89,17 @@ class TemarioAdmin(admin.ModelAdmin):
 
 @admin.register(Tema)
 class TemaAdmin(admin.ModelAdmin):
-    list_display = (
-        "nombre",
-        "temario",
-        "orden",
-        "dificultad",
-        "numero_clases",
-        "meta_preguntas_proceso",
-        "meta_preguntas_final",
-        "activo",
-    )
-    list_filter = ("temario__asignatura", "dificultad", "activo")
-    search_fields = ("nombre", "temario__nombre", "temario__asignatura__nombre")
+    list_display = ("nombre", "planificacion", "orden")
+    list_filter = ("planificacion",)
+    search_fields = ("nombre", "detalle", "planificacion__nombre")
     inlines = [SubtemaInline]
 
 
 @admin.register(Subtema)
 class SubtemaAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "tema", "orden", "activo")
-    list_filter = ("tema__temario__asignatura", "activo")
-    search_fields = ("nombre", "tema__nombre")
+    list_display = ("nombre", "tema", "orden")
+    list_filter = ("tema__planificacion",)
+    search_fields = ("nombre", "descripcion", "tema__nombre")
 
 
 @admin.register(DocenteAsignatura)
@@ -83,6 +107,53 @@ class DocenteAsignaturaAdmin(admin.ModelAdmin):
     list_display = ("docente", "asignatura", "periodo_academico", "aula", "activo")
     list_filter = ("empresa", "periodo_academico", "asignatura", "activo")
     search_fields = ("docente__nombre", "asignatura__nombre")
+
+
+@admin.register(PlanificacionDocente)
+class PlanificacionDocenteAdmin(admin.ModelAdmin):
+    list_display = ("nombre", "materia_curso", "created_at", "updated_at")
+    list_filter = (
+        "materia_curso__grupo",
+        "materia_curso__materia",
+    )
+    search_fields = (
+        "nombre",
+        "descripcion",
+        "materia_curso__materia__nombre",
+        "materia_curso__grupo__nombre",
+    )
+    inlines = [
+        TemaInline,
+        ClasePlanificacionInline,
+        PlanificacionCompetenciaInline,
+        PlanificacionRecursoInline,
+    ]
+
+
+@admin.register(Competencia)
+class CompetenciaAdmin(admin.ModelAdmin):
+    list_display = ("nombre",)
+    search_fields = ("nombre", "descripcion")
+
+
+@admin.register(ClasePlanificacion)
+class ClasePlanificacionAdmin(admin.ModelAdmin):
+    list_display = ("numero", "nombre", "planificacion", "orden")
+    list_filter = ("planificacion",)
+    search_fields = ("nombre", "descripcion", "planificacion__nombre")
+    inlines = [ClaseEstrategiaInline]
+
+
+@admin.register(Estrategia)
+class EstrategiaAdmin(admin.ModelAdmin):
+    list_display = ("nombre",)
+    search_fields = ("nombre", "descripcion")
+
+
+@admin.register(Recurso)
+class RecursoAdmin(admin.ModelAdmin):
+    list_display = ("nombre",)
+    search_fields = ("nombre", "descripcion")
 
 
 @admin.register(HorarioClase)

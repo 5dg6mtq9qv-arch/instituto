@@ -77,6 +77,24 @@ MENU_GROUPS = [
         ],
     },
     {
+        "label": "Coordinacion",
+        "icon": "ri-stack-line",
+        "items": [
+            {
+                "label": "Temas",
+                "url_name": "academico:coordinacion_planificacion_list",
+                "perm": None,
+                "groups": ["Coordinacion", "Direccion", "Director"],
+            },
+            {
+                "label": "Revision docente",
+                "url_name": "academico:coordinacion_revision_planificaciones",
+                "perm": None,
+                "groups": ["Coordinacion", "Direccion", "Director"],
+            },
+        ],
+    },
+    {
         "label": "Docente",
         "icon": "ri-user-star-line",
         "items": [
@@ -100,6 +118,9 @@ MENU_GROUPS = [
 def user_can_see_menu_item(user, item):
     if item.get("superuser_only"):
         return user.is_superuser
+    groups = item.get("groups")
+    if groups and not (user.is_superuser or user.groups.filter(name__in=groups).exists()):
+        return False
     perm = item.get("perm")
     return user.is_superuser or not perm or user.has_perm(perm)
 

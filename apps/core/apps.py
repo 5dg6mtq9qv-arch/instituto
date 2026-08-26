@@ -7,4 +7,5 @@ class CoreConfig(AppConfig):
     verbose_name = "Core"
 
     def ready(self):
+        from . import group_seed  # noqa: F401
         from . import signals  # noqa: F401

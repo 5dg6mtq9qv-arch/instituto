@@ -1,0 +1,152 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Coordinacion</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ list_url }}">Volver</a>
+  </header>
+
+  <section class="panel form-panel">
+    <div class="form-summary-card">
+      <div><span>Grupo</span><strong>{{ clase.materia_curso.grupo }}</strong></div>
+      <div><span>Materia</span><strong>{{ clase.materia_curso.materia }}</strong></div>
+      <div><span>Aula</span><strong>{{ clase.horario_aula_curso.aula_curso.aula }}</strong></div>
+      <div><span>Fecha</span><strong>{{ clase.fecha|date:"d M Y" }} · {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</strong></div>
+    </div>
+
+    <form method="post" class="mt-4">
+      {% csrf_token %}
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="review-check">
+            <input class="form-check-input" type="checkbox" name="revision_tema_ok" data-review-check="tema"{% if clase.revision_tema_ok %} checked{% endif %}>
+            <span>Tema y subtema correctos</span>
+          </label>
+          <strong>Tema</strong><p>{{ clase.tema|default:"-" }}</p>
+          <strong>Subtema</strong><p>{{ clase.subtema|default:"-" }}</p>
+        </div>
+        <div class="col-md-6">
+          <label class="review-check">
+            <input class="form-check-input" type="checkbox" name="revision_detalle_ok" data-review-check="detalle"{% if clase.revision_detalle_ok %} checked{% endif %}>
+            <span>Detalle correcto</span>
+          </label>
+          <strong>Detalle</strong><p>{{ clase.descripcion|default:"-" }}</p>
+        </div>
+        <div class="col-md-4">
+          <label class="review-check">
+            <input class="form-check-input" type="checkbox" name="revision_competencias_ok" data-review-check="competencias"{% if clase.revision_competencias_ok %} checked{% endif %}>
+            <span>Competencias correctas</span>
+          </label>
+          <p>{% for item in clase.competencias.all %}{{ item }}{% if not forloop.last %}, {% endif %}{% empty %}-{% endfor %}</p>
+        </div>
+        <div class="col-md-4">
+          <label class="review-check">
+            <input class="form-check-input" type="checkbox" name="revision_estrategias_ok" data-review-check="estrategias"{% if clase.revision_estrategias_ok %} checked{% endif %}>
+            <span>Estrategias correctas</span>
+          </label>
+          <p>{% for item in clase.estrategias.all %}{{ item }}{% if not forloop.last %}, {% endif %}{% empty %}-{% endfor %}</p>
+        </div>
+        <div class="col-md-4">
+          <label class="review-check">
+            <input class="form-check-input" type="checkbox" name="revision_recursos_ok" data-review-check="recursos"{% if clase.revision_recursos_ok %} checked{% endif %}>
+            <span>Recursos correctos</span>
+          </label>
+          {% for item in clase.clase_recursos.all %}
+            <p class="mb-1">
+              {{ item.recurso }}
+              {% if item.archivo %}
+                <a href="{{ item.archivo.url }}" target="_blank">Ver archivo</a>
+              {% endif %}
+            </p>
+          {% empty %}
+            <p>-</p>
+          {% endfor %}
+        </div>
+      </div>
+
+      <label class="form-label" for="id_notas_revision">Observaciones generales</label>
+      <textarea class="form-control" id="id_notas_revision" name="notas_revision" rows="4">{{ clase.notas_revision|default:"" }}</textarea>
+      <div class="form-actions">
+        <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#rejectPlanificacionModal">Rechazar</button>
+        <button class="btn btn-primary" type="submit" name="review_action" value="aprobar">Aprobar</button>
+      </div>
+
+      <div class="modal fade" id="rejectPlanificacionModal" tabindex="-1" aria-labelledby="rejectPlanificacionTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="rejectPlanificacionTitle">Observaciones para subsanar</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <p class="text-muted mb-3">Solo se pedira correccion de los puntos que no marcaste como correctos.</p>
+              <div class="review-modal-stack" data-review-observations>
+                <div class="review-observation" data-observation-row="tema">
+                  <label class="form-label" for="id_observacion_tema">Tema y subtema</label>
+                  <textarea class="form-control" id="id_observacion_tema" name="observacion_tema" rows="2">{{ clase.observaciones_revision.tema|default:"" }}</textarea>
+                </div>
+                <div class="review-observation" data-observation-row="detalle">
+                  <label class="form-label" for="id_observacion_detalle">Detalle</label>
+                  <textarea class="form-control" id="id_observacion_detalle" name="observacion_detalle" rows="2">{{ clase.observaciones_revision.detalle|default:"" }}</textarea>
+                </div>
+                <div class="review-observation" data-observation-row="competencias">
+                  <label class="form-label" for="id_observacion_competencias">Competencias</label>
+                  <textarea class="form-control" id="id_observacion_competencias" name="observacion_competencias" rows="2">{{ clase.observaciones_revision.competencias|default:"" }}</textarea>
+                </div>
+                <div class="review-observation" data-observation-row="estrategias">
+                  <label class="form-label" for="id_observacion_estrategias">Estrategias</label>
+                  <textarea class="form-control" id="id_observacion_estrategias" name="observacion_estrategias" rows="2">{{ clase.observaciones_revision.estrategias|default:"" }}</textarea>
+                </div>
+                <div class="review-observation" data-observation-row="recursos">
+                  <label class="form-label" for="id_observacion_recursos">Recursos</label>
+                  <textarea class="form-control" id="id_observacion_recursos" name="observacion_recursos" rows="2">{{ clase.observaciones_revision.recursos|default:"" }}</textarea>
+                </div>
+                <div class="alert alert-success mb-0 d-none" data-all-approved-message>
+                  Marcaste todos los puntos como correctos. Puedes aprobar la planificacion.
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-outline-danger" type="submit" name="review_action" value="rechazar">Confirmar rechazo</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    (function () {
+      const modal = document.getElementById("rejectPlanificacionModal");
+      const allApprovedMessage = document.querySelector("[data-all-approved-message]");
+
+      function syncRejectModal() {
+        let visibleRows = 0;
+        document.querySelectorAll("[data-observation-row]").forEach(function (row) {
+          const key = row.dataset.observationRow;
+          const check = document.querySelector(`[data-review-check="${key}"]`);
+          const shouldShow = !check || !check.checked;
+          row.classList.toggle("d-none", !shouldShow);
+          row.querySelectorAll("textarea").forEach(function (textarea) {
+            textarea.required = shouldShow;
+          });
+          if (shouldShow) visibleRows += 1;
+        });
+        allApprovedMessage?.classList.toggle("d-none", visibleRows !== 0);
+      }
+
+      modal?.addEventListener("show.bs.modal", syncRejectModal);
+      document.querySelectorAll("[data-review-check]").forEach(function (check) {
+        check.addEventListener("change", syncRejectModal);
+      });
+    })();
+  </script>
+{% endblock %}

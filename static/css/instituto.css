@@ -2248,8 +2248,132 @@ dd {
     position: static;
   }
 
-  .list-table-responsive {
+.list-table-responsive {
     overflow-x: auto;
     overflow-y: visible;
   }
+}
+
+.coordinacion-topic-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.coordinacion-topic {
+  border: 1px solid #d9dde7;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fff;
+}
+
+.coordinacion-topic.is-deleted {
+  display: none;
+}
+
+.coordinacion-topic-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.coordinacion-topic-actions input[type="checkbox"] {
+  display: none;
+}
+
+.nested-subtema-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.nested-subtema-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.nested-subtema-row {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.nested-subtema-row.is-deleted {
+  display: none;
+}
+
+.tag-select-panel {
+  border: 1px solid #d9dde7;
+  border-radius: 8px;
+  padding: 14px;
+  min-height: 100%;
+}
+
+.tag-existing-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 0;
+}
+
+.tag-check-row {
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+}
+
+.review-check {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-weight: 700;
+}
+
+.revision-rejected {
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.revision-rejected .form-control,
+.revision-rejected .form-select {
+  border-color: #ef4444;
+}
+
+.revision-note {
+  color: #b42318;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.review-modal-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.review-observation {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.review-observation .form-label {
+  margin-bottom: 6px;
+}
+
+.tag-new-stack {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.tag-new-stack .is-deleted {
+  display: none;
 }

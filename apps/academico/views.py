@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from django.http import HttpResponse
 from django.urls import reverse_lazy
 from django.db import transaction
+from django.db.models import Prefetch
 from django.db.models import Count, Q
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
@@ -33,6 +34,9 @@ from .forms import (
     HorarioAsignacionBaseForm,
     HorarioAsignacionFormSet,
     HorarioClaseForm,
+    CoordinacionPlanificacionForm,
+    CoordinacionTemaFormSet,
+    DocenteClasePlanificacionForm,
     PlanificacionDocenteBaseForm,
     PlanificacionDocenteFormSet,
     PlanificacionClaseForm,
@@ -57,8 +61,13 @@ from .models import (
     MateriaCurso,
     Periodo,
     PlanificacionClase,
+    PlanificacionDocente,
     ProfesorMateriaCurso,
     Pregunta,
+    Competencia,
+    Estrategia,
+    Recurso,
+    ClaseRecurso,
     Tema,
     Temario,
 )
@@ -66,6 +75,17 @@ from .models import (
 
 def can_view_all_horarios(user):
     return user.is_superuser or user.groups.filter(name="Director").exists() or user.has_perm("academico.view_all_horarioclase")
+
+
+def user_can_access_coordinacion(user):
+    return user.is_superuser or user.groups.filter(name__in=["Coordinacion", "Direccion", "Director"]).exists()
+
+
+class CoordinacionRequiredMixin(LoginRequiredMixin):
+    def dispatch(self, request, *args, **kwargs):
+        if not user_can_access_coordinacion(request.user):
+            return self.handle_no_permission()
+        return super().dispatch(request, *args, **kwargs)
 
 
 def readable_text_color(hex_color):
@@ -1014,6 +1034,203 @@ class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMi
         }
 
 
+class CoordinacionPlanificacionListView(CoordinacionRequiredMixin, View):
+    template_name = "academico/coordinacion_planificacion_list.html"
+
+    def get(self, request):
+        q = request.GET.get("q")
+        asignaciones = (
+            MateriaCurso.objects.select_related(
+                "materia",
+                "grupo",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "profesor_materia_cursos",
+                    queryset=ProfesorMateriaCurso.objects.select_related("partner").order_by("partner__nombre"),
+                )
+            )
+            .annotate(total_temas=Count("planificaciones__temas_planificacion", distinct=True))
+            .order_by("grupo__nombre", "materia__nombre")
+        )
+        if q:
+            asignaciones = asignaciones.filter(
+                Q(materia__nombre__icontains=q)
+                | Q(grupo__nombre__icontains=q)
+                | Q(profesor_materia_cursos__partner__nombre__icontains=q)
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Temas y subtemas",
+                "asignaciones": asignaciones,
+            },
+        )
+
+
+class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
+    template_name = "academico/coordinacion_planificacion_form.html"
+
+    def get_materia_curso(self):
+        pk = self.kwargs.get("materia_curso_pk")
+        if pk:
+            return get_object_or_404(
+                MateriaCurso.objects.select_related("materia", "grupo").prefetch_related(
+                    Prefetch(
+                        "profesor_materia_cursos",
+                        queryset=ProfesorMateriaCurso.objects.select_related("partner").order_by("partner__nombre"),
+                    )
+                ),
+                pk=pk,
+            )
+        return None
+
+    def get_planificacion(self, materia_curso):
+        if not materia_curso:
+            return None
+        return (
+            PlanificacionDocente.objects.filter(materia_curso=materia_curso)
+            .order_by("id")
+            .first()
+        )
+
+    def ensure_planificacion(self, materia_curso):
+        nombre = f"{materia_curso.grupo} - {materia_curso.materia}"
+        planificacion, _ = PlanificacionDocente.objects.get_or_create(
+            materia_curso=materia_curso,
+            defaults={"nombre": nombre},
+        )
+        return planificacion
+
+    def get(self, request, *args, **kwargs):
+        materia_curso = self.get_materia_curso()
+        planificacion = self.get_planificacion(materia_curso)
+        form = CoordinacionPlanificacionForm(materia_curso=materia_curso)
+        formset = CoordinacionTemaFormSet(initial=self.get_tema_initial(planificacion))
+        return render(request, self.template_name, self.get_context(form, formset, materia_curso, planificacion))
+
+    def post(self, request, *args, **kwargs):
+        materia_curso = self.get_materia_curso()
+        form = CoordinacionPlanificacionForm(request.POST, materia_curso=materia_curso)
+        formset = CoordinacionTemaFormSet(request.POST)
+        if form.is_valid() and formset.is_valid():
+            with transaction.atomic():
+                materia_curso = materia_curso or form.cleaned_data["materia_curso"]
+                planificacion = self.ensure_planificacion(materia_curso)
+                kept_tema_ids = set()
+                for tema_index, tema_form in enumerate(formset):
+                    if tema_form.cleaned_data.get("DELETE") or not tema_form.has_topic_data():
+                        continue
+                    tema_id = tema_form.cleaned_data.get("tema_id")
+                    tema = None
+                    if tema_id:
+                        tema = planificacion.temas_planificacion.filter(pk=tema_id).first()
+                    if tema is None:
+                        tema = Tema(planificacion=planificacion)
+                    tema.nombre = tema_form.cleaned_data["nombre"]
+                    tema.detalle = tema_form.cleaned_data.get("detalle") or None
+                    tema.orden = len(kept_tema_ids) + 1
+                    tema.save()
+                    kept_tema_ids.add(tema.pk)
+
+                    submitted_subtemas = self.get_subtemas_from_post(tema_index)
+                    kept_subtema_ids = set()
+                    for subtema_order, subtema_data in enumerate(submitted_subtemas, start=1):
+                        subtema = None
+                        if subtema_data["id"]:
+                            subtema = tema.subtemas_planificacion.filter(pk=subtema_data["id"]).first()
+                        if subtema_data["delete"] or not subtema_data["nombre"]:
+                            if subtema:
+                                subtema.delete()
+                            continue
+                        if subtema:
+                            subtema.nombre = subtema_data["nombre"]
+                            subtema.descripcion = None
+                            subtema.orden = subtema_order
+                            subtema.save(update_fields=["nombre", "descripcion", "orden"])
+                        else:
+                            subtema = tema.subtemas_planificacion.create(
+                                nombre=subtema_data["nombre"],
+                                orden=subtema_order,
+                            )
+                        kept_subtema_ids.add(subtema.pk)
+                    tema.subtemas_planificacion.exclude(pk__in=kept_subtema_ids).delete()
+
+                planificacion.temas_planificacion.exclude(pk__in=kept_tema_ids).delete()
+            messages.success(request, "Temas y subtemas guardados correctamente.")
+            return redirect("academico:coordinacion_planificacion_editar", materia_curso_pk=materia_curso.pk)
+        return render(request, self.template_name, self.get_context(form, formset, materia_curso, self.get_planificacion(materia_curso)))
+
+    def get_subtemas_from_post(self, tema_index):
+        prefix = f"form-{tema_index}-subtemas"
+        try:
+            total = int(self.request.POST.get(f"{prefix}-TOTAL_FORMS", 0))
+        except (TypeError, ValueError):
+            total = 0
+        subtemas = []
+        for index in range(total):
+            row_prefix = f"{prefix}-{index}"
+            subtemas.append(
+                {
+                    "id": self.request.POST.get(f"{row_prefix}-id") or "",
+                    "nombre": (self.request.POST.get(f"{row_prefix}-nombre") or "").strip(),
+                    "delete": self.request.POST.get(f"{row_prefix}-DELETE") == "on",
+                }
+            )
+        return subtemas
+
+    def get_tema_initial(self, planificacion):
+        if not planificacion:
+            return [{}]
+        initial = []
+        temas = planificacion.temas_planificacion.prefetch_related("subtemas_planificacion").order_by("orden", "nombre")
+        for tema in temas:
+            initial.append(
+                {
+                    "tema_id": tema.pk,
+                    "nombre": tema.nombre,
+                    "detalle": tema.detalle,
+                    "orden": tema.orden,
+                    "subtemas": [
+                        {"id": subtema.pk, "nombre": subtema.nombre}
+                        for subtema in tema.subtemas_planificacion.order_by("orden", "nombre")
+                    ],
+                }
+            )
+        return initial or [{}]
+
+    def get_context(self, form, formset, materia_curso, planificacion):
+        docentes = []
+        if materia_curso:
+            docentes = [
+                item.partner
+                for item in materia_curso.profesor_materia_cursos.all()
+            ]
+        materia_docentes = {}
+        for item in MateriaCurso.objects.prefetch_related(
+            Prefetch(
+                "profesor_materia_cursos",
+                queryset=ProfesorMateriaCurso.objects.select_related("partner").order_by("partner__nombre"),
+            )
+        ):
+            materia_docentes[str(item.pk)] = [
+                asignacion.partner.nombre
+                for asignacion in item.profesor_materia_cursos.all()
+            ]
+        return {
+            "title": "Temas y subtemas",
+            "form": form,
+            "formset": formset,
+            "materia_curso": materia_curso,
+            "docentes": docentes,
+            "planificacion": planificacion,
+            "materia_docentes_json": json.dumps(materia_docentes),
+            "tema_suggestions": Tema.objects.order_by("nombre").values_list("nombre", flat=True).distinct(),
+            "list_url": reverse_lazy("academico:coordinacion_planificacion_list"),
+        }
+
+
 class DocenteHorariosView(LoginRequiredMixin, View):
     template_name = "academico/docente_horarios.html"
 
@@ -1070,6 +1287,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                     "aula": str(aula),
                     "materia": materia.nombre,
                     "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
+                    "url": str(reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk})),
                 }
             )
 
@@ -1084,6 +1302,294 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                 "has_events": bool(calendar_events),
             },
         )
+
+
+class DocenteClasePlanificacionView(LoginRequiredMixin, View):
+    template_name = "academico/docente_clase_planificacion.html"
+
+    def get_clase(self):
+        docente = getattr(self.request.user, "partner", None)
+        return get_object_or_404(
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            ).filter(materia_curso__profesor_materia_cursos__partner=docente),
+            pk=self.kwargs["pk"],
+        )
+
+    def get(self, request, pk):
+        clase = self.get_clase()
+        form = DocenteClasePlanificacionForm(instance=clase, clase=clase)
+        return render(request, self.template_name, self.get_context(form, clase))
+
+    def post(self, request, pk):
+        clase = self.get_clase()
+        form = DocenteClasePlanificacionForm(request.POST, request.FILES, instance=clase, clase=clase)
+        if form.is_valid():
+            with transaction.atomic():
+                clase = form.save()
+                self.sync_tags(clase.competencias, Competencia, "competencias")
+                self.sync_tags(clase.estrategias, Estrategia, "estrategias")
+                recurso_ids = self.sync_tags(clase.recursos, Recurso, "recursos")
+                self.sync_resource_files(clase, recurso_ids)
+                clase.estado_planificacion = "revision"
+                clase.notas_revision = ""
+                clase.observaciones_revision = {}
+                clase.revisado_por = None
+                clase.fecha_revision = None
+                clase.revision_tema_ok = False
+                clase.revision_detalle_ok = False
+                clase.revision_competencias_ok = False
+                clase.revision_estrategias_ok = False
+                clase.revision_recursos_ok = False
+                clase.save(update_fields=[
+                    "estado_planificacion",
+                    "notas_revision",
+                    "observaciones_revision",
+                    "revisado_por",
+                    "fecha_revision",
+                    "revision_tema_ok",
+                    "revision_detalle_ok",
+                    "revision_competencias_ok",
+                    "revision_estrategias_ok",
+                    "revision_recursos_ok",
+                ])
+            messages.success(request, "Clase planificada correctamente.")
+            return redirect("academico:docente_horarios")
+        return render(request, self.template_name, self.get_context(form, clase))
+
+    def sync_tags(self, relation, model, prefix):
+        selected_ids = {
+            int(value)
+            for value in self.request.POST.getlist(f"{prefix}_existentes")
+            if str(value).isdigit()
+        }
+        for nombre in self.get_new_tag_names(prefix):
+            obj, _ = model.objects.get_or_create(nombre=nombre)
+            selected_ids.add(obj.pk)
+        relation.set(selected_ids)
+        return selected_ids
+
+    def sync_resource_files(self, clase, recurso_ids):
+        ClaseRecurso.objects.filter(clase=clase).exclude(recurso_id__in=recurso_ids).delete()
+        for recurso_id in recurso_ids:
+            clase_recurso, _ = ClaseRecurso.objects.get_or_create(clase=clase, recurso_id=recurso_id)
+            uploaded = self.request.FILES.get(f"recurso_archivo_{recurso_id}")
+            if uploaded:
+                clase_recurso.archivo = uploaded
+                clase_recurso.save(update_fields=["archivo"])
+
+    def get_new_tag_names(self, prefix):
+        try:
+            total = int(self.request.POST.get(f"{prefix}-TOTAL_FORMS", 0))
+        except (TypeError, ValueError):
+            total = 0
+        names = []
+        for index in range(total):
+            name = (self.request.POST.get(f"{prefix}-{index}-nombre") or "").strip()
+            delete = self.request.POST.get(f"{prefix}-{index}-DELETE") == "on"
+            if name and not delete:
+                names.append(name)
+        return names
+
+    def get_context(self, form, clase):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        temas = Tema.objects.filter(planificacion__materia_curso=clase.materia_curso).prefetch_related(
+            "subtemas_planificacion"
+        ).order_by("orden", "nombre")
+        subtemas_by_tema = {
+            str(tema.pk): [
+                {"id": subtema.pk, "nombre": subtema.nombre}
+                for subtema in tema.subtemas_planificacion.order_by("orden", "nombre")
+            ]
+            for tema in temas
+        }
+        observaciones = clase.observaciones_revision or {}
+        clase_recursos_by_id = {
+            item.recurso_id: item
+            for item in clase.clase_recursos.select_related("recurso")
+        }
+        recursos_existing = [
+            {
+                "obj": recurso,
+                "selected": recurso.pk in set(clase.recursos.values_list("id", flat=True)),
+                "clase_recurso": clase_recursos_by_id.get(recurso.pk),
+            }
+            for recurso in Recurso.objects.order_by("nombre")
+        ]
+        return {
+            "title": "Planificar clase",
+            "form": form,
+            "clase": clase,
+            "horario": horario,
+            "temas": temas,
+            "subtemas_by_tema_json": json.dumps(subtemas_by_tema),
+            "tag_groups": [
+                {
+                    "title": "Competencias",
+                    "prefix": "competencias",
+                    "existing": Competencia.objects.order_by("nombre"),
+                    "selected_ids": set(clase.competencias.values_list("id", flat=True)),
+                    "add_label": "Agregar competencia",
+                    "placeholder": "Nueva competencia",
+                    "revision_note": observaciones.get("competencias", ""),
+                    "files_by_id": {},
+                },
+                {
+                    "title": "Estrategias",
+                    "prefix": "estrategias",
+                    "existing": Estrategia.objects.order_by("nombre"),
+                    "selected_ids": set(clase.estrategias.values_list("id", flat=True)),
+                    "add_label": "Agregar estrategia",
+                    "placeholder": "Nueva estrategia",
+                    "revision_note": observaciones.get("estrategias", ""),
+                    "files_by_id": {},
+                },
+                {
+                    "title": "Recursos",
+                    "prefix": "recursos",
+                    "existing": recursos_existing,
+                    "selected_ids": set(clase.recursos.values_list("id", flat=True)),
+                    "add_label": "Agregar recurso",
+                    "placeholder": "Nuevo recurso",
+                    "revision_note": observaciones.get("recursos", ""),
+                },
+            ],
+            "clase_recursos_by_id": clase_recursos_by_id,
+            "observaciones_revision": observaciones,
+            "cancel_url": reverse_lazy("academico:docente_horarios"),
+        }
+
+
+class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
+    template_name = "academico/coordinacion_revision_planificaciones.html"
+
+    def get(self, request):
+        estado = request.GET.get("estado", "")
+        clases = (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "tema",
+                "subtema",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
+            .order_by("-fecha", "materia_curso__grupo__nombre")
+        )
+        if estado:
+            clases = clases.filter(estado_planificacion=estado)
+        q = request.GET.get("q")
+        if q:
+            clases = clases.filter(
+                Q(materia_curso__materia__nombre__icontains=q)
+                | Q(materia_curso__grupo__nombre__icontains=q)
+                | Q(tema__nombre__icontains=q)
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Revision de planificaciones",
+                "clases": clases,
+                "estado_choices": Clase.ESTADO_PLANIFICACION_CHOICES,
+                "selected_estado": estado,
+            },
+        )
+
+
+class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, View):
+    template_name = "academico/coordinacion_revision_planificacion_detalle.html"
+
+    def get_clase(self):
+        return get_object_or_404(
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "tema",
+                "subtema",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            ).prefetch_related("competencias", "estrategias", "recursos", "materia_curso__profesor_materia_cursos__partner"),
+            pk=self.kwargs["pk"],
+        )
+
+    def get(self, request, pk):
+        return render(request, self.template_name, self.get_context(self.get_clase()))
+
+    def post(self, request, pk):
+        clase = self.get_clase()
+        action = request.POST.get("review_action")
+        notas = request.POST.get("notas_revision", "").strip()
+        if action == "rechazar" and not notas:
+            messages.error(request, "Escribe observaciones para rechazar la planificacion.")
+            return render(request, self.template_name, self.get_context(clase))
+        if action not in {"aprobar", "rechazar"}:
+            messages.error(request, "Accion no valida.")
+            return render(request, self.template_name, self.get_context(clase))
+        clase.revision_tema_ok = request.POST.get("revision_tema_ok") == "on"
+        clase.revision_detalle_ok = request.POST.get("revision_detalle_ok") == "on"
+        clase.revision_competencias_ok = request.POST.get("revision_competencias_ok") == "on"
+        clase.revision_estrategias_ok = request.POST.get("revision_estrategias_ok") == "on"
+        clase.revision_recursos_ok = request.POST.get("revision_recursos_ok") == "on"
+        section_comments = self.get_section_comments(request)
+        if action == "rechazar":
+            missing = [
+                label
+                for key, label in self.review_sections()
+                if not getattr(clase, f"revision_{key}_ok") and not section_comments.get(key)
+            ]
+            if missing:
+                messages.error(request, "Agrega comentario en: " + ", ".join(missing))
+                return render(request, self.template_name, self.get_context(clase))
+        clase.estado_planificacion = "aprobada" if action == "aprobar" else "rechazada"
+        clase.notas_revision = notas
+        clase.observaciones_revision = {} if action == "aprobar" else section_comments
+        clase.revisado_por = getattr(request.user, "partner", None)
+        clase.fecha_revision = timezone.now()
+        clase.save(update_fields=[
+            "estado_planificacion",
+            "notas_revision",
+            "observaciones_revision",
+            "revisado_por",
+            "fecha_revision",
+            "revision_tema_ok",
+            "revision_detalle_ok",
+            "revision_competencias_ok",
+            "revision_estrategias_ok",
+            "revision_recursos_ok",
+        ])
+        messages.success(request, "Revision registrada correctamente.")
+        return redirect("academico:coordinacion_revision_planificaciones")
+
+    def review_sections(self):
+        return (
+            ("tema", "Tema y subtema"),
+            ("detalle", "Detalle"),
+            ("competencias", "Competencias"),
+            ("estrategias", "Estrategias"),
+            ("recursos", "Recursos"),
+        )
+
+    def get_section_comments(self, request):
+        comments = {}
+        for key, _ in self.review_sections():
+            value = request.POST.get(f"observacion_{key}", "").strip()
+            if value:
+                comments[key] = value
+        return comments
+
+    def get_context(self, clase):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        return {
+            "title": "Revisar planificacion",
+            "clase": clase,
+            "horario": horario,
+            "list_url": reverse_lazy("academico:coordinacion_revision_planificaciones"),
+        }
 
 
 class AsignaturaListView(InstitutoListView):
@@ -1489,10 +1995,10 @@ class TemaListView(InstitutoListView):
     model = Tema
     title = "Temas"
     create_url_name = "academico:tema_nuevo"
-    columns = (("Temario", "temario"), ("Orden", "orden"), ("Nombre", "nombre"), ("Dificultad", "dificultad"), ("Clases", "numero_clases"))
+    columns = (("Planificacion", "planificacion"), ("Orden", "orden"), ("Nombre", "nombre"), ("Detalle", "detalle"))
 
     def get_queryset(self):
-        return super().get_queryset().select_related("temario", "temario__asignatura")
+        return super().get_queryset().select_related("planificacion", "planificacion__materia_curso")
 
 
 class TemaCreateView(InstitutoCreateView):

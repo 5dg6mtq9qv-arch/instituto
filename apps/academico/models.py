@@ -78,78 +78,6 @@ class Temario(models.Model):
         return f"{self.asignatura} - {self.nombre}"
 
 
-class Tema(models.Model):
-    DIFICULTAD_CHOICES = (
-        ("basica", "Basica"),
-        ("media", "Media"),
-        ("avanzada", "Avanzada"),
-    )
-
-    temario = models.ForeignKey(
-        Temario,
-        db_column="id_temario",
-        on_delete=models.DO_NOTHING,
-        related_name="temas",
-    )
-    nombre = models.CharField(max_length=180)
-    orden = models.IntegerField(default=1)
-    objetivo = models.TextField(blank=True, null=True)
-    numero_clases = models.IntegerField(default=1)
-    dificultad = models.CharField(max_length=20, choices=DIFICULTAD_CHOICES, default="media")
-    meta_preguntas_proceso = models.IntegerField(default=10)
-    meta_preguntas_final = models.IntegerField(default=10)
-    activo = models.BooleanField(default=True)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-    usuario_updated = models.ForeignKey(
-        "auth.User",
-        db_column="id_usuario_updated",
-        on_delete=models.DO_NOTHING,
-        blank=True,
-        null=True,
-        related_name="temas_actualizados",
-    )
-
-    class Meta:
-        db_table = '"academico"."tema"'
-        unique_together = (("temario", "orden"),)
-        ordering = ["temario", "orden"]
-
-    def __str__(self):
-        return self.nombre
-
-
-class Subtema(models.Model):
-    tema = models.ForeignKey(
-        Tema,
-        db_column="id_tema",
-        on_delete=models.DO_NOTHING,
-        related_name="subtemas",
-    )
-    nombre = models.CharField(max_length=180)
-    orden = models.IntegerField(default=1)
-    objetivo = models.TextField(blank=True, null=True)
-    activo = models.BooleanField(default=True)
-    created = models.DateTimeField(auto_now_add=True)
-    updated = models.DateTimeField(auto_now=True)
-    usuario_updated = models.ForeignKey(
-        "auth.User",
-        db_column="id_usuario_updated",
-        on_delete=models.DO_NOTHING,
-        blank=True,
-        null=True,
-        related_name="subtemas_actualizados",
-    )
-
-    class Meta:
-        db_table = '"academico"."subtema"'
-        unique_together = (("tema", "orden"),)
-        ordering = ["tema", "orden"]
-
-    def __str__(self):
-        return self.nombre
-
-
 class DocenteAsignatura(models.Model):
     empresa = models.ForeignKey(
         "core.Empresa",
@@ -331,14 +259,14 @@ class PlanificacionClase(models.Model):
         on_delete=models.DO_NOTHING,
     )
     tema = models.ForeignKey(
-        Tema,
+        "academico.Tema",
         db_column="id_tema",
         on_delete=models.DO_NOTHING,
         blank=True,
         null=True,
     )
     subtema = models.ForeignKey(
-        Subtema,
+        "academico.Subtema",
         db_column="id_subtema",
         on_delete=models.DO_NOTHING,
         blank=True,
@@ -446,14 +374,14 @@ class BancoPregunta(models.Model):
         on_delete=models.DO_NOTHING,
     )
     tema = models.ForeignKey(
-        Tema,
+        "academico.Tema",
         db_column="id_tema",
         on_delete=models.DO_NOTHING,
         blank=True,
         null=True,
     )
     subtema = models.ForeignKey(
-        Subtema,
+        "academico.Subtema",
         db_column="id_subtema",
         on_delete=models.DO_NOTHING,
         blank=True,
@@ -618,7 +546,7 @@ class Evaluacion(models.Model):
         on_delete=models.DO_NOTHING,
     )
     tema = models.ForeignKey(
-        Tema,
+        "academico.Tema",
         db_column="id_tema",
         on_delete=models.DO_NOTHING,
         blank=True,
@@ -949,6 +877,13 @@ class CursoPeriodo(models.Model):
 
 
 class Clase(models.Model):
+    ESTADO_PLANIFICACION_CHOICES = (
+        ("pendiente", "Pendiente"),
+        ("revision", "En revision"),
+        ("aprobada", "Aprobada"),
+        ("rechazada", "Rechazada"),
+    )
+
     id = models.BigAutoField(primary_key=True)
     horario_aula_curso = models.ForeignKey(
         HorarioAulaCurso,
@@ -963,7 +898,60 @@ class Clase(models.Model):
         related_name="clases",
     )
     fecha = models.DateField()
+    tema = models.ForeignKey(
+        "academico.Tema",
+        db_column="id_tema",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="clases",
+    )
+    subtema = models.ForeignKey(
+        "academico.Subtema",
+        db_column="id_subtema",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="clases",
+    )
     descripcion = models.TextField(blank=True, null=True)
+    competencias = models.ManyToManyField(
+        "academico.Competencia",
+        blank=True,
+        related_name="clases",
+    )
+    estrategias = models.ManyToManyField(
+        "academico.Estrategia",
+        blank=True,
+        related_name="clases",
+    )
+    recursos = models.ManyToManyField(
+        "academico.Recurso",
+        through="academico.ClaseRecurso",
+        blank=True,
+        related_name="clases",
+    )
+    revision_tema_ok = models.BooleanField(default=False)
+    revision_detalle_ok = models.BooleanField(default=False)
+    revision_competencias_ok = models.BooleanField(default=False)
+    revision_estrategias_ok = models.BooleanField(default=False)
+    revision_recursos_ok = models.BooleanField(default=False)
+    estado_planificacion = models.CharField(
+        max_length=20,
+        choices=ESTADO_PLANIFICACION_CHOICES,
+        default="pendiente",
+    )
+    notas_revision = models.TextField(blank=True, null=True)
+    observaciones_revision = models.JSONField(default=dict, blank=True)
+    revisado_por = models.ForeignKey(
+        "core.Partner",
+        db_column="id_revisado_por",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="clases_revisadas",
+    )
+    fecha_revision = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = '"academico"."clase"'
@@ -972,6 +960,31 @@ class Clase(models.Model):
 
     def __str__(self):
         return f"{self.fecha} - {self.horario_aula_curso} - {self.materia_curso}"
+
+
+class ClaseRecurso(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    clase = models.ForeignKey(
+        Clase,
+        db_column="id_clase",
+        on_delete=models.CASCADE,
+        related_name="clase_recursos",
+    )
+    recurso = models.ForeignKey(
+        "academico.Recurso",
+        db_column="id_recurso",
+        on_delete=models.CASCADE,
+        related_name="clase_recursos",
+    )
+    archivo = models.FileField(upload_to="academico/clase_recursos/", blank=True, null=True)
+
+    class Meta:
+        db_table = '"academico"."clase_recurso"'
+        unique_together = (("clase", "recurso"),)
+        ordering = ["clase", "recurso"]
+
+    def __str__(self):
+        return f"{self.clase} - {self.recurso}"
 
 
 class ProfesorMateriaCurso(models.Model):
@@ -996,3 +1009,198 @@ class ProfesorMateriaCurso(models.Model):
 
     def __str__(self):
         return f"{self.partner} - {self.materia_curso}"
+
+
+class PlanificacionDocente(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    materia_curso = models.ForeignKey(
+        MateriaCurso,
+        db_column="id_materia_curso",
+        on_delete=models.CASCADE,
+        related_name="planificaciones",
+    )
+    nombre = models.CharField(max_length=200)
+    descripcion = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = '"academico"."planificacion"'
+        ordering = ["materia_curso", "nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class Tema(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    planificacion = models.ForeignKey(
+        PlanificacionDocente,
+        db_column="id_planificacion",
+        on_delete=models.CASCADE,
+        related_name="temas_planificacion",
+    )
+    nombre = models.CharField(max_length=200)
+    detalle = models.TextField(blank=True, null=True)
+    orden = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."tema"'
+        ordering = ["planificacion", "orden", "nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class Subtema(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    tema = models.ForeignKey(
+        "academico.Tema",
+        db_column="id_tema",
+        on_delete=models.CASCADE,
+        related_name="subtemas_planificacion",
+    )
+    nombre = models.CharField(max_length=200)
+    descripcion = models.TextField(blank=True, null=True)
+    orden = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."subtema"'
+        ordering = ["tema", "orden", "nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class Competencia(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    nombre = models.CharField(max_length=200)
+    descripcion = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = '"academico"."competencia"'
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class PlanificacionCompetencia(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    planificacion = models.ForeignKey(
+        PlanificacionDocente,
+        db_column="id_planificacion",
+        on_delete=models.CASCADE,
+        related_name="competencias_planificacion",
+    )
+    competencia = models.ForeignKey(
+        Competencia,
+        db_column="id_competencia",
+        on_delete=models.RESTRICT,
+        related_name="planificaciones_competencia",
+    )
+
+    class Meta:
+        db_table = '"academico"."planificacion_competencia"'
+        unique_together = (("planificacion", "competencia"),)
+        ordering = ["planificacion", "competencia"]
+
+    def __str__(self):
+        return f"{self.planificacion} - {self.competencia}"
+
+
+class ClasePlanificacion(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    planificacion = models.ForeignKey(
+        PlanificacionDocente,
+        db_column="id_planificacion",
+        on_delete=models.CASCADE,
+        related_name="clases_planificacion",
+    )
+    numero = models.IntegerField()
+    nombre = models.CharField(max_length=200, blank=True, null=True)
+    descripcion = models.TextField(blank=True, null=True)
+    orden = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."clase_planificacion"'
+        unique_together = (("planificacion", "numero"),)
+        ordering = ["planificacion", "orden", "numero"]
+
+    def __str__(self):
+        return self.nombre or f"Clase {self.numero}"
+
+
+class Estrategia(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    nombre = models.CharField(max_length=200)
+    descripcion = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = '"academico"."estrategia"'
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class ClaseEstrategia(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    clase_planificacion = models.ForeignKey(
+        ClasePlanificacion,
+        db_column="id_clase_planificacion",
+        on_delete=models.CASCADE,
+        related_name="estrategias_clase",
+    )
+    estrategia = models.ForeignKey(
+        Estrategia,
+        db_column="id_estrategia",
+        on_delete=models.RESTRICT,
+        related_name="clases_estrategia",
+    )
+    orden = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."clase_estrategia"'
+        unique_together = (("clase_planificacion", "estrategia"),)
+        ordering = ["clase_planificacion", "orden", "estrategia"]
+
+    def __str__(self):
+        return f"{self.clase_planificacion} - {self.estrategia}"
+
+
+class Recurso(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    nombre = models.CharField(max_length=200)
+    descripcion = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = '"academico"."recurso"'
+        ordering = ["nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class PlanificacionRecurso(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    planificacion = models.ForeignKey(
+        PlanificacionDocente,
+        db_column="id_planificacion",
+        on_delete=models.CASCADE,
+        related_name="recursos_planificacion",
+    )
+    recurso = models.ForeignKey(
+        Recurso,
+        db_column="id_recurso",
+        on_delete=models.RESTRICT,
+        related_name="planificaciones_recurso",
+    )
+
+    class Meta:
+        db_table = '"academico"."planificacion_recurso"'
+        unique_together = (("planificacion", "recurso"),)
+        ordering = ["planificacion", "recurso"]
+
+    def __str__(self):
+        return f"{self.planificacion} - {self.recurso}"

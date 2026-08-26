@@ -1,0 +1,198 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Docente</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+  </header>
+
+  <form class="panel form-panel" method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    <div class="form-summary-card">
+      <div>
+        <span>Grupo</span>
+        <strong>{{ clase.materia_curso.grupo }}</strong>
+      </div>
+      <div>
+        <span>Materia</span>
+        <strong>{{ clase.materia_curso.materia }}</strong>
+      </div>
+      <div>
+        <span>Aula</span>
+        <strong>{{ clase.horario_aula_curso.aula_curso.aula }}</strong>
+      </div>
+      <div>
+        <span>Fecha</span>
+        <strong>{{ clase.fecha|date:"d M Y" }} · {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</strong>
+      </div>
+    </div>
+
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    {% if not temas %}
+      <div class="alert alert-warning">
+        Coordinacion aun no ha creado temas para esta materia del grupo.
+      </div>
+    {% endif %}
+    <div class="alert alert-info">
+      Estado: <strong>{{ clase.get_estado_planificacion_display }}</strong>
+    </div>
+    {% if clase.estado_planificacion == "rechazada" and clase.notas_revision %}
+      <div class="alert alert-warning">
+        <strong>Observaciones de revision</strong>
+        <p class="mb-0">{{ clase.notas_revision }}</p>
+      </div>
+    {% endif %}
+
+    <div class="row g-3">
+      <div class="col-md-6 {% if clase.estado_planificacion == 'rechazada' and observaciones_revision.tema %}revision-rejected{% endif %}">
+        <label class="form-label" for="{{ form.tema.id_for_label }}">Tema</label>
+        {{ form.tema }}
+        {% for error in form.tema.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="{{ form.subtema.id_for_label }}">Subtema</label>
+        {{ form.subtema }}
+        {% for error in form.subtema.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+        {% if clase.estado_planificacion == 'rechazada' and observaciones_revision.tema %}
+          <div class="revision-note">{{ observaciones_revision.tema }}</div>
+        {% endif %}
+      </div>
+      <div class="col-12 {% if clase.estado_planificacion == 'rechazada' and observaciones_revision.detalle %}revision-rejected{% endif %}">
+        <label class="form-label" for="{{ form.descripcion.id_for_label }}">Detalle de la clase</label>
+        {{ form.descripcion }}
+        {% for error in form.descripcion.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+        {% if clase.estado_planificacion == 'rechazada' and observaciones_revision.detalle %}
+          <div class="revision-note">{{ observaciones_revision.detalle }}</div>
+        {% endif %}
+      </div>
+      {% for group in tag_groups %}
+        <div class="col-md-4">
+          <div class="tag-select-panel {% if clase.estado_planificacion == 'rechazada' and group.revision_note %}revision-rejected{% endif %}" data-tag-group="{{ group.prefix }}">
+            <div class="nested-subtema-header">
+              <label class="form-label mb-0">{{ group.title }}</label>
+              <button class="btn btn-outline-primary btn-sm" type="button" data-add-tag>
+                <i class="ri-add-line"></i>
+                {{ group.add_label }}
+              </button>
+            </div>
+
+            <div class="tag-existing-list">
+              {% for item in group.existing %}
+                <div class="tag-check-row">
+                  <label class="d-flex align-items-center gap-2 mb-0">
+                    {% if group.prefix == "recursos" %}
+                      <input class="form-check-input" type="checkbox" name="{{ group.prefix }}_existentes" value="{{ item.obj.pk }}"{% if item.selected %} checked{% endif %}>
+                      <span>{{ item.obj.nombre }}</span>
+                    {% else %}
+                      <input class="form-check-input" type="checkbox" name="{{ group.prefix }}_existentes" value="{{ item.pk }}"{% if item.pk in group.selected_ids %} checked{% endif %}>
+                      <span>{{ item.nombre }}</span>
+                    {% endif %}
+                  </label>
+                  {% if group.prefix == "recursos" %}
+                    <input class="form-control form-control-sm" type="file" name="recurso_archivo_{{ item.obj.pk }}">
+                    {% if item.clase_recurso and item.clase_recurso.archivo %}
+                      <a href="{{ item.clase_recurso.archivo.url }}" target="_blank">Ver archivo actual</a>
+                    {% endif %}
+                  {% endif %}
+                </div>
+              {% empty %}
+                <p class="text-muted mb-0">Sin registros creados.</p>
+              {% endfor %}
+            </div>
+
+            <div class="tag-new-stack" data-tag-body>
+              <input type="hidden" name="{{ group.prefix }}-TOTAL_FORMS" value="0" data-tag-total>
+            </div>
+            {% if clase.estado_planificacion == 'rechazada' and group.revision_note %}
+              <div class="revision-note">{{ group.revision_note }}</div>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    (function () {
+      const subtemasByTema = {{ subtemas_by_tema_json|safe }};
+      const temaSelect = document.getElementById("{{ form.tema.id_for_label }}");
+      const subtemaSelect = document.getElementById("{{ form.subtema.id_for_label }}");
+      const selectedSubtema = "{{ form.subtema.value|default:'' }}";
+
+      function renderSubtemas() {
+        if (!temaSelect || !subtemaSelect) return;
+        const currentValue = subtemaSelect.value || selectedSubtema;
+        const subtemas = subtemasByTema[temaSelect.value] || [];
+        subtemaSelect.innerHTML = '<option value="">---------</option>';
+        subtemas.forEach(function (subtema) {
+          const option = document.createElement("option");
+          option.value = subtema.id;
+          option.textContent = subtema.nombre;
+          if (String(subtema.id) === String(currentValue)) option.selected = true;
+          subtemaSelect.appendChild(option);
+        });
+      }
+
+      renderSubtemas();
+      temaSelect?.addEventListener("change", function () {
+        subtemaSelect.value = "";
+        renderSubtemas();
+      });
+
+      document.addEventListener("click", function (event) {
+        const addButton = event.target.closest("[data-add-tag]");
+        if (addButton) {
+          const group = addButton.closest("[data-tag-group]");
+          const body = group.querySelector("[data-tag-body]");
+          const total = group.querySelector("[data-tag-total]");
+          const prefix = group.dataset.tagGroup;
+          const index = Number(total.value);
+          body.insertAdjacentHTML("beforeend", `
+            <div class="nested-subtema-row" data-tag-row>
+              <input class="form-control" type="text" name="${prefix}-${index}-nombre" placeholder="Nuevo">
+              <input type="checkbox" name="${prefix}-${index}-DELETE" class="d-none" data-tag-delete>
+              <button class="btn btn-outline-danger btn-sm" type="button" data-remove-tag aria-label="Eliminar">
+                <i class="ri-delete-bin-line"></i>
+              </button>
+            </div>
+          `);
+          total.value = index + 1;
+          return;
+        }
+
+        const removeButton = event.target.closest("[data-remove-tag]");
+        if (removeButton) {
+          const row = removeButton.closest("[data-tag-row]");
+          const deleteInput = row.querySelector("[data-tag-delete]");
+          if (deleteInput) {
+            deleteInput.checked = true;
+            row.classList.add("is-deleted");
+          } else {
+            row.remove();
+          }
+        }
+      });
+    })();
+  </script>
+{% endblock %}

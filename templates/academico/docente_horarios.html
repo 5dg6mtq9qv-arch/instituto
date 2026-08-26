@@ -105,6 +105,13 @@
             dayNames: ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"],
             dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
             events: events,
+            eventClick: function (event) {
+              if (event.url) {
+                window.location.href = event.url;
+                return false;
+              }
+              return true;
+            },
             eventRender: function (event, element) {
               element.attr("title", [event.grupo, event.aula, event.hora, event.materia].filter(Boolean).join(" - "));
               paintEvent(element, event);
@@ -146,7 +153,7 @@
     }
 
     #calendar .fc-event {
-      cursor: default;
+      cursor: pointer;
     }
   </style>
 {% endblock %}
