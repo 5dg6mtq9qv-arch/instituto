@@ -55,10 +55,6 @@ MENU_GROUPS = [
         "label": "Administrativo",
         "icon": "ri-building-4-line",
         "items": [
-            {"label": "Aulas", "url_name": "matricula:aula_list", "perm": "matricula.view_aula"},
-            {"label": "Nueva aula", "url_name": "matricula:aula_nueva", "perm": "matricula.add_aula"},
-            {"label": "Periodos", "url_name": "matricula:periodo_list", "perm": "matricula.view_periodoacademico"},
-            {"label": "Cursos", "url_name": "matricula:curso_list", "perm": "matricula.view_curso"},
             {"label": "Usuarios", "url_name": "core:usuario_list", "perm": "auth.view_user", "superuser_only": True},
             {"label": "Grupos", "url_name": "core:grupo_list", "perm": "auth.view_group"},
         ],
