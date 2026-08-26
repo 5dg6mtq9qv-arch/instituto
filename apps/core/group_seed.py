@@ -55,7 +55,7 @@ def seed_default_groups():
     groups["Coordinacion"].permissions.add(
         *permissions_for(app_labels=("core", "matricula", "academico"), actions=("add", "change", "view"))
     )
-    groups["Docente"].permissions.add(*permissions_for(app_labels=("academico",), actions=("add", "change", "view")))
+    groups["Docente"].permissions.clear()
     groups["Director"].permissions.add(*director_permissions())
 
 
