@@ -1,3 +1,4 @@
+import json
 import shutil
 import tempfile
 from datetime import timedelta, time
@@ -120,6 +121,14 @@ class DocenteHorariosPanelTests(TestCase):
         CursoPeriodo.objects.create(curso=self.curso, periodo=periodo)
         return periodo
 
+    def date_for_weekday(self, periodo, weekday):
+        current = periodo.fecha_inicio
+        while current <= periodo.fecha_fin:
+            if current.weekday() == weekday:
+                return current
+            current += timedelta(days=1)
+        return periodo.fecha_inicio
+
     def make_superuser(self):
         self.user.is_staff = True
         self.user.is_superuser = True
@@ -233,6 +242,133 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertFalse(MateriaCurso.objects.filter(materia=nueva_materia, grupo=self.curso).exists())
         self.assertContains(response, "La clase no se puede modificar porque tiene una planificacion aprobada.")
         self.assertContains(response, "approved-locked-event")
+
+    def test_academic_planning_adds_schedule_block(self):
+        periodo = self.create_periodo_for_course()
+        self.make_superuser()
+        aula = Aula.objects.create(nombre="Aula 2")
+        dia, _ = Dia.objects.get_or_create(dia="Martes")
+        selected_date = self.date_for_weekday(periodo, 1)
+        self.client.force_login(self.user)
+
+        page_response = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertContains(page_response, "planificacionHorarioOffcanvas")
+        self.assertContains(page_response, "selectable: canAddSchedule")
+        self.assertContains(page_response, "Generar en todo el periodo preseleccionado")
+        self.assertContains(page_response, "data-schedule-periodo-switch")
+        self.assertNotContains(page_response, "Agregar bloque al calendario")
+
+        response = self.client.post(
+            f"{reverse('academico:planificacion_academica')}?curso={self.curso.pk}",
+            {
+                "planning_action": "add_schedule",
+                "generar_periodo": "on",
+                "schedule_fecha": selected_date.isoformat(),
+                "schedule-aula": aula.pk,
+                "schedule-dia": dia.pk,
+                "schedule-hora_inicio": "10:00",
+                "schedule-hora_fin": "11:00",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            HorarioAulaCurso.objects.filter(
+                aula_curso__curso=self.curso,
+                aula_curso__aula=aula,
+                fecha__isnull=True,
+                horario_dia__dia=dia,
+                horario_dia__horario__hora_inicio=time(10, 0),
+                horario_dia__horario__hora_fin=time(11, 0),
+            ).exists()
+        )
+
+    def test_academic_planning_rejects_schedule_aula_overlap(self):
+        periodo = self.create_periodo_for_course()
+        self.make_superuser()
+        dia = self.horario_aula_curso.horario_dia.dia
+        selected_date = self.date_for_weekday(periodo, 0)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "planning_action": "add_schedule",
+                "curso": self.curso.pk,
+                "generar_periodo": "on",
+                "schedule_fecha": selected_date.isoformat(),
+                "schedule-aula": self.aula.pk,
+                "schedule-dia": dia.pk,
+                "schedule-hora_inicio": "08:30",
+                "schedule-hora_fin": "09:30",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "El aula Aula 1 ya esta asignada")
+        self.assertFalse(
+            HorarioAulaCurso.objects.filter(
+                aula_curso__curso=self.curso,
+                aula_curso__aula=self.aula,
+                horario_dia__dia=dia,
+                horario_dia__horario__hora_inicio=time(8, 30),
+                horario_dia__horario__hora_fin=time(9, 30),
+            ).exists()
+        )
+
+    def test_academic_planning_adds_single_date_schedule_when_period_switch_off(self):
+        periodo = self.create_periodo_for_course()
+        self.make_superuser()
+        aula = Aula.objects.create(nombre="Aula 3")
+        dia, _ = Dia.objects.get_or_create(dia="Jueves")
+        selected_date = self.date_for_weekday(periodo, 3)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "planning_action": "add_schedule",
+                "curso": self.curso.pk,
+                "generar_periodo": "off",
+                "schedule_fecha": selected_date.isoformat(),
+                "schedule-aula": aula.pk,
+                "schedule-dia": dia.pk,
+                "schedule-hora_inicio": "12:00",
+                "schedule-hora_fin": "13:00",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        horario_aula_curso = HorarioAulaCurso.objects.get(
+            aula_curso__curso=self.curso,
+            aula_curso__aula=aula,
+            fecha=selected_date,
+            horario_dia__dia=dia,
+            horario_dia__horario__hora_inicio=time(12, 0),
+            horario_dia__horario__hora_fin=time(13, 0),
+        )
+        page_response = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+        events = [
+            event
+            for event in json.loads(page_response.context["calendar_events_json"])
+            if event["horarioId"] == horario_aula_curso.pk
+        ]
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["fecha"], selected_date.isoformat())
+        self.assertTrue(events[0]["singleDate"])
 
     def test_docente_status_filter_limits_cards(self):
         self.client.force_login(self.user)

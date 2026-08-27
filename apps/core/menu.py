@@ -67,7 +67,6 @@ MENU_GROUPS = [
             {"label": "Aulas", "url_name": "academico:aula_list", "perm": "academico.view_aula"},
             {"label": "Materias", "url_name": "academico:materia_list", "perm": "academico.view_materia"},
             {"label": "Periodos", "url_name": "academico:periodo_list", "perm": "academico.view_periodo"},
-            {"label": "Horario", "url_name": "academico:horario_distribucion", "perm": "academico.view_horarioaulacurso"},
             {"label": "Planificacion academica", "url_name": "academico:planificacion_academica", "perm": "academico.view_clase"},
             {"label": "Planificacion docente", "url_name": "academico:planificacion_docente", "perm": "academico.view_profesormateriacurso"},
         ],

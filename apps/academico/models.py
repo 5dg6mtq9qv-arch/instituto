@@ -754,11 +754,23 @@ class HorarioAulaCurso(models.Model):
         on_delete=models.CASCADE,
         related_name="horario_aula_cursos",
     )
+    fecha = models.DateField(blank=True, null=True)
 
     class Meta:
         db_table = '"academico"."horario_aula_curso"'
-        unique_together = (("aula_curso", "horario_dia"),)
-        ordering = ["aula_curso", "horario_dia"]
+        ordering = ["aula_curso", "horario_dia", "fecha"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["aula_curso", "horario_dia"],
+                condition=models.Q(fecha__isnull=True),
+                name="uq_horario_aula_curso_periodo",
+            ),
+            models.UniqueConstraint(
+                fields=["aula_curso", "horario_dia", "fecha"],
+                condition=models.Q(fecha__isnull=False),
+                name="uq_horario_aula_curso_fecha",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.aula_curso} - {self.horario_dia}"

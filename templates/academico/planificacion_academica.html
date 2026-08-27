@@ -5,6 +5,7 @@
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
 {% endblock %}
 
@@ -109,6 +110,7 @@
       {% if can_save and selected_curso %}
         <form method="post" novalidate>
           {% csrf_token %}
+          <input type="hidden" name="planning_action" value="assign_class">
           <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
           <input type="hidden" name="horario_aula_curso" data-planning-horario>
           <input type="hidden" name="fecha" data-planning-fecha>
@@ -123,7 +125,7 @@
             </select>
           </div>
 
-          <div class="planning-period-switch">
+          <div class="planning-period-switch" data-planning-periodo-container>
             <input class="js-switch" id="asignarPeriodoPlanificacion" type="checkbox" name="asignar_periodo" data-planning-periodo-switch>
             <label for="asignarPeriodoPlanificacion">Asignar a todo el periodo</label>
           </div>
@@ -135,15 +137,100 @@
       {% endif %}
     </div>
   </div>
+
+  <div class="offcanvas offcanvas-end schedule-offcanvas" tabindex="-1" id="planificacionHorarioOffcanvas" aria-labelledby="planificacionHorarioTitle">
+    <div class="offcanvas-header">
+      <h5 class="offcanvas-title" id="planificacionHorarioTitle">Crear horario</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+    </div>
+    <div class="offcanvas-body">
+      <div class="planning-selection-summary">
+        <span data-schedule-date></span>
+        <strong data-schedule-day></strong>
+        <small data-schedule-time></small>
+      </div>
+
+      {% if can_add_schedule and selected_curso %}
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="planning_action" value="add_schedule">
+          <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
+          <input type="hidden" name="schedule_fecha" value="{{ schedule_date_value }}" data-schedule-fecha>
+          <input type="hidden" name="generar_periodo" value="off">
+          {{ schedule_form.dia.as_hidden }}
+
+          {% if schedule_form.non_field_errors %}
+            <div class="alert alert-danger planning-schedule-errors">
+              {% for error in schedule_form.non_field_errors %}
+                <div>{{ error }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="planning-schedule-stack">
+            <div>
+              <label class="form-label" for="{{ schedule_form.aula.id_for_label }}">{{ schedule_form.aula.label }}</label>
+              {{ schedule_form.aula }}
+              {% for error in schedule_form.aula.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+            <div class="planning-schedule-time-row">
+              <div>
+                <label class="form-label" for="{{ schedule_form.hora_inicio.id_for_label }}">{{ schedule_form.hora_inicio.label }}</label>
+                {{ schedule_form.hora_inicio }}
+                {% for error in schedule_form.hora_inicio.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+              <div>
+                <label class="form-label" for="{{ schedule_form.hora_fin.id_for_label }}">{{ schedule_form.hora_fin.label }}</label>
+                {{ schedule_form.hora_fin }}
+                {% for error in schedule_form.hora_fin.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="planning-period-switch planning-schedule-period-switch">
+              <input class="js-switch" id="generarPeriodoHorario" type="checkbox" name="generar_periodo" value="on" data-schedule-periodo-switch{% if schedule_period_enabled %} checked{% endif %}>
+              <label for="generarPeriodoHorario">Generar en todo el periodo preseleccionado</label>
+            </div>
+            {% for error in schedule_form.dia.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+            <button class="btn btn-primary-600 w-100" type="submit">
+              <i class="ri-add-line"></i>
+              Guardar horario
+            </button>
+          </div>
+        </form>
+      {% else %}
+        <p class="text-muted mb-0">No tienes permiso para crear horarios.</p>
+      {% endif %}
+    </div>
+  </div>
 {% endblock %}
 
 {% block extra_scripts %}
   <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
   <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
   <script src="{% static 'assets/js/full-calendar.js' %}"></script>
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
   <script>
     (function () {
+      if (window.flatpickr) {
+        flatpickr(document.querySelectorAll(".js-time-picker"), {
+          enableTime: true,
+          noCalendar: true,
+          dateFormat: "H:i",
+          time_24hr: true,
+          minuteIncrement: 5,
+          allowInput: true,
+          disableMobile: true
+        });
+      }
+
       const groupSelect = document.querySelector("[data-group-select]");
       if (groupSelect) {
         groupSelect.addEventListener("change", function () {
@@ -155,8 +242,13 @@
       const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
       const hasCalendar = document.getElementById("calendar");
       const canSave = {{ can_save|yesno:"true,false" }};
+      const canAddSchedule = {{ can_add_schedule|yesno:"true,false" }};
+      const weekdayDiaIds = {{ weekday_dia_ids_json|safe }};
+      const diaLabels = {{ dia_labels_json|safe }};
+      const openScheduleOnLoad = {{ schedule_form_has_errors|yesno:"true,false" }};
       const calendarNotice = document.querySelector("[data-calendar-notice]");
       let periodSwitchery = null;
+      let schedulePeriodSwitchery = null;
 
       if (window.Switchery) {
         const switchInput = document.querySelector("[data-planning-periodo-switch]");
@@ -168,12 +260,26 @@
             size: "small"
           });
         }
+        const scheduleSwitchInput = document.querySelector("[data-schedule-periodo-switch]");
+        if (scheduleSwitchInput && scheduleSwitchInput.dataset.switchery !== "true") {
+          schedulePeriodSwitchery = new Switchery(scheduleSwitchInput, {
+            color: "#0f766e",
+            secondaryColor: "#d1d5db",
+            jackColor: "#ffffff",
+            size: "small"
+          });
+        }
       }
 
-      function resetPeriodSwitch() {
+      function resetPeriodSwitch(periodAvailable) {
         const switchInput = document.querySelector("[data-planning-periodo-switch]");
+        const switchContainer = document.querySelector("[data-planning-periodo-container]");
+        if (switchContainer) {
+          switchContainer.classList.toggle("d-none", !periodAvailable);
+        }
         if (!switchInput) return;
         switchInput.checked = false;
+        switchInput.disabled = !periodAvailable;
         if (periodSwitchery) {
           periodSwitchery.setPosition();
         }
@@ -186,6 +292,118 @@
           month: "long",
           year: "numeric"
         });
+      }
+
+      function padTime(value) {
+        return String(value).padStart(2, "0");
+      }
+
+      function formatTimeValue(date) {
+        return `${padTime(date.getHours())}:${padTime(date.getMinutes())}`;
+      }
+
+      function formatDateValue(date) {
+        return [
+          date.getFullYear(),
+          padTime(date.getMonth() + 1),
+          padTime(date.getDate())
+        ].join("-");
+      }
+
+      function cloneCalendarDate(value) {
+        if (!value) return null;
+        if (value instanceof Date) {
+          return new Date(value.getTime());
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+          return null;
+        }
+        return parsed;
+      }
+
+      function addMinutes(date, minutes) {
+        return new Date(date.getTime() + minutes * 60000);
+      }
+
+      function withTime(date, hours, minutes) {
+        const next = new Date(date.getTime());
+        next.setHours(hours, minutes, 0, 0);
+        return next;
+      }
+
+      function setScheduleSummary(date, diaId, startTime, endTime) {
+        const dateTarget = document.querySelector("[data-schedule-date]");
+        const dayTarget = document.querySelector("[data-schedule-day]");
+        const timeTarget = document.querySelector("[data-schedule-time]");
+        if (dateTarget && date) {
+          dateTarget.textContent = formatDate(date);
+        }
+        if (dayTarget) {
+          dayTarget.textContent = diaLabels[String(diaId)] || "";
+        }
+        if (timeTarget) {
+          timeTarget.textContent = [startTime, endTime].filter(Boolean).join(" - ");
+        }
+      }
+
+      function resetSchedulePeriodSwitch() {
+        const switchInput = document.querySelector("[data-schedule-periodo-switch]");
+        if (!switchInput) return;
+        switchInput.checked = true;
+        if (schedulePeriodSwitchery) {
+          schedulePeriodSwitchery.setPosition();
+        }
+      }
+
+      function openSchedulePanel(start, end, allDay) {
+        if (!canAddSchedule) return;
+        let startDate = cloneCalendarDate(start);
+        let endDate = cloneCalendarDate(end);
+        if (!startDate) return;
+
+        const selectedAllDay = allDay || (startDate.getHours() === 0 && startDate.getMinutes() === 0 && endDate && endDate - startDate >= 86400000);
+        if (selectedAllDay) {
+          startDate = withTime(startDate, 7, 0);
+          endDate = withTime(startDate, 8, 0);
+        } else if (!endDate || endDate <= startDate) {
+          endDate = addMinutes(startDate, 60);
+        }
+
+        const diaId = weekdayDiaIds[String(startDate.getDay())];
+        if (!diaId) {
+          showCalendarNotice("No existe un dia configurado para la fecha seleccionada.");
+          return;
+        }
+
+        const fechaInput = document.querySelector("[data-schedule-fecha]");
+        const diaInput = document.querySelector("[name='schedule-dia']");
+        const startInput = document.querySelector("[name='schedule-hora_inicio']");
+        const endInput = document.querySelector("[name='schedule-hora_fin']");
+        const startTime = formatTimeValue(startDate);
+        const endTime = formatTimeValue(endDate);
+
+        hideCalendarNotice();
+        if (fechaInput) fechaInput.value = formatDateValue(startDate);
+        if (diaInput) diaInput.value = diaId;
+        if (startInput) startInput.value = startTime;
+        if (endInput) endInput.value = endTime;
+        setScheduleSummary(startDate, diaId, startTime, endTime);
+        resetSchedulePeriodSwitch();
+        bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("planificacionHorarioOffcanvas")).show();
+      }
+
+      function restoreSchedulePanel() {
+        const fechaInput = document.querySelector("[data-schedule-fecha]");
+        const diaInput = document.querySelector("[name='schedule-dia']");
+        const startInput = document.querySelector("[name='schedule-hora_inicio']");
+        const endInput = document.querySelector("[name='schedule-hora_fin']");
+        let restoredDate = null;
+        if (fechaInput && fechaInput.value) {
+          restoredDate = cloneCalendarDate(`${fechaInput.value}T00:00:00`);
+        }
+        setScheduleSummary(restoredDate, diaInput ? diaInput.value : "", startInput ? startInput.value : "", endInput ? endInput.value : "");
+        bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("planificacionHorarioOffcanvas")).show();
       }
 
       function openMateriaPanel(event) {
@@ -201,7 +419,7 @@
         document.querySelector("[data-planning-date]").textContent = formatDate(event.start);
         document.querySelector("[data-planning-aula]").textContent = event.aula || "";
         document.querySelector("[data-planning-time]").textContent = event.hora || "";
-        resetPeriodSwitch();
+        resetPeriodSwitch(!event.singleDate);
         bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("planificacionMateriaOffcanvas")).show();
       }
 
@@ -255,7 +473,8 @@
             date: defaultDate.getDate(),
             firstDay: 1,
             editable: false,
-            selectable: false,
+            selectable: canAddSchedule,
+            selectHelper: canAddSchedule,
             allDaySlot: false,
             minTime: 7,
             maxTime: 18,
@@ -276,7 +495,7 @@
             dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
             events: events,
             eventRender: function (event, element) {
-              element.attr("title", [event.aula, event.hora, event.materia || "Sin materia", event.docente, event.lockedReason].filter(Boolean).join(" - "));
+              element.attr("title", [event.aula, event.hora, event.scope, event.materia || "Sin materia", event.docente, event.lockedReason].filter(Boolean).join(" - "));
               paintEvent(element, event);
             },
             eventAfterRender: function (event, element) {
@@ -284,9 +503,17 @@
             },
             eventClick: function (event) {
               openMateriaPanel(event);
+            },
+            select: function (startDate, endDate, allDay) {
+              openSchedulePanel(startDate, endDate, allDay);
+              $calendar.fullCalendar("unselect");
             }
           });
         });
+      }
+
+      if (openScheduleOnLoad && window.bootstrap) {
+        restoreSchedulePanel();
       }
     })();
   </script>
@@ -302,6 +529,29 @@
     .planning-calendar-wrap {
       margin-top: 16px;
       min-height: 680px;
+    }
+
+    .planning-schedule-errors {
+      margin-bottom: 12px;
+    }
+
+    .planning-schedule-stack {
+      display: grid;
+      gap: 16px;
+    }
+
+    .planning-schedule-time-row {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .planning-schedule-period-switch {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 0;
+      padding: 12px;
     }
 
     .academic-empty-state {
@@ -365,6 +615,10 @@
       color: #7c3aed;
     }
 
+    #calendar .fc-event.single-date-event {
+      border-style: dashed;
+    }
+
     .planning-teacher-alert {
       align-items: center;
       display: flex;
@@ -382,6 +636,10 @@
     }
 
     @media (max-width: 575.98px) {
+      .planning-schedule-time-row {
+        grid-template-columns: 1fr;
+      }
+
       .planning-teacher-alert {
         align-items: flex-start;
         flex-direction: column;
