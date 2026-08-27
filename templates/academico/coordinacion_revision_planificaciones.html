@@ -24,64 +24,257 @@
     </section>
   {% endif %}
 
-  <section class="panel list-panel">
-    <form class="list-toolbar" method="get">
-      <div class="list-search">
-        <i class="ri-search-line"></i>
-        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar">
+  <section class="panel coordination-review-filter">
+    <form class="coordination-filter-grid" method="get">
+      <input type="hidden" name="estado" value="{{ selected_estado }}">
+      <div class="coordination-filter-field">
+        <label class="form-label">Docente</label>
+        <div class="coordination-teacher-combobox" data-teacher-combobox>
+          <input type="hidden" name="docente" value="{{ selected_docente_id }}" data-teacher-value>
+          <button class="coordination-teacher-toggle" type="button" data-teacher-toggle aria-expanded="false">
+            <i class="ri-user-search-line"></i>
+            <span data-teacher-label>{% if selected_docente %}{{ selected_docente.nombre }}{% else %}Todos los docentes{% endif %}</span>
+            <i class="ri-arrow-down-s-line"></i>
+          </button>
+          <div class="coordination-teacher-menu" data-teacher-menu hidden>
+            <input class="form-control" type="search" placeholder="Buscar docente" data-teacher-search>
+            <div class="coordination-teacher-options">
+              <button type="button" data-teacher-option data-value="" data-label="Todos los docentes">
+                <strong>Todos los docentes</strong>
+                <span>Vista general</span>
+              </button>
+              {% for docente in docentes %}
+                <button type="button" data-teacher-option data-value="{{ docente.pk }}" data-label="{{ docente.nombre }}">
+                  <strong>{{ docente.nombre }}</strong>
+                  <span>{{ docente.identificacion|default:"Sin identificacion" }}</span>
+                </button>
+              {% endfor %}
+              <p class="coordination-teacher-empty" data-teacher-empty hidden>Sin resultados.</p>
+            </div>
+          </div>
+        </div>
       </div>
-      <select class="form-select" name="estado">
-        <option value="">Todos</option>
-        {% for value, label in estado_choices %}
-          <option value="{{ value }}"{% if selected_estado == value %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <button class="btn btn-primary-600 list-search-btn" type="submit">Buscar</button>
+
+      <div class="coordination-filter-field">
+        <label class="form-label" for="revision-search">Busqueda</label>
+        <div class="list-search">
+          <i class="ri-search-line"></i>
+          <input id="revision-search" type="search" name="q" value="{{ search_query }}" placeholder="Grupo, materia, tema o docente">
+        </div>
+      </div>
+
+      <div class="coordination-filter-actions">
+        <button class="btn btn-primary-600" type="submit">
+          <i class="ri-search-line"></i>
+          Buscar
+        </button>
+        <a class="btn btn-outline-secondary" href="{% url 'academico:coordinacion_revision_planificaciones' %}">
+          Limpiar
+        </a>
+      </div>
     </form>
-    <div class="table-responsive list-table-responsive">
-      <table class="table table-hover align-middle app-table">
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Grupo</th>
-            <th>Materia</th>
-            <th>Docente</th>
-            <th>Tema</th>
-            <th>Estado</th>
-            <th class="text-end">Accion</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for clase in clases %}
-            <tr>
-              <td>{{ clase.fecha|date:"d/m/Y" }}</td>
-              <td>{{ clase.materia_curso.grupo }}</td>
-              <td>{{ clase.materia_curso.materia }}</td>
-              <td>
-                {% for item in clase.materia_curso.profesor_materia_cursos.all %}
-                  {{ item.partner }}{% if not forloop.last %}, {% endif %}
-                {% empty %}
-                  <span class="text-warning fw-semibold">Sin docente asignado</span>
-                {% endfor %}
-              </td>
-              <td>{{ clase.tema|default:"-" }}</td>
-              <td><span class="status-badge status-{{ clase.estado_planificacion }}">{{ clase.get_estado_planificacion_display }}</span></td>
-              <td class="text-end">
-                <a class="btn btn-outline-primary btn-sm" href="{% url 'academico:coordinacion_revision_planificacion_detalle' clase.pk %}">Revisar</a>
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="7" class="text-center text-muted py-4">Sin planificaciones.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+  </section>
+
+  <section class="coordination-review-summary">
+    <a class="coordination-review-stat is-review" href="{% url 'academico:coordinacion_revision_planificaciones' %}?estado=revision{% if selected_docente %}&docente={{ selected_docente.pk }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}">
+      <span>Enviadas</span>
+      <strong>{{ revision_stats.revision }}</strong>
+    </a>
+    <a class="coordination-review-stat is-unsent" href="{% url 'academico:coordinacion_revision_planificaciones' %}?estado=pendiente{% if selected_docente %}&docente={{ selected_docente.pk }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}">
+      <span>Sin enviar</span>
+      <strong>{{ revision_stats.pendiente }}</strong>
+    </a>
+    <a class="coordination-review-stat is-late" href="{% url 'academico:coordinacion_revision_planificaciones' %}?estado=atrasadas{% if selected_docente %}&docente={{ selected_docente.pk }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}">
+      <span>Atrasadas</span>
+      <strong>{{ revision_stats.atrasadas }}</strong>
+    </a>
+    <a class="coordination-review-stat is-observed" href="{% url 'academico:coordinacion_revision_planificaciones' %}?estado=rechazada{% if selected_docente %}&docente={{ selected_docente.pk }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}">
+      <span>Observadas</span>
+      <strong>{{ revision_stats.rechazada }}</strong>
+    </a>
+    <a class="coordination-review-stat is-approved" href="{% url 'academico:coordinacion_revision_planificaciones' %}?estado=aprobada{% if selected_docente %}&docente={{ selected_docente.pk }}{% endif %}{% if search_query %}&q={{ search_query|urlencode }}{% endif %}">
+      <span>Aprobadas</span>
+      <strong>{{ revision_stats.aprobada }}</strong>
+    </a>
+  </section>
+
+  <section class="panel coordination-review-panel">
+    <header class="coordination-panel-header">
+      <div>
+        <span>{% if selected_docente %}{{ selected_docente.nombre }}{% else %}Todos los docentes{% endif %}</span>
+        <h2>{{ selected_estado_label }}</h2>
+      </div>
+      <strong>{{ revision_cards|length }} clase(s)</strong>
+    </header>
+
+    <nav class="coordination-status-tabs" aria-label="Estados de revision">
+      {% for tab in status_tabs %}
+        <a class="coordination-status-tab{% if tab.is_active %} is-active{% endif %}" href="{{ tab.url }}">
+          <i class="{{ tab.icon }}"></i>
+          <span>{{ tab.label }}</span>
+          <strong>{{ tab.count }}</strong>
+        </a>
+      {% endfor %}
+    </nav>
+
+    {% if revision_cards %}
+      <div class="coordination-review-grid">
+        {% for card in revision_cards %}
+          <article class="coordination-review-card estado-{{ card.estado }}{% if card.is_late %} is-late{% endif %}">
+            <div class="coordination-card-top">
+              <span class="subject-color" style="background: {{ card.materia.color }}"></span>
+              <div>
+                <h3>{{ card.materia }}</h3>
+                <p>{{ card.grupo }} · {{ card.aula }}</p>
+              </div>
+              <span class="status-badge status-{{ card.estado }}">{{ card.estado_label }}</span>
+            </div>
+
+            <div class="coordination-card-meta">
+              <span><i class="ri-calendar-line"></i>{{ card.clase.fecha|date:"d M Y" }}</span>
+              <span><i class="ri-time-line"></i>{{ card.horario.hora_inicio|time:"H:i" }} - {{ card.horario.hora_fin|time:"H:i" }}</span>
+            </div>
+
+            <div class="coordination-teacher-chips">
+              {% for docente in card.docentes %}
+                <span>{{ docente.nombre }}</span>
+              {% empty %}
+                <span class="is-warning">Sin docente asignado</span>
+              {% endfor %}
+            </div>
+
+            {% if card.is_late or card.is_unsent %}
+              <div class="coordination-card-warning">
+                {% if card.is_late %}
+                  <strong>Atrasada</strong>
+                  <span>La clase ya paso y la planificacion sigue pendiente de envio o correccion.</span>
+                {% else %}
+                  <strong>Sin enviar</strong>
+                  <span>El docente aun no ha enviado esta planificacion a revision.</span>
+                {% endif %}
+              </div>
+            {% endif %}
+
+            {% if card.tema or card.subtema %}
+              <div class="coordination-card-topic">
+                {% if card.tema %}<strong>{{ card.tema }}</strong>{% endif %}
+                {% if card.subtema %}<span>{{ card.subtema }}</span>{% endif %}
+              </div>
+            {% endif %}
+
+            <div class="coordination-progress-line">
+              <span style="width: {{ card.progress }}%"></span>
+            </div>
+
+            <div class="coordination-step-list">
+              {% for step in card.steps %}
+                <span class="{% if step.done %}is-done{% endif %}{% if step.note %} has-note{% endif %}">
+                  {% if step.done %}
+                    <i class="ri-check-line"></i>
+                  {% elif step.note %}
+                    <i class="ri-error-warning-line"></i>
+                  {% else %}
+                    <i class="ri-close-line"></i>
+                  {% endif %}
+                  {{ step.label }}
+                </span>
+              {% endfor %}
+            </div>
+
+            {% if card.revision_note %}
+              <div class="coordination-revision-note">
+                <strong>Observacion</strong>
+                <p>{{ card.revision_note }}</p>
+              </div>
+            {% endif %}
+
+            <div class="coordination-card-actions">
+              <a class="btn btn-primary-600" href="{{ card.url }}">
+                <i class="ri-search-eye-line"></i>
+                {{ card.action_label }}
+              </a>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="academic-empty-state">
+        Sin planificaciones para este filtro.
+      </div>
+    {% endif %}
   </section>
 {% endblock %}
 
 {% block extra_scripts %}
+  <script>
+    (function () {
+      const combo = document.querySelector("[data-teacher-combobox]");
+      if (!combo) return;
+
+      const form = combo.closest("form");
+      const valueInput = combo.querySelector("[data-teacher-value]");
+      const label = combo.querySelector("[data-teacher-label]");
+      const toggle = combo.querySelector("[data-teacher-toggle]");
+      const menu = combo.querySelector("[data-teacher-menu]");
+      const search = combo.querySelector("[data-teacher-search]");
+      const options = Array.from(combo.querySelectorAll("[data-teacher-option]"));
+      const empty = combo.querySelector("[data-teacher-empty]");
+
+      function filterOptions() {
+        const term = (search.value || "").trim().toLowerCase();
+        let visible = 0;
+        options.forEach(function (option) {
+          const text = option.textContent.toLowerCase();
+          const match = !term || text.includes(term);
+          option.hidden = !match;
+          if (match) visible += 1;
+        });
+        if (empty) empty.hidden = visible !== 0;
+      }
+
+      function openMenu() {
+        menu.hidden = false;
+        toggle.setAttribute("aria-expanded", "true");
+        search.value = "";
+        filterOptions();
+        window.setTimeout(function () {
+          search.focus();
+        }, 0);
+      }
+
+      function closeMenu() {
+        menu.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+      }
+
+      toggle.addEventListener("click", function () {
+        if (menu.hidden) {
+          openMenu();
+        } else {
+          closeMenu();
+        }
+      });
+
+      search.addEventListener("input", filterOptions);
+
+      options.forEach(function (option) {
+        option.addEventListener("click", function () {
+          valueInput.value = option.dataset.value || "";
+          label.textContent = option.dataset.label || "Todos los docentes";
+          closeMenu();
+          form.submit();
+        });
+      });
+
+      document.addEventListener("click", function (event) {
+        if (!combo.contains(event.target)) closeMenu();
+      });
+
+      document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") closeMenu();
+      });
+    })();
+  </script>
   <style>
     .coordination-teacher-alert {
       align-items: center;
@@ -100,10 +293,471 @@
       color: #7c2d12;
     }
 
+    .coordination-review-filter {
+      margin-bottom: 16px;
+      overflow: visible;
+      position: relative;
+      z-index: 5;
+    }
+
+    .coordination-filter-grid {
+      align-items: end;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(260px, 340px) minmax(240px, 1fr) auto;
+    }
+
+    .coordination-filter-field {
+      min-width: 0;
+    }
+
+    .coordination-teacher-combobox {
+      position: relative;
+    }
+
+    .coordination-teacher-toggle {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      color: #1f2937;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      min-height: 44px;
+      padding: 0 12px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .coordination-teacher-toggle span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .coordination-teacher-menu {
+      background: #ffffff;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14);
+      display: grid;
+      gap: 8px;
+      left: 0;
+      margin-top: 6px;
+      padding: 10px;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      z-index: 20;
+    }
+
+    .coordination-teacher-options {
+      display: grid;
+      gap: 4px;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    .coordination-teacher-options button {
+      background: transparent;
+      border: 0;
+      border-radius: 6px;
+      color: #1f2937;
+      display: grid;
+      gap: 2px;
+      padding: 8px;
+      text-align: left;
+    }
+
+    .coordination-teacher-options button:hover {
+      background: #f1f5f9;
+    }
+
+    .coordination-teacher-options strong {
+      font-size: 14px;
+    }
+
+    .coordination-teacher-options span,
+    .coordination-teacher-empty {
+      color: #667085;
+      font-size: 12px;
+      margin: 0;
+    }
+
+    .coordination-filter-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .coordination-filter-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      min-height: 44px;
+      white-space: nowrap;
+    }
+
+    .coordination-review-summary {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .coordination-review-stat {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      color: #111827;
+      min-height: 92px;
+      padding: 14px;
+      text-decoration: none;
+    }
+
+    .coordination-review-stat:hover {
+      border-color: #0f766e;
+      color: #0f766e;
+      text-decoration: none;
+    }
+
+    .coordination-review-stat span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .coordination-review-stat strong {
+      display: block;
+      font-size: 30px;
+      line-height: 1;
+      margin-top: 12px;
+    }
+
+    .coordination-review-stat.is-review strong {
+      color: #0369a1;
+    }
+
+    .coordination-review-stat.is-unsent strong,
+    .coordination-review-stat.is-late strong {
+      color: #b45309;
+    }
+
+    .coordination-review-stat.is-observed strong {
+      color: #b42318;
+    }
+
+    .coordination-review-stat.is-approved strong {
+      color: #15803d;
+    }
+
+    .coordination-review-panel {
+      overflow: visible;
+    }
+
+    .coordination-panel-header {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .coordination-panel-header span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .coordination-panel-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .coordination-panel-header > strong {
+      color: #475467;
+      font-size: 14px;
+    }
+
+    .coordination-status-tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+    }
+
+    .coordination-status-tab {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      color: #1f2937;
+      display: inline-grid;
+      flex: 0 0 auto;
+      gap: 8px;
+      grid-template-columns: auto auto auto;
+      min-height: 44px;
+      padding: 9px 12px;
+      text-decoration: none;
+    }
+
+    .coordination-status-tab:hover,
+    .coordination-status-tab.is-active {
+      border-color: #0f766e;
+      color: #0f766e;
+      text-decoration: none;
+    }
+
+    .coordination-status-tab span {
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .coordination-status-tab strong {
+      align-items: center;
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #334155;
+      display: inline-flex;
+      font-size: 12px;
+      justify-content: center;
+      min-width: 28px;
+      padding: 4px 8px;
+    }
+
+    .coordination-review-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    }
+
+    .coordination-review-card {
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 270px;
+      padding: 16px;
+    }
+
+    .coordination-review-card.estado-revision {
+      border-color: #38bdf8;
+    }
+
+    .coordination-review-card.estado-pendiente {
+      border-color: #f59e0b;
+    }
+
+    .coordination-review-card.estado-rechazada {
+      border-color: #f04438;
+    }
+
+    .coordination-review-card.estado-aprobada {
+      border-color: #22c55e;
+    }
+
+    .coordination-review-card.is-late {
+      background: #fffaf0;
+    }
+
+    .coordination-card-top {
+      align-items: flex-start;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 12px minmax(0, 1fr) auto;
+    }
+
+    .subject-color {
+      border-radius: 999px;
+      height: 44px;
+      width: 12px;
+    }
+
+    .coordination-card-top h3 {
+      color: #111827;
+      font-size: 17px;
+      margin: 0 0 4px;
+    }
+
+    .coordination-card-top p {
+      color: #667085;
+      font-size: 13px;
+      margin: 0;
+    }
+
+    .coordination-card-meta,
+    .coordination-teacher-chips,
+    .coordination-step-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .coordination-card-meta span,
+    .coordination-teacher-chips span,
+    .coordination-step-list span {
+      align-items: center;
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #475467;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 5px;
+      padding: 6px 9px;
+    }
+
+    .coordination-teacher-chips span {
+      background: #eef6ff;
+      color: #1e40af;
+    }
+
+    .coordination-teacher-chips .is-warning {
+      background: #ffedd5;
+      color: #b45309;
+    }
+
+    .coordination-card-warning {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #92400e;
+      display: grid;
+      gap: 2px;
+      padding: 10px;
+    }
+
+    .coordination-card-warning strong {
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .coordination-card-warning span {
+      font-size: 13px;
+    }
+
+    .coordination-card-topic {
+      background: #f8fafc;
+      border-left: 3px solid #0f766e;
+      display: grid;
+      gap: 2px;
+      padding: 8px 10px;
+    }
+
+    .coordination-card-topic strong {
+      color: #111827;
+    }
+
+    .coordination-card-topic span {
+      color: #667085;
+      font-size: 13px;
+    }
+
+    .coordination-progress-line {
+      background: #e5e7eb;
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+    }
+
+    .coordination-progress-line span {
+      background: #0f766e;
+      display: block;
+      height: 100%;
+    }
+
+    .coordination-step-list span.is-done {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .coordination-step-list span.has-note {
+      background: #fef3c7;
+      color: #b45309;
+    }
+
+    .coordination-revision-note {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #92400e;
+      padding: 10px;
+    }
+
+    .coordination-revision-note strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .coordination-revision-note p {
+      margin: 0;
+    }
+
+    .coordination-card-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: auto;
+    }
+
+    .coordination-card-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 40px;
+    }
+
+    .academic-empty-state {
+      color: #667085;
+      padding: 32px;
+      text-align: center;
+    }
+
+    @media (max-width: 1199.98px) {
+      .coordination-review-summary {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 991.98px) {
+      .coordination-filter-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .coordination-filter-actions {
+        justify-content: flex-start;
+      }
+    }
+
     @media (max-width: 575.98px) {
-      .coordination-teacher-alert {
+      .coordination-teacher-alert,
+      .coordination-panel-header,
+      .coordination-filter-actions {
         align-items: flex-start;
         flex-direction: column;
+      }
+
+      .coordination-review-summary {
+        grid-template-columns: 1fr;
+      }
+
+      .coordination-card-top {
+        grid-template-columns: 10px minmax(0, 1fr);
+      }
+
+      .coordination-card-top .status-badge {
+        grid-column: 2;
+        justify-self: start;
       }
     }
   </style>

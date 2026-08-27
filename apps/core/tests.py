@@ -3,9 +3,16 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.core.forms import SystemUserForm
+from apps.core.current_user import set_current_request
 
 
 class SystemUserFormPasswordTests(TestCase):
+    def setUp(self):
+        set_current_request(None)
+
+    def tearDown(self):
+        set_current_request(None)
+
     def form_data(self, user, password=""):
         return {
             "username": user.username,
@@ -43,6 +50,12 @@ class SystemUserFormPasswordTests(TestCase):
 
 
 class MiPerfilPasswordTests(TestCase):
+    def setUp(self):
+        set_current_request(None)
+
+    def tearDown(self):
+        set_current_request(None)
+
     def test_user_without_partner_can_change_own_password(self):
         user = get_user_model().objects.create_user(username="sinperfil", password="ClaveActual987!")
         self.client.force_login(user)

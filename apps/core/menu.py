@@ -94,7 +94,7 @@ MENU_GROUPS = [
         "label": "Docente",
         "icon": "ri-user-star-line",
         "items": [
-            {"label": "Mis horarios", "url_name": "academico:docente_horarios", "perm": None, "groups": ["Docente"]},
+            {"label": "Mis planificaciones", "url_name": "academico:docente_horarios", "perm": None, "groups": ["Docente"]},
         ],
     },
     {

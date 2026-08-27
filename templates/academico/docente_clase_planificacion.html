@@ -11,123 +11,240 @@
     <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
   </header>
 
-  <form class="panel form-panel" method="post" enctype="multipart/form-data" novalidate>
+  <form class="teacher-plan-form" method="post" enctype="multipart/form-data" data-plan-form data-can-edit="{{ can_edit|yesno:'true,false' }}" novalidate>
     {% csrf_token %}
-    <div class="form-summary-card">
+
+    <section class="panel teacher-plan-hero">
+      <div class="teacher-plan-title">
+        <span class="teacher-subject-color" style="background: {{ clase.materia_curso.materia.color }}"></span>
+        <div>
+          <span class="teacher-plan-kicker">{{ clase.materia_curso.grupo }}</span>
+          <h2>{{ clase.materia_curso.materia }}</h2>
+          <p>{{ clase.horario_aula_curso.aula_curso.aula }} · {{ clase.fecha|date:"d M Y" }} · {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</p>
+        </div>
+      </div>
+      <div class="teacher-plan-status">
+        <span class="status-badge status-{{ clase.estado_planificacion }}">{{ clase.get_estado_planificacion_display }}</span>
+        {% if is_late %}
+          <strong class="teacher-late-badge">Atrasada</strong>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="teacher-plan-metrics">
       <div>
-        <span>Grupo</span>
-        <strong>{{ clase.materia_curso.grupo }}</strong>
+        <span>Avance</span>
+        <strong><span data-plan-count>{{ planning_completed }}</span>/{{ planning_total }}</strong>
       </div>
       <div>
-        <span>Materia</span>
-        <strong>{{ clase.materia_curso.materia }}</strong>
+        <span>Revision</span>
+        <strong>{% if is_observed %}Con observaciones{% elif is_submitted %}Enviada{% else %}Borrador{% endif %}</strong>
       </div>
       <div>
-        <span>Aula</span>
-        <strong>{{ clase.horario_aula_curso.aula_curso.aula }}</strong>
+        <span>Docente</span>
+        <strong>{{ request.user.partner|default:request.user.username }}</strong>
       </div>
-      <div>
-        <span>Fecha</span>
-        <strong>{{ clase.fecha|date:"d M Y" }} · {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</strong>
-      </div>
-    </div>
+    </section>
 
     {% if form.non_field_errors %}
-      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+      <div class="alert alert-danger teacher-top-alert">
+        {% for error in form.non_field_errors %}
+          <div>{{ error }}</div>
+        {% endfor %}
+      </div>
     {% endif %}
 
     {% if not temas %}
-      <div class="alert alert-warning">
+      <div class="alert alert-warning teacher-top-alert">
         Coordinacion aun no ha creado temas para esta materia del grupo.
       </div>
     {% endif %}
-    <div class="alert alert-info">
-      Estado: <strong>{{ clase.get_estado_planificacion_display }}</strong>
-    </div>
-    {% if clase.estado_planificacion == "rechazada" and clase.notas_revision %}
-      <div class="alert alert-warning">
-        <strong>Observaciones de revision</strong>
-        <p class="mb-0">{{ clase.notas_revision }}</p>
+
+    {% if is_observed and clase.notas_revision %}
+      <section class="teacher-review-banner">
+        <i class="ri-error-warning-line"></i>
+        <div>
+          <span>Observaciones de revision</span>
+          <p>{{ clase.notas_revision }}</p>
+        </div>
+      </section>
+    {% endif %}
+
+    {% if not can_edit %}
+      <div class="alert alert-info teacher-top-alert">
+        Esta planificacion ya fue aprobada y queda bloqueada para edicion docente.
       </div>
     {% endif %}
 
-    <div class="row g-3">
-      <div class="col-md-6 {% if clase.estado_planificacion == 'rechazada' and observaciones_revision.tema %}revision-rejected{% endif %}">
-        <label class="form-label" for="{{ form.tema.id_for_label }}">Tema</label>
-        {{ form.tema }}
-        {% for error in form.tema.errors %}
-          <div class="invalid-feedback d-block">{{ error }}</div>
-        {% endfor %}
-      </div>
-      <div class="col-md-6">
-        <label class="form-label" for="{{ form.subtema.id_for_label }}">Subtema</label>
-        {{ form.subtema }}
-        {% for error in form.subtema.errors %}
-          <div class="invalid-feedback d-block">{{ error }}</div>
-        {% endfor %}
-        {% if clase.estado_planificacion == 'rechazada' and observaciones_revision.tema %}
-          <div class="revision-note">{{ observaciones_revision.tema }}</div>
-        {% endif %}
-      </div>
-      <div class="col-12 {% if clase.estado_planificacion == 'rechazada' and observaciones_revision.detalle %}revision-rejected{% endif %}">
-        <label class="form-label" for="{{ form.descripcion.id_for_label }}">Detalle de la clase</label>
-        {{ form.descripcion }}
-        {% for error in form.descripcion.errors %}
-          <div class="invalid-feedback d-block">{{ error }}</div>
-        {% endfor %}
-        {% if clase.estado_planificacion == 'rechazada' and observaciones_revision.detalle %}
-          <div class="revision-note">{{ observaciones_revision.detalle }}</div>
-        {% endif %}
-      </div>
-      {% for group in tag_groups %}
-        <div class="col-md-4">
-          <div class="tag-select-panel {% if clase.estado_planificacion == 'rechazada' and group.revision_note %}revision-rejected{% endif %}" data-tag-group="{{ group.prefix }}">
-            <div class="nested-subtema-header">
-              <label class="form-label mb-0">{{ group.title }}</label>
-              <button class="btn btn-outline-primary btn-sm" type="button" data-add-tag>
-                <i class="ri-add-line"></i>
-                {{ group.add_label }}
-              </button>
+    <div class="teacher-plan-layout">
+      <main class="teacher-editor-column">
+        <section class="teacher-editor-card {% if is_observed and observaciones_revision.tema %}has-review-note{% endif %}" data-plan-step="tema">
+          <header class="teacher-card-header">
+            <div>
+              <span class="teacher-card-icon"><i class="ri-book-open-line"></i></span>
+              <div>
+                <h2>Tema y subtema</h2>
+                <p>Seleccion academica</p>
+              </div>
             </div>
-
-            <div class="tag-existing-list">
-              {% for item in group.existing %}
-                <div class="tag-check-row">
-                  <label class="d-flex align-items-center gap-2 mb-0">
-                    {% if group.prefix == "recursos" %}
-                      <input class="form-check-input" type="checkbox" name="{{ group.prefix }}_existentes" value="{{ item.obj.pk }}"{% if item.selected %} checked{% endif %}>
-                      <span>{{ item.obj.nombre }}</span>
-                    {% else %}
-                      <input class="form-check-input" type="checkbox" name="{{ group.prefix }}_existentes" value="{{ item.pk }}"{% if item.pk in group.selected_ids %} checked{% endif %}>
-                      <span>{{ item.nombre }}</span>
-                    {% endif %}
-                  </label>
-                  {% if group.prefix == "recursos" %}
-                    <input class="form-control form-control-sm" type="file" name="recurso_archivo_{{ item.obj.pk }}">
-                    {% if item.clase_recurso and item.clase_recurso.archivo %}
-                      <a href="{{ item.clase_recurso.archivo.url }}" target="_blank">Ver archivo actual</a>
-                    {% endif %}
-                  {% endif %}
-                </div>
-              {% empty %}
-                <p class="text-muted mb-0">Sin registros creados.</p>
+            <span class="teacher-step-pill" data-step-state="tema">Pendiente</span>
+          </header>
+          <div class="teacher-field-grid">
+            <div>
+              <label class="form-label" for="{{ form.tema.id_for_label }}">Tema</label>
+              {{ form.tema }}
+              {% for error in form.tema.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
               {% endfor %}
             </div>
-
-            <div class="tag-new-stack" data-tag-body>
-              <input type="hidden" name="{{ group.prefix }}-TOTAL_FORMS" value="0" data-tag-total>
+            <div>
+              <label class="form-label" for="{{ form.subtema.id_for_label }}">Subtema</label>
+              {{ form.subtema }}
+              {% for error in form.subtema.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
             </div>
-            {% if clase.estado_planificacion == 'rechazada' and group.revision_note %}
-              <div class="revision-note">{{ group.revision_note }}</div>
-            {% endif %}
           </div>
-        </div>
-      {% endfor %}
-    </div>
+          {% if is_observed and observaciones_revision.tema %}
+            <div class="teacher-review-note">
+              <strong>Corregir</strong>
+              <p>{{ observaciones_revision.tema }}</p>
+            </div>
+          {% endif %}
+        </section>
 
-    <div class="form-actions">
-      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
-      <button class="btn btn-primary" type="submit">Guardar</button>
+        <section class="teacher-editor-card {% if is_observed and observaciones_revision.detalle %}has-review-note{% endif %}" data-plan-step="detalle">
+          <header class="teacher-card-header">
+            <div>
+              <span class="teacher-card-icon"><i class="ri-file-text-line"></i></span>
+              <div>
+                <h2>Detalle de clase</h2>
+                <p>Desarrollo</p>
+              </div>
+            </div>
+            <span class="teacher-step-pill" data-step-state="detalle">Pendiente</span>
+          </header>
+          <label class="form-label" for="{{ form.descripcion.id_for_label }}">Detalle</label>
+          {{ form.descripcion }}
+          {% for error in form.descripcion.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+          {% if is_observed and observaciones_revision.detalle %}
+            <div class="teacher-review-note">
+              <strong>Corregir</strong>
+              <p>{{ observaciones_revision.detalle }}</p>
+            </div>
+          {% endif %}
+        </section>
+
+        <div class="teacher-resource-grid">
+          {% for group in tag_groups %}
+            <section class="teacher-editor-card teacher-tag-card {% if is_observed and group.revision_note %}has-review-note{% endif %}" data-tag-group="{{ group.prefix }}" data-tag-placeholder="{{ group.placeholder }}" data-plan-step="{{ group.prefix }}">
+              <header class="teacher-card-header">
+                <div>
+                  <span class="teacher-card-icon"><i class="{{ group.icon }}"></i></span>
+                  <div>
+                    <h2>{{ group.title }}</h2>
+                    <p><span data-group-count>{{ group.selected_count }}</span> {{ group.count_label }}</p>
+                  </div>
+                </div>
+                <button class="btn btn-outline-primary btn-sm" type="button" data-add-tag{% if not can_edit %} disabled{% endif %}>
+                  <i class="ri-add-line"></i>
+                  {{ group.add_label }}
+                </button>
+              </header>
+
+              <div class="teacher-tag-list">
+                {% for item in group.items %}
+                  <div class="teacher-tag-option {% if item.selected %}is-selected{% endif %}" data-tag-option>
+                    <label>
+                      <input class="form-check-input" type="checkbox" name="{{ group.prefix }}_existentes" value="{{ item.obj.pk }}" data-tag-check{% if item.selected %} checked{% endif %}{% if not can_edit %} disabled{% endif %}>
+                      <span>{{ item.obj.nombre }}</span>
+                    </label>
+                    {% if group.prefix == "recursos" %}
+                      <div class="teacher-file-field">
+                        <input class="form-control form-control-sm" type="file" name="recurso_archivo_{{ item.obj.pk }}"{% if not can_edit %} disabled{% endif %}>
+                        {% if item.clase_recurso and item.clase_recurso.archivo %}
+                          <a href="{{ item.clase_recurso.archivo.url }}" target="_blank">Ver archivo actual</a>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                  </div>
+                {% empty %}
+                  <p class="teacher-empty-text">Sin registros creados.</p>
+                {% endfor %}
+              </div>
+
+              <div class="teacher-new-stack" data-tag-body>
+                {% for entry in group.new_entries %}
+                  <div class="teacher-new-row" data-tag-row>
+                    <input class="form-control" type="text" name="{{ group.prefix }}-{{ forloop.counter0 }}-nombre" value="{{ entry.nombre }}" placeholder="{{ group.placeholder }}"{% if not can_edit %} disabled{% endif %}>
+                    <input type="checkbox" name="{{ group.prefix }}-{{ forloop.counter0 }}-DELETE" class="d-none" data-tag-delete>
+                    <button class="btn btn-outline-danger btn-sm" type="button" data-remove-tag aria-label="Eliminar"{% if not can_edit %} disabled{% endif %}>
+                      <i class="ri-delete-bin-line"></i>
+                    </button>
+                  </div>
+                {% endfor %}
+                <input type="hidden" name="{{ group.prefix }}-TOTAL_FORMS" value="{{ group.new_entries|length }}" data-tag-total>
+              </div>
+
+              {% if is_observed and group.revision_note %}
+                <div class="teacher-review-note">
+                  <strong>Corregir</strong>
+                  <p>{{ group.revision_note }}</p>
+                </div>
+              {% endif %}
+            </section>
+          {% endfor %}
+        </div>
+      </main>
+
+      <aside class="teacher-side-column">
+        <section class="panel teacher-submit-panel">
+          <div class="teacher-score">
+            <span>Planificacion</span>
+            <strong><span data-plan-count>{{ planning_completed }}</span>/{{ planning_total }}</strong>
+          </div>
+          <div class="teacher-score-line">
+            <span data-plan-progress style="width: {{ planning_progress }}%"></span>
+          </div>
+          <div class="teacher-plan-checklist">
+            {% for item in planning_items %}
+              <span class="{% if item.done %}is-done{% endif %}" data-plan-indicator="{{ item.key }}" data-step-label="{{ item.label }}">
+                {% if item.done %}<i class="ri-check-line"></i>{% else %}<i class="ri-close-line"></i>{% endif %}
+                {{ item.label }}
+              </span>
+            {% endfor %}
+          </div>
+
+          <div class="teacher-inline-alert" data-plan-inline-alert hidden></div>
+
+          <div class="teacher-action-grid">
+            <button class="btn btn-outline-secondary" type="submit" name="plan_action" value="draft"{% if not can_edit %} disabled{% endif %}>
+              <i class="ri-save-line"></i>
+              Guardar borrador
+            </button>
+            <button class="btn btn-primary" type="submit" name="plan_action" value="send"{% if not can_edit %} disabled{% endif %}>
+              <i class="ri-send-plane-line"></i>
+              Enviar a revision
+            </button>
+          </div>
+        </section>
+
+        <section class="panel teacher-status-panel">
+          <span>Estado actual</span>
+          <strong>{{ clase.get_estado_planificacion_display }}</strong>
+          {% if clase.fecha_revision %}
+            <p>Ultima revision: {{ clase.fecha_revision|date:"d/m/Y H:i" }}</p>
+          {% elif is_submitted %}
+            <p>Esperando revision de coordinacion.</p>
+          {% elif is_observed %}
+            <p>Pendiente de correccion del docente.</p>
+          {% else %}
+            <p>Sin envio registrado.</p>
+          {% endif %}
+        </section>
+      </aside>
     </div>
   </form>
 {% endblock %}
@@ -135,14 +252,29 @@
 {% block extra_scripts %}
   <script>
     (function () {
+      const form = document.querySelector("[data-plan-form]");
+      if (!form) return;
+
       const subtemasByTema = {{ subtemas_by_tema_json|safe }};
+      const canEdit = form.dataset.canEdit === "true";
       const temaSelect = document.getElementById("{{ form.tema.id_for_label }}");
       const subtemaSelect = document.getElementById("{{ form.subtema.id_for_label }}");
+      const descripcion = document.getElementById("{{ form.descripcion.id_for_label }}");
       const selectedSubtema = "{{ form.subtema.value|default:'' }}";
+      const indicators = Array.from(form.querySelectorAll("[data-plan-indicator]"));
+      const counters = Array.from(form.querySelectorAll("[data-plan-count]"));
+      const progressBar = form.querySelector("[data-plan-progress]");
+      const inlineAlert = form.querySelector("[data-plan-inline-alert]");
 
-      function renderSubtemas() {
+      function setAlert(message) {
+        if (!inlineAlert) return;
+        inlineAlert.textContent = message || "";
+        inlineAlert.hidden = !message;
+      }
+
+      function renderSubtemas(keepCurrent) {
         if (!temaSelect || !subtemaSelect) return;
-        const currentValue = subtemaSelect.value || selectedSubtema;
+        const currentValue = keepCurrent ? (subtemaSelect.value || selectedSubtema) : "";
         const subtemas = subtemasByTema[temaSelect.value] || [];
         subtemaSelect.innerHTML = '<option value="">---------</option>';
         subtemas.forEach(function (subtema) {
@@ -154,10 +286,106 @@
         });
       }
 
-      renderSubtemas();
+      function visibleNewInputs(group) {
+        return Array.from(group.querySelectorAll("[data-tag-row]")).filter(function (row) {
+          const deleteInput = row.querySelector("[data-tag-delete]");
+          return !deleteInput || !deleteInput.checked;
+        }).map(function (row) {
+          return row.querySelector("input[type='text']");
+        }).filter(Boolean);
+      }
+
+      function tagCount(prefix) {
+        const group = form.querySelector(`[data-tag-group="${prefix}"]`);
+        if (!group) return 0;
+        const checked = Array.from(group.querySelectorAll("[data-tag-check]")).filter(function (input) {
+          return input.checked;
+        }).length;
+        const created = visibleNewInputs(group).filter(function (input) {
+          return input.value.trim();
+        }).length;
+        return checked + created;
+      }
+
+      function stepStatus() {
+        return {
+          tema: Boolean(temaSelect && temaSelect.value),
+          detalle: Boolean(descripcion && descripcion.value.trim()),
+          competencias: tagCount("competencias") > 0,
+          estrategias: tagCount("estrategias") > 0,
+          recursos: tagCount("recursos") > 0,
+        };
+      }
+
+      function syncTagOption(option) {
+        const input = option.querySelector("[data-tag-check]");
+        option.classList.toggle("is-selected", Boolean(input && input.checked));
+      }
+
+      function syncPlan() {
+        const status = stepStatus();
+        const keys = Object.keys(status);
+        const completed = keys.filter(function (key) { return status[key]; }).length;
+        const total = keys.length || 1;
+        const percent = Math.round((completed / total) * 100);
+
+        counters.forEach(function (counter) {
+          counter.textContent = completed;
+        });
+        if (progressBar) progressBar.style.width = percent + "%";
+
+        indicators.forEach(function (indicator) {
+          const key = indicator.dataset.planIndicator;
+          const done = Boolean(status[key]);
+          indicator.classList.toggle("is-done", done);
+          const icon = indicator.querySelector("i");
+          if (icon) icon.className = done ? "ri-check-line" : "ri-close-line";
+        });
+
+        form.querySelectorAll("[data-plan-step]").forEach(function (card) {
+          const key = card.dataset.planStep;
+          if (!key || !(key in status)) return;
+          card.classList.toggle("is-complete", status[key]);
+          card.classList.toggle("is-missing", !status[key]);
+          const state = form.querySelector(`[data-step-state="${key}"]`);
+          if (state) state.textContent = status[key] ? "Completo" : "Pendiente";
+        });
+
+        form.querySelectorAll("[data-tag-group]").forEach(function (group) {
+          const count = tagCount(group.dataset.tagGroup);
+          group.querySelectorAll("[data-group-count]").forEach(function (item) {
+            item.textContent = count;
+          });
+        });
+      }
+
+      renderSubtemas(true);
+      syncPlan();
+
       temaSelect?.addEventListener("change", function () {
-        subtemaSelect.value = "";
-        renderSubtemas();
+        renderSubtemas(false);
+        setAlert("");
+        syncPlan();
+      });
+      subtemaSelect?.addEventListener("change", syncPlan);
+      descripcion?.addEventListener("input", syncPlan);
+
+      form.querySelectorAll("[data-tag-option]").forEach(function (option) {
+        syncTagOption(option);
+      });
+
+      document.addEventListener("change", function (event) {
+        const input = event.target.closest("[data-tag-check]");
+        if (!input) return;
+        syncTagOption(input.closest("[data-tag-option]"));
+        setAlert("");
+        syncPlan();
+      });
+
+      document.addEventListener("input", function (event) {
+        if (!event.target.closest("[data-tag-row]")) return;
+        setAlert("");
+        syncPlan();
       });
 
       document.addEventListener("click", function (event) {
@@ -167,10 +395,11 @@
           const body = group.querySelector("[data-tag-body]");
           const total = group.querySelector("[data-tag-total]");
           const prefix = group.dataset.tagGroup;
+          const placeholder = group.dataset.tagPlaceholder || "Nuevo";
           const index = Number(total.value);
           body.insertAdjacentHTML("beforeend", `
-            <div class="nested-subtema-row" data-tag-row>
-              <input class="form-control" type="text" name="${prefix}-${index}-nombre" placeholder="Nuevo">
+            <div class="teacher-new-row" data-tag-row>
+              <input class="form-control" type="text" name="${prefix}-${index}-nombre" placeholder="${placeholder}">
               <input type="checkbox" name="${prefix}-${index}-DELETE" class="d-none" data-tag-delete>
               <button class="btn btn-outline-danger btn-sm" type="button" data-remove-tag aria-label="Eliminar">
                 <i class="ri-delete-bin-line"></i>
@@ -178,6 +407,8 @@
             </div>
           `);
           total.value = index + 1;
+          body.querySelector("[data-tag-row]:last-of-type input[type='text']")?.focus();
+          syncPlan();
           return;
         }
 
@@ -191,8 +422,492 @@
           } else {
             row.remove();
           }
+          syncPlan();
+        }
+      });
+
+      form.addEventListener("submit", function (event) {
+        if (!canEdit) {
+          event.preventDefault();
+          setAlert("Esta planificacion esta bloqueada.");
+          return;
+        }
+        const action = event.submitter?.value || "";
+        if (action !== "send") return;
+        const status = stepStatus();
+        const missing = indicators.filter(function (indicator) {
+          return !status[indicator.dataset.planIndicator];
+        }).map(function (indicator) {
+          return indicator.dataset.stepLabel;
+        });
+        if (missing.length) {
+          event.preventDefault();
+          setAlert("Completa antes de enviar: " + missing.join(", ") + ".");
         }
       });
     })();
   </script>
+  <style>
+    .teacher-plan-form {
+      display: grid;
+      gap: 16px;
+    }
+
+    .teacher-plan-hero {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+    }
+
+    .teacher-plan-title {
+      align-items: center;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 14px minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .teacher-subject-color {
+      border-radius: 999px;
+      height: 58px;
+      width: 14px;
+    }
+
+    .teacher-plan-kicker,
+    .teacher-plan-metrics span,
+    .teacher-score span,
+    .teacher-status-panel span,
+    .teacher-review-banner span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-plan-title h2 {
+      color: #111827;
+      font-size: 30px;
+      line-height: 1.1;
+      margin: 2px 0 4px;
+    }
+
+    .teacher-plan-title p {
+      color: #475467;
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .teacher-plan-status {
+      align-items: flex-end;
+      display: grid;
+      gap: 8px;
+      justify-items: end;
+    }
+
+    .teacher-late-badge {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 999px;
+      color: #b45309;
+      font-size: 12px;
+      padding: 5px 10px;
+    }
+
+    .teacher-plan-metrics {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .teacher-plan-metrics div {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-height: 82px;
+      padding: 14px;
+    }
+
+    .teacher-plan-metrics strong {
+      color: #111827;
+      display: block;
+      font-size: 18px;
+      margin-top: 8px;
+    }
+
+    .teacher-top-alert {
+      margin: 0;
+    }
+
+    .teacher-review-banner {
+      align-items: flex-start;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #92400e;
+      display: flex;
+      gap: 12px;
+      padding: 14px;
+    }
+
+    .teacher-review-banner i {
+      font-size: 22px;
+      line-height: 1;
+      margin-top: 2px;
+    }
+
+    .teacher-review-banner p {
+      font-weight: 700;
+      margin: 4px 0 0;
+    }
+
+    .teacher-plan-layout {
+      align-items: start;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    }
+
+    .teacher-editor-column,
+    .teacher-side-column,
+    .teacher-resource-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .teacher-side-column {
+      position: sticky;
+      top: 18px;
+    }
+
+    .teacher-resource-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .teacher-editor-card {
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+    }
+
+    .teacher-editor-card.is-complete {
+      border-color: #86efac;
+    }
+
+    .teacher-editor-card.is-missing {
+      border-color: #d7dee8;
+    }
+
+    .teacher-editor-card.has-review-note {
+      border-color: #f59e0b;
+    }
+
+    .teacher-card-header {
+      align-items: center;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+    }
+
+    .teacher-card-header > div {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .teacher-card-header h2 {
+      color: #111827;
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    .teacher-card-header p {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+      margin: 2px 0 0;
+    }
+
+    .teacher-card-icon {
+      align-items: center;
+      background: #eef6ff;
+      border-radius: 8px;
+      color: #1d4ed8;
+      display: inline-flex;
+      flex: 0 0 auto;
+      font-size: 19px;
+      height: 38px;
+      justify-content: center;
+      width: 38px;
+    }
+
+    .teacher-step-pill {
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+
+    .teacher-editor-card.is-complete .teacher-step-pill {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .teacher-field-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .teacher-editor-card textarea {
+      min-height: 150px;
+      resize: vertical;
+    }
+
+    .teacher-tag-card {
+      min-height: 100%;
+    }
+
+    .teacher-tag-card .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .teacher-tag-list {
+      display: grid;
+      gap: 8px;
+      max-height: 280px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .teacher-tag-option {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+    }
+
+    .teacher-tag-option.is-selected {
+      background: #ecfdf3;
+      border-color: #86efac;
+    }
+
+    .teacher-tag-option label {
+      align-items: center;
+      color: #1f2937;
+      display: flex;
+      font-weight: 800;
+      gap: 8px;
+      margin: 0;
+      min-width: 0;
+    }
+
+    .teacher-tag-option label span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .teacher-file-field {
+      display: none;
+      gap: 6px;
+    }
+
+    .teacher-tag-option.is-selected .teacher-file-field {
+      display: grid;
+    }
+
+    .teacher-file-field a {
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .teacher-new-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .teacher-new-row {
+      align-items: center;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .teacher-new-row.is-deleted {
+      display: none;
+    }
+
+    .teacher-empty-text {
+      background: #f1f5f9;
+      border-radius: 8px;
+      color: #667085;
+      font-weight: 700;
+      margin: 0;
+      padding: 12px;
+    }
+
+    .teacher-review-note {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #92400e;
+      padding: 12px;
+    }
+
+    .teacher-review-note strong {
+      display: block;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .teacher-review-note p {
+      font-weight: 700;
+      margin: 4px 0 0;
+    }
+
+    .teacher-submit-panel,
+    .teacher-status-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .teacher-score {
+      align-items: end;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+    }
+
+    .teacher-score strong {
+      color: #111827;
+      font-size: 34px;
+      line-height: 1;
+    }
+
+    .teacher-score-line {
+      background: #e5e7eb;
+      border-radius: 999px;
+      height: 9px;
+      overflow: hidden;
+    }
+
+    .teacher-score-line span {
+      background: #0f766e;
+      display: block;
+      height: 100%;
+      transition: width 0.2s ease;
+    }
+
+    .teacher-plan-checklist {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .teacher-plan-checklist span {
+      align-items: center;
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #64748b;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 4px;
+      padding: 6px 10px;
+    }
+
+    .teacher-plan-checklist .is-done {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .teacher-inline-alert {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      color: #92400e;
+      font-weight: 700;
+      padding: 10px;
+    }
+
+    .teacher-action-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr;
+    }
+
+    .teacher-action-grid .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 42px;
+    }
+
+    .teacher-status-panel strong {
+      color: #111827;
+      font-size: 18px;
+    }
+
+    .teacher-status-panel p {
+      color: #667085;
+      margin: 0;
+    }
+
+    @media (max-width: 1399.98px) {
+      .teacher-resource-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 1199.98px) {
+      .teacher-plan-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .teacher-side-column {
+        position: static;
+      }
+    }
+
+    @media (max-width: 767.98px) {
+      .teacher-plan-metrics,
+      .teacher-field-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .teacher-plan-hero,
+      .teacher-card-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .teacher-plan-status {
+        justify-items: start;
+      }
+
+      .teacher-plan-title h2 {
+        font-size: 24px;
+      }
+    }
+  </style>
 {% endblock %}

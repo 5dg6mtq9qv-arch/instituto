@@ -1463,6 +1463,38 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
 
 class DocenteHorariosView(LoginRequiredMixin, View):
     template_name = "academico/docente_horarios.html"
+    status_filters = (
+        {
+            "key": "trabajo",
+            "label": "Por atender",
+            "states": ("pendiente", "rechazada"),
+            "icon": "ri-inbox-unarchive-line",
+        },
+        {
+            "key": "revision",
+            "label": "En revision",
+            "states": ("revision",),
+            "icon": "ri-search-eye-line",
+        },
+        {
+            "key": "rechazada",
+            "label": "Observadas",
+            "states": ("rechazada",),
+            "icon": "ri-error-warning-line",
+        },
+        {
+            "key": "aprobada",
+            "label": "Aprobadas",
+            "states": ("aprobada",),
+            "icon": "ri-checkbox-circle-line",
+        },
+        {
+            "key": "todas",
+            "label": "Todas",
+            "states": None,
+            "icon": "ri-calendar-check-line",
+        },
+    )
 
     def get(self, request):
         docente = getattr(request.user, "partner", None)
@@ -1471,15 +1503,20 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                 request,
                 self.template_name,
                 {
-                    "title": "Mis horarios",
+                    "title": "Mis planificaciones",
                     "docente": None,
                     "calendar_events_json": json.dumps([]),
                     "calendar_default_date": timezone.localdate().isoformat(),
                     "has_events": False,
+                    "planificacion_stats": self.empty_stats(),
+                    "status_tabs": [],
+                    "selected_filter": "trabajo",
+                    "selected_filter_label": "",
+                    "planificacion_cards": [],
                 },
             )
 
-        clases = (
+        clases = list(
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
@@ -1487,12 +1524,21 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                 "horario_aula_curso__aula_curso__curso",
                 "horario_aula_curso__horario_dia__horario",
             )
+            .prefetch_related("competencias", "estrategias", "recursos")
             .filter(materia_curso__profesor_materia_cursos__partner=docente)
+            .distinct()
             .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
         )
+        stats = self.get_planificacion_stats(clases)
+        selected_filter = self.get_selected_filter(request.GET.get("estado"), stats)
+        status_tabs = self.get_status_tabs(selected_filter, stats)
+        planificacion_cards = [
+            self.build_planificacion_card(clase)
+            for clase in self.filter_clases(clases, selected_filter)
+        ]
         calendar_events = []
         calendar_default_date = timezone.localdate().isoformat()
-        first_clase = clases.first()
+        first_clase = clases[0] if clases else None
         if first_clase:
             calendar_default_date = first_clase.fecha.isoformat()
 
@@ -1509,7 +1555,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                     "start": f"{clase.fecha.isoformat()}T{horario.hora_inicio:%H:%M:%S}",
                     "end": f"{clase.fecha.isoformat()}T{horario.hora_fin:%H:%M:%S}",
                     "allDay": False,
-                    "className": "materia-event",
+                    "className": f"materia-event docente-event estado-{clase.estado_planificacion}",
                     "backgroundColor": event_color,
                     "borderColor": event_color,
                     "textColor": readable_text_color(event_color),
@@ -1517,6 +1563,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                     "aula": str(aula),
                     "materia": materia.nombre,
                     "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
+                    "estado": clase.get_estado_planificacion_display(),
                     "url": str(reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk})),
                 }
             )
@@ -1525,13 +1572,114 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             request,
             self.template_name,
             {
-                "title": "Mis horarios",
+                "title": "Mis planificaciones",
                 "docente": docente,
                 "calendar_events_json": json.dumps(calendar_events),
                 "calendar_default_date": calendar_default_date,
                 "has_events": bool(calendar_events),
+                "planificacion_stats": stats,
+                "status_tabs": status_tabs,
+                "selected_filter": selected_filter,
+                "selected_filter_label": self.get_filter_label(selected_filter),
+                "planificacion_cards": planificacion_cards,
             },
         )
+
+    def empty_stats(self):
+        return {
+            "total": 0,
+            "pendiente": 0,
+            "revision": 0,
+            "rechazada": 0,
+            "aprobada": 0,
+            "por_atender": 0,
+            "avance": 0,
+        }
+
+    def get_planificacion_stats(self, clases):
+        stats = self.empty_stats()
+        stats["total"] = len(clases)
+        for clase in clases:
+            if clase.estado_planificacion in stats:
+                stats[clase.estado_planificacion] += 1
+        stats["por_atender"] = stats["pendiente"] + stats["rechazada"]
+        stats["avance"] = round((stats["aprobada"] / stats["total"]) * 100) if stats["total"] else 0
+        return stats
+
+    def get_selected_filter(self, requested_filter, stats):
+        valid_filters = {item["key"] for item in self.status_filters}
+        if requested_filter in valid_filters:
+            return requested_filter
+        if stats["por_atender"]:
+            return "trabajo"
+        if stats["revision"]:
+            return "revision"
+        return "todas"
+
+    def get_filter_label(self, selected_filter):
+        filter_item = next((item for item in self.status_filters if item["key"] == selected_filter), None)
+        return filter_item["label"] if filter_item else ""
+
+    def get_status_tabs(self, selected_filter, stats):
+        base_url = reverse_lazy("academico:docente_horarios")
+        tabs = []
+        for item in self.status_filters:
+            count = stats["total"] if item["states"] is None else sum(stats[state] for state in item["states"])
+            tabs.append(
+                {
+                    **item,
+                    "count": count,
+                    "url": f"{base_url}?{urlencode({'estado': item['key']})}",
+                    "is_active": item["key"] == selected_filter,
+                }
+            )
+        return tabs
+
+    def filter_clases(self, clases, selected_filter):
+        filter_item = next((item for item in self.status_filters if item["key"] == selected_filter), None)
+        if not filter_item or filter_item["states"] is None:
+            return clases
+        allowed_states = set(filter_item["states"])
+        return [clase for clase in clases if clase.estado_planificacion in allowed_states]
+
+    def build_planificacion_card(self, clase):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        competencias = list(clase.competencias.all())
+        estrategias = list(clase.estrategias.all())
+        recursos = list(clase.recursos.all())
+        observaciones = clase.observaciones_revision or {}
+        steps = [
+            {"label": "Tema", "done": bool(clase.tema_id), "note": observaciones.get("tema", "")},
+            {"label": "Detalle", "done": bool(clase.descripcion), "note": observaciones.get("detalle", "")},
+            {"label": "Competencias", "done": bool(competencias), "note": observaciones.get("competencias", "")},
+            {"label": "Estrategias", "done": bool(estrategias), "note": observaciones.get("estrategias", "")},
+            {"label": "Recursos", "done": bool(recursos), "note": observaciones.get("recursos", "")},
+        ]
+        completed_steps = sum(1 for item in steps if item["done"])
+        action_labels = {
+            "pendiente": "Planificar",
+            "revision": "Ver envio",
+            "rechazada": "Corregir",
+            "aprobada": "Ver",
+        }
+        return {
+            "clase": clase,
+            "horario": horario,
+            "estado": clase.estado_planificacion,
+            "estado_label": clase.get_estado_planificacion_display(),
+            "aula": clase.horario_aula_curso.aula_curso.aula,
+            "grupo": clase.materia_curso.grupo,
+            "materia": clase.materia_curso.materia,
+            "tema": clase.tema,
+            "subtema": clase.subtema,
+            "steps": steps,
+            "completed_steps": completed_steps,
+            "progress": round((completed_steps / len(steps)) * 100),
+            "revision_note": clase.notas_revision if clase.estado_planificacion == "rechazada" else "",
+            "is_late": clase.fecha < timezone.localdate() and clase.estado_planificacion in {"pendiente", "rechazada"},
+            "action_label": action_labels.get(clase.estado_planificacion, "Abrir"),
+            "url": reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}),
+        }
 
 
 class DocenteClasePlanificacionView(LoginRequiredMixin, View):
@@ -1543,9 +1691,18 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "tema",
+                "subtema",
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__horario",
-            ).filter(materia_curso__profesor_materia_cursos__partner=docente),
+            )
+            .prefetch_related(
+                "competencias",
+                "estrategias",
+                "recursos",
+                Prefetch("clase_recursos", queryset=ClaseRecurso.objects.select_related("recurso")),
+            )
+            .filter(materia_curso__profesor_materia_cursos__partner=docente),
             pk=self.kwargs["pk"],
         )
 
@@ -1556,46 +1713,91 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
 
     def post(self, request, pk):
         clase = self.get_clase()
+        action = request.POST.get("plan_action", "send")
         form = DocenteClasePlanificacionForm(request.POST, request.FILES, instance=clase, clase=clase)
+        if action not in {"draft", "send"}:
+            messages.error(request, "Accion no valida.")
+            return render(request, self.template_name, self.get_context(form, clase))
+        if clase.estado_planificacion == "aprobada":
+            messages.error(request, "La planificacion aprobada no se puede editar desde el perfil docente.")
+            return render(request, self.template_name, self.get_context(form, clase))
         if form.is_valid():
+            if action == "send":
+                ready_errors = self.get_ready_errors(form)
+                if ready_errors:
+                    for error in ready_errors:
+                        form.add_error(None, error)
+                    return render(request, self.template_name, self.get_context(form, clase))
             with transaction.atomic():
                 clase = form.save()
                 self.sync_tags(clase.competencias, Competencia, "competencias")
                 self.sync_tags(clase.estrategias, Estrategia, "estrategias")
                 recurso_ids = self.sync_tags(clase.recursos, Recurso, "recursos")
                 self.sync_resource_files(clase, recurso_ids)
-                clase.estado_planificacion = "revision"
-                clase.notas_revision = ""
-                clase.observaciones_revision = {}
-                clase.revisado_por = None
-                clase.fecha_revision = None
-                clase.revision_tema_ok = False
-                clase.revision_detalle_ok = False
-                clase.revision_competencias_ok = False
-                clase.revision_estrategias_ok = False
-                clase.revision_recursos_ok = False
-                clase.save(update_fields=[
-                    "estado_planificacion",
-                    "notas_revision",
-                    "observaciones_revision",
-                    "revisado_por",
-                    "fecha_revision",
-                    "revision_tema_ok",
-                    "revision_detalle_ok",
-                    "revision_competencias_ok",
-                    "revision_estrategias_ok",
-                    "revision_recursos_ok",
-                ])
-            messages.success(request, "Clase planificada correctamente.")
+                if action == "send":
+                    clase.estado_planificacion = "revision"
+                    clase.notas_revision = ""
+                    clase.observaciones_revision = {}
+                    clase.revisado_por = None
+                    clase.fecha_revision = None
+                    clase.revision_tema_ok = False
+                    clase.revision_detalle_ok = False
+                    clase.revision_competencias_ok = False
+                    clase.revision_estrategias_ok = False
+                    clase.revision_recursos_ok = False
+                    clase.save(update_fields=[
+                        "estado_planificacion",
+                        "notas_revision",
+                        "observaciones_revision",
+                        "revisado_por",
+                        "fecha_revision",
+                        "revision_tema_ok",
+                        "revision_detalle_ok",
+                        "revision_competencias_ok",
+                        "revision_estrategias_ok",
+                        "revision_recursos_ok",
+                    ])
+                elif clase.estado_planificacion == "revision":
+                    clase.estado_planificacion = "pendiente"
+                    clase.save(update_fields=["estado_planificacion"])
+            if action == "draft":
+                messages.success(request, "Borrador guardado correctamente.")
+                return redirect("academico:docente_clase_planificar", pk=clase.pk)
+            messages.success(request, "Planificacion enviada a revision.")
             return redirect("academico:docente_horarios")
         return render(request, self.template_name, self.get_context(form, clase))
 
-    def sync_tags(self, relation, model, prefix):
-        selected_ids = {
+    def get_ready_errors(self, form):
+        errors = []
+        tema = form.cleaned_data.get("tema")
+        subtema = form.cleaned_data.get("subtema")
+        descripcion = (form.cleaned_data.get("descripcion") or "").strip()
+        if not tema:
+            errors.append("Selecciona el tema de la clase.")
+        elif tema.subtemas_planificacion.exists() and not subtema:
+            errors.append("Selecciona el subtema de la clase.")
+        if not descripcion:
+            errors.append("Escribe el detalle de la clase.")
+        if not self.post_has_tag_items("competencias"):
+            errors.append("Selecciona o agrega al menos una competencia.")
+        if not self.post_has_tag_items("estrategias"):
+            errors.append("Selecciona o agrega al menos una estrategia.")
+        if not self.post_has_tag_items("recursos"):
+            errors.append("Selecciona o agrega al menos un recurso.")
+        return errors
+
+    def post_has_tag_items(self, prefix):
+        return bool(self.get_selected_tag_ids(prefix) or self.get_new_tag_names(prefix))
+
+    def get_selected_tag_ids(self, prefix):
+        return {
             int(value)
             for value in self.request.POST.getlist(f"{prefix}_existentes")
             if str(value).isdigit()
         }
+
+    def sync_tags(self, relation, model, prefix):
+        selected_ids = self.get_selected_tag_ids(prefix)
         for nombre in self.get_new_tag_names(prefix):
             obj, _ = model.objects.get_or_create(nombre=nombre)
             selected_ids.add(obj.pk)
@@ -1612,17 +1814,20 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                 clase_recurso.save(update_fields=["archivo"])
 
     def get_new_tag_names(self, prefix):
+        return [item["nombre"] for item in self.get_posted_new_tags(prefix)]
+
+    def get_posted_new_tags(self, prefix):
         try:
             total = int(self.request.POST.get(f"{prefix}-TOTAL_FORMS", 0))
         except (TypeError, ValueError):
             total = 0
-        names = []
+        items = []
         for index in range(total):
             name = (self.request.POST.get(f"{prefix}-{index}-nombre") or "").strip()
             delete = self.request.POST.get(f"{prefix}-{index}-DELETE") == "on"
             if name and not delete:
-                names.append(name)
-        return names
+                items.append({"index": index, "nombre": name})
+        return items
 
     def get_context(self, form, clase):
         horario = clase.horario_aula_curso.horario_dia.horario
@@ -1641,14 +1846,49 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             item.recurso_id: item
             for item in clase.clase_recursos.select_related("recurso")
         }
-        recursos_existing = [
-            {
-                "obj": recurso,
-                "selected": recurso.pk in set(clase.recursos.values_list("id", flat=True)),
-                "clase_recurso": clase_recursos_by_id.get(recurso.pk),
-            }
-            for recurso in Recurso.objects.order_by("nombre")
-        ]
+        can_edit = clase.estado_planificacion != "aprobada"
+        if not can_edit:
+            for field in form.fields.values():
+                field.widget.attrs["disabled"] = "disabled"
+        planning_items = self.get_planning_items(clase, form)
+        completed_planning_items = sum(1 for item in planning_items if item["done"])
+        planning_progress = round((completed_planning_items / len(planning_items)) * 100) if planning_items else 0
+        tag_groups = (
+            self.build_tag_group(
+                "Competencias",
+                "competencias",
+                Competencia.objects.order_by("nombre"),
+                set(clase.competencias.values_list("id", flat=True)),
+                "Agregar competencia",
+                "Nueva competencia",
+                observaciones.get("competencias", ""),
+                "ri-medal-line",
+                "seleccionadas",
+            ),
+            self.build_tag_group(
+                "Estrategias",
+                "estrategias",
+                Estrategia.objects.order_by("nombre"),
+                set(clase.estrategias.values_list("id", flat=True)),
+                "Agregar estrategia",
+                "Nueva estrategia",
+                observaciones.get("estrategias", ""),
+                "ri-route-line",
+                "seleccionadas",
+            ),
+            self.build_tag_group(
+                "Recursos",
+                "recursos",
+                Recurso.objects.order_by("nombre"),
+                set(clase.recursos.values_list("id", flat=True)),
+                "Agregar recurso",
+                "Nuevo recurso",
+                observaciones.get("recursos", ""),
+                "ri-attachment-2",
+                "seleccionados",
+                clase_recursos_by_id,
+            ),
+        )
         return {
             "title": "Planificar clase",
             "form": form,
@@ -1656,49 +1896,167 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             "horario": horario,
             "temas": temas,
             "subtemas_by_tema_json": json.dumps(subtemas_by_tema),
-            "tag_groups": [
-                {
-                    "title": "Competencias",
-                    "prefix": "competencias",
-                    "existing": Competencia.objects.order_by("nombre"),
-                    "selected_ids": set(clase.competencias.values_list("id", flat=True)),
-                    "add_label": "Agregar competencia",
-                    "placeholder": "Nueva competencia",
-                    "revision_note": observaciones.get("competencias", ""),
-                    "files_by_id": {},
-                },
-                {
-                    "title": "Estrategias",
-                    "prefix": "estrategias",
-                    "existing": Estrategia.objects.order_by("nombre"),
-                    "selected_ids": set(clase.estrategias.values_list("id", flat=True)),
-                    "add_label": "Agregar estrategia",
-                    "placeholder": "Nueva estrategia",
-                    "revision_note": observaciones.get("estrategias", ""),
-                    "files_by_id": {},
-                },
-                {
-                    "title": "Recursos",
-                    "prefix": "recursos",
-                    "existing": recursos_existing,
-                    "selected_ids": set(clase.recursos.values_list("id", flat=True)),
-                    "add_label": "Agregar recurso",
-                    "placeholder": "Nuevo recurso",
-                    "revision_note": observaciones.get("recursos", ""),
-                },
-            ],
+            "tag_groups": tag_groups,
             "clase_recursos_by_id": clase_recursos_by_id,
             "observaciones_revision": observaciones,
+            "planning_items": planning_items,
+            "planning_completed": completed_planning_items,
+            "planning_total": len(planning_items),
+            "planning_progress": planning_progress,
+            "is_late": clase.fecha < timezone.localdate() and clase.estado_planificacion in {"pendiente", "rechazada"},
+            "is_observed": clase.estado_planificacion == "rechazada",
+            "is_submitted": clase.estado_planificacion == "revision",
+            "can_edit": can_edit,
             "cancel_url": reverse_lazy("academico:docente_horarios"),
+        }
+
+    def get_planning_items(self, clase, form):
+        if form.is_bound:
+            tema_done = bool((form.data.get("tema") or "").strip())
+            descripcion_done = bool((form.data.get("descripcion") or "").strip())
+            competencias_done = self.post_has_tag_items("competencias")
+            estrategias_done = self.post_has_tag_items("estrategias")
+            recursos_done = self.post_has_tag_items("recursos")
+        else:
+            tema_done = bool(clase.tema_id)
+            descripcion_done = bool(clase.descripcion)
+            competencias_done = clase.competencias.exists()
+            estrategias_done = clase.estrategias.exists()
+            recursos_done = clase.recursos.exists()
+        observaciones = clase.observaciones_revision or {}
+        return [
+            {"key": "tema", "label": "Tema", "done": tema_done, "note": observaciones.get("tema", "")},
+            {"key": "detalle", "label": "Detalle", "done": descripcion_done, "note": observaciones.get("detalle", "")},
+            {"key": "competencias", "label": "Competencias", "done": competencias_done, "note": observaciones.get("competencias", "")},
+            {"key": "estrategias", "label": "Estrategias", "done": estrategias_done, "note": observaciones.get("estrategias", "")},
+            {"key": "recursos", "label": "Recursos", "done": recursos_done, "note": observaciones.get("recursos", "")},
+        ]
+
+    def build_tag_group(
+        self,
+        title,
+        prefix,
+        queryset,
+        selected_ids,
+        add_label,
+        placeholder,
+        revision_note,
+        icon,
+        count_label,
+        clase_recursos_by_id=None,
+    ):
+        if self.request.method == "POST":
+            selected_ids = self.get_selected_tag_ids(prefix)
+        items = [
+            {
+                "obj": obj,
+                "selected": obj.pk in selected_ids,
+                "clase_recurso": (clase_recursos_by_id or {}).get(obj.pk),
+            }
+            for obj in queryset
+        ]
+        return {
+            "title": title,
+            "prefix": prefix,
+            "items": items,
+            "selected_count": len(selected_ids),
+            "add_label": add_label,
+            "placeholder": placeholder,
+            "revision_note": revision_note,
+            "new_entries": self.get_posted_new_tags(prefix) if self.request.method == "POST" else [],
+            "icon": icon,
+            "count_label": count_label,
         }
 
 
 class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
     template_name = "academico/coordinacion_revision_planificaciones.html"
+    status_filters = (
+        {
+            "key": "revision",
+            "label": "Enviadas",
+            "states": ("revision",),
+            "icon": "ri-send-plane-line",
+        },
+        {
+            "key": "pendiente",
+            "label": "Sin enviar",
+            "states": ("pendiente",),
+            "icon": "ri-draft-line",
+        },
+        {
+            "key": "atrasadas",
+            "label": "Atrasadas",
+            "states": None,
+            "late": True,
+            "icon": "ri-alarm-warning-line",
+        },
+        {
+            "key": "rechazada",
+            "label": "Observadas",
+            "states": ("rechazada",),
+            "icon": "ri-error-warning-line",
+        },
+        {
+            "key": "aprobada",
+            "label": "Aprobadas",
+            "states": ("aprobada",),
+            "icon": "ri-checkbox-circle-line",
+        },
+        {
+            "key": "todas",
+            "label": "Todas",
+            "states": None,
+            "icon": "ri-list-check-3",
+        },
+    )
 
     def get(self, request):
         estado = request.GET.get("estado", "")
-        clases = (
+        q = (request.GET.get("q") or "").strip()
+        selected_docente = self.get_selected_docente()
+        clases_queryset = self.get_clases_queryset()
+
+        if selected_docente:
+            clases_queryset = clases_queryset.filter(materia_curso__profesor_materia_cursos__partner=selected_docente)
+        if q:
+            clases_queryset = clases_queryset.filter(
+                Q(materia_curso__materia__nombre__icontains=q)
+                | Q(materia_curso__grupo__nombre__icontains=q)
+                | Q(tema__nombre__icontains=q)
+                | Q(subtema__nombre__icontains=q)
+                | Q(materia_curso__profesor_materia_cursos__partner__nombre__icontains=q)
+                | Q(materia_curso__profesor_materia_cursos__partner__identificacion__icontains=q)
+            )
+        clases = list(clases_queryset.distinct())
+        stats = self.get_revision_stats(clases)
+        selected_estado = self.get_selected_filter(estado, stats)
+        revision_cards = [
+            self.build_revision_card(clase)
+            for clase in self.filter_clases(clases, selected_estado)
+        ]
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Revision de planificaciones",
+                "clases": clases,
+                "revision_cards": revision_cards,
+                "revision_stats": stats,
+                "docentes": Partner.objects.filter(es_docente=True, activo=True).order_by("nombre"),
+                "selected_docente": selected_docente,
+                "selected_docente_id": selected_docente.pk if selected_docente else "",
+                "selected_estado_label": self.get_filter_label(selected_estado),
+                "status_tabs": self.get_status_tabs(selected_estado, selected_docente, q, stats),
+                "estado_choices": Clase.ESTADO_PLANIFICACION_CHOICES,
+                "selected_estado": selected_estado,
+                "search_query": q,
+                "unassigned_alert": clases_sin_docente_alert(),
+            },
+        )
+
+    def get_clases_queryset(self):
+        return (
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
@@ -1707,29 +2065,134 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__horario",
             )
-            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
-            .order_by("-fecha", "materia_curso__grupo__nombre")
-        )
-        if estado:
-            clases = clases.filter(estado_planificacion=estado)
-        q = request.GET.get("q")
-        if q:
-            clases = clases.filter(
-                Q(materia_curso__materia__nombre__icontains=q)
-                | Q(materia_curso__grupo__nombre__icontains=q)
-                | Q(tema__nombre__icontains=q)
+            .prefetch_related(
+                "competencias",
+                "estrategias",
+                "recursos",
+                "materia_curso__profesor_materia_cursos__partner",
             )
-        return render(
-            request,
-            self.template_name,
-            {
-                "title": "Revision de planificaciones",
-                "clases": clases,
-                "estado_choices": Clase.ESTADO_PLANIFICACION_CHOICES,
-                "selected_estado": estado,
-                "unassigned_alert": clases_sin_docente_alert(),
-            },
+            .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio", "materia_curso__grupo__nombre")
         )
+
+    def get_selected_docente(self):
+        docente_id = self.request.GET.get("docente") or ""
+        if not docente_id:
+            return None
+        return Partner.objects.filter(pk=docente_id, es_docente=True, activo=True).first()
+
+    def empty_revision_stats(self):
+        return {
+            "total": 0,
+            "pendiente": 0,
+            "revision": 0,
+            "rechazada": 0,
+            "aprobada": 0,
+            "atrasadas": 0,
+        }
+
+    def get_revision_stats(self, clases):
+        stats = self.empty_revision_stats()
+        stats["total"] = len(clases)
+        for clase in clases:
+            if clase.estado_planificacion in stats:
+                stats[clase.estado_planificacion] += 1
+            if self.is_late(clase):
+                stats["atrasadas"] += 1
+        return stats
+
+    def is_late(self, clase):
+        return clase.fecha < timezone.localdate() and clase.estado_planificacion in {"pendiente", "rechazada"}
+
+    def get_selected_filter(self, requested_filter, stats):
+        valid_filters = {item["key"] for item in self.status_filters}
+        if requested_filter in valid_filters:
+            return requested_filter
+        if stats["revision"]:
+            return "revision"
+        if stats["atrasadas"]:
+            return "atrasadas"
+        if stats["pendiente"]:
+            return "pendiente"
+        return "todas"
+
+    def get_filter_label(self, selected_filter):
+        filter_item = next((item for item in self.status_filters if item["key"] == selected_filter), None)
+        return filter_item["label"] if filter_item else ""
+
+    def get_status_tabs(self, selected_filter, selected_docente, q, stats):
+        base_url = reverse_lazy("academico:coordinacion_revision_planificaciones")
+        tabs = []
+        for item in self.status_filters:
+            if item.get("late"):
+                count = stats["atrasadas"]
+            elif item["states"] is None:
+                count = stats["total"]
+            else:
+                count = sum(stats[state] for state in item["states"])
+            params = {"estado": item["key"]}
+            if selected_docente:
+                params["docente"] = selected_docente.pk
+            if q:
+                params["q"] = q
+            tabs.append(
+                {
+                    **item,
+                    "count": count,
+                    "url": f"{base_url}?{urlencode(params)}",
+                    "is_active": item["key"] == selected_filter,
+                }
+            )
+        return tabs
+
+    def filter_clases(self, clases, selected_filter):
+        filter_item = next((item for item in self.status_filters if item["key"] == selected_filter), None)
+        if not filter_item or selected_filter == "todas":
+            return clases
+        if filter_item.get("late"):
+            return [clase for clase in clases if self.is_late(clase)]
+        allowed_states = set(filter_item["states"] or [])
+        return [clase for clase in clases if clase.estado_planificacion in allowed_states]
+
+    def build_revision_card(self, clase):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        docentes = [item.partner for item in clase.materia_curso.profesor_materia_cursos.all()]
+        competencias = list(clase.competencias.all())
+        estrategias = list(clase.estrategias.all())
+        recursos = list(clase.recursos.all())
+        observaciones = clase.observaciones_revision or {}
+        steps = [
+            {"label": "Tema", "done": bool(clase.tema_id), "note": observaciones.get("tema", "")},
+            {"label": "Detalle", "done": bool(clase.descripcion), "note": observaciones.get("detalle", "")},
+            {"label": "Competencias", "done": bool(competencias), "note": observaciones.get("competencias", "")},
+            {"label": "Estrategias", "done": bool(estrategias), "note": observaciones.get("estrategias", "")},
+            {"label": "Recursos", "done": bool(recursos), "note": observaciones.get("recursos", "")},
+        ]
+        completed_steps = sum(1 for step in steps if step["done"])
+        action_labels = {
+            "pendiente": "Ver pendiente",
+            "revision": "Revisar",
+            "rechazada": "Ver observacion",
+            "aprobada": "Ver aprobada",
+        }
+        return {
+            "clase": clase,
+            "horario": horario,
+            "estado": clase.estado_planificacion,
+            "estado_label": clase.get_estado_planificacion_display(),
+            "grupo": clase.materia_curso.grupo,
+            "materia": clase.materia_curso.materia,
+            "aula": clase.horario_aula_curso.aula_curso.aula,
+            "docentes": docentes,
+            "tema": clase.tema,
+            "subtema": clase.subtema,
+            "steps": steps,
+            "progress": round((completed_steps / len(steps)) * 100),
+            "is_late": self.is_late(clase),
+            "is_unsent": clase.estado_planificacion == "pendiente",
+            "revision_note": clase.notas_revision if clase.estado_planificacion == "rechazada" else "",
+            "action_label": action_labels.get(clase.estado_planificacion, "Abrir"),
+            "url": reverse_lazy("academico:coordinacion_revision_planificacion_detalle", kwargs={"pk": clase.pk}),
+        }
 
 
 class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, View):
@@ -1744,7 +2207,13 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
                 "subtema",
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__horario",
-            ).prefetch_related("competencias", "estrategias", "recursos", "materia_curso__profesor_materia_cursos__partner"),
+            ).prefetch_related(
+                "competencias",
+                "estrategias",
+                "recursos",
+                Prefetch("clase_recursos", queryset=ClaseRecurso.objects.select_related("recurso")),
+                "materia_curso__profesor_materia_cursos__partner",
+            ),
             pk=self.kwargs["pk"],
         )
 
@@ -1770,7 +2239,18 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
         clase.revision_estrategias_ok = request.POST.get("revision_estrategias_ok") == "on"
         clase.revision_recursos_ok = request.POST.get("revision_recursos_ok") == "on"
         section_comments = self.get_section_comments(request)
+        unchecked_sections = [
+            label
+            for key, label in self.review_sections()
+            if not getattr(clase, f"revision_{key}_ok")
+        ]
+        if action == "aprobar" and unchecked_sections:
+            messages.error(request, "Marca todos los puntos como correctos antes de aprobar.")
+            return render(request, self.template_name, self.get_context(clase))
         if action == "rechazar":
+            if not unchecked_sections:
+                messages.error(request, "Para devolver la planificacion, deja al menos un punto observado.")
+                return render(request, self.template_name, self.get_context(clase))
             missing = [
                 label
                 for key, label in self.review_sections()
@@ -1811,6 +2291,8 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
     def get_section_comments(self, request):
         comments = {}
         for key, _ in self.review_sections():
+            if request.POST.get(f"revision_{key}_ok") == "on":
+                continue
             value = request.POST.get(f"observacion_{key}", "").strip()
             if value:
                 comments[key] = value
@@ -1822,12 +2304,41 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
             item.partner
             for item in clase.materia_curso.profesor_materia_cursos.all()
         ]
+        observaciones = clase.observaciones_revision or {}
+        review_items = [
+            {
+                "key": key,
+                "label": label,
+                "ok": getattr(clase, f"revision_{key}_ok"),
+                "comment": observaciones.get(key, ""),
+            }
+            for key, label in self.review_sections()
+        ]
+        planning_items = [
+            {"label": "Tema", "done": bool(clase.tema_id)},
+            {"label": "Detalle", "done": bool(clase.descripcion)},
+            {"label": "Competencias", "done": clase.competencias.exists()},
+            {"label": "Estrategias", "done": clase.estrategias.exists()},
+            {"label": "Recursos", "done": clase.recursos.exists()},
+        ]
+        completed_planning_items = sum(1 for item in planning_items if item["done"])
+        checked_review_items = sum(1 for item in review_items if item["ok"])
         return {
             "title": "Revisar planificacion",
             "clase": clase,
             "horario": horario,
             "docentes": docentes,
             "tiene_docente": bool(docentes),
+            "resource_items": list(clase.clase_recursos.all()),
+            "review_items": review_items,
+            "review_total": len(review_items),
+            "review_checked": checked_review_items,
+            "review_progress": round((checked_review_items / len(review_items)) * 100) if review_items else 0,
+            "planning_items": planning_items,
+            "planning_progress": round((completed_planning_items / len(planning_items)) * 100) if planning_items else 0,
+            "is_late": clase.fecha < timezone.localdate() and clase.estado_planificacion in {"pendiente", "rechazada"},
+            "is_unsent": clase.estado_planificacion == "pendiente",
+            "observaciones_revision": observaciones,
             "list_url": reverse_lazy("academico:coordinacion_revision_planificaciones"),
             "planificacion_docente_url": reverse_lazy("academico:planificacion_docente"),
         }

@@ -130,6 +130,7 @@ class MiPerfilView(LoginRequiredMixin, View):
             "title": "Mi perfil",
             "form": form if form is not None else (MiPerfilPartnerForm(instance=partner) if partner else None),
             "has_partner_profile": partner is not None,
+            "is_docente_profile": bool(partner and partner.es_docente),
             "password_form": password_form if password_form is not None else MiPerfilPasswordChangeForm(self.request.user),
         }
 

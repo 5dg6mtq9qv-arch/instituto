@@ -21,11 +21,136 @@
     </section>
   {% else %}
     <section class="panel docente-summary-panel">
-      <strong>{{ docente.nombre }}</strong>
-      <span>{{ docente.identificacion|default:"" }}</span>
+      <div class="docente-avatar">{{ docente.nombre|first|upper }}</div>
+      <div>
+        <strong>{{ docente.nombre }}</strong>
+        <span>{{ docente.identificacion|default:"" }}</span>
+      </div>
+      <div class="docente-progress">
+        <span>Avance aprobado</span>
+        <strong>{{ planificacion_stats.avance }}%</strong>
+      </div>
+    </section>
+
+    <section class="docente-stats-grid">
+      <a class="docente-stat-card is-action" href="{% url 'academico:docente_horarios' %}?estado=trabajo">
+        <span>Por atender</span>
+        <strong>{{ planificacion_stats.por_atender }}</strong>
+      </a>
+      <a class="docente-stat-card is-review" href="{% url 'academico:docente_horarios' %}?estado=revision">
+        <span>En revision</span>
+        <strong>{{ planificacion_stats.revision }}</strong>
+      </a>
+      <a class="docente-stat-card is-observed" href="{% url 'academico:docente_horarios' %}?estado=rechazada">
+        <span>Observadas</span>
+        <strong>{{ planificacion_stats.rechazada }}</strong>
+      </a>
+      <a class="docente-stat-card is-approved" href="{% url 'academico:docente_horarios' %}?estado=aprobada">
+        <span>Aprobadas</span>
+        <strong>{{ planificacion_stats.aprobada }}</strong>
+      </a>
+    </section>
+
+    <section class="panel docente-work-panel">
+      <header class="docente-panel-header">
+        <div>
+          <span>Planificaciones</span>
+          <h2>{{ selected_filter_label }}</h2>
+        </div>
+        <strong>{{ planificacion_cards|length }} clase(s)</strong>
+      </header>
+
+      <nav class="docente-status-tabs" aria-label="Estados de planificacion">
+        {% for tab in status_tabs %}
+          <a class="docente-status-tab{% if tab.is_active %} is-active{% endif %}" href="{{ tab.url }}">
+            <i class="{{ tab.icon }}"></i>
+            <span>{{ tab.label }}</span>
+            <strong>{{ tab.count }}</strong>
+          </a>
+        {% endfor %}
+      </nav>
+
+      {% if planificacion_cards %}
+        <div class="docente-planning-grid">
+          {% for card in planificacion_cards %}
+            <article class="docente-planning-card estado-{{ card.estado }}{% if card.is_late %} is-late{% endif %}">
+              <div class="docente-card-top">
+                <span class="subject-color" style="background: {{ card.materia.color }}"></span>
+                <div>
+                  <h3>{{ card.materia }}</h3>
+                  <p>{{ card.grupo }} · {{ card.aula }}</p>
+                </div>
+                <span class="status-badge status-{{ card.estado }}">{{ card.estado_label }}</span>
+              </div>
+
+              <div class="docente-card-meta">
+                <span><i class="ri-calendar-line"></i>{{ card.clase.fecha|date:"d M Y" }}</span>
+                <span><i class="ri-time-line"></i>{{ card.horario.hora_inicio|time:"H:i" }} - {{ card.horario.hora_fin|time:"H:i" }}</span>
+              </div>
+
+              {% if card.tema or card.subtema %}
+                <div class="docente-topic">
+                  {% if card.tema %}<strong>{{ card.tema }}</strong>{% endif %}
+                  {% if card.subtema %}<span>{{ card.subtema }}</span>{% endif %}
+                </div>
+              {% endif %}
+
+              <div class="docente-progress-line">
+                <span style="width: {{ card.progress }}%"></span>
+              </div>
+
+              <div class="docente-step-list">
+                {% for step in card.steps %}
+                  <span class="{% if step.done %}is-done{% endif %}{% if step.note %} has-note{% endif %}">
+                    {% if step.done %}
+                      <i class="ri-check-line"></i>
+                    {% elif step.note %}
+                      <i class="ri-error-warning-line"></i>
+                    {% else %}
+                      <i class="ri-close-line"></i>
+                    {% endif %}
+                    {{ step.label }}
+                  </span>
+                {% endfor %}
+              </div>
+
+              {% if card.revision_note %}
+                <div class="docente-revision-note">
+                  <strong>Observacion</strong>
+                  <p>{{ card.revision_note }}</p>
+                </div>
+              {% endif %}
+
+              <div class="docente-card-actions">
+                {% if card.is_late %}
+                  <span class="docente-late-label">Atrasada</span>
+                {% endif %}
+                <a class="btn btn-primary-600" href="{{ card.url }}">
+                  <i class="ri-edit-2-line"></i>
+                  {{ card.action_label }}
+                </a>
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="academic-empty-state">
+          {% if has_events %}
+            Sin clases para este estado.
+          {% else %}
+            No tienes clases asignadas.
+          {% endif %}
+        </div>
+      {% endif %}
     </section>
 
     <section class="panel edudash-calendar-panel docente-calendar-panel">
+      <header class="docente-panel-header">
+        <div>
+          <span>Calendario</span>
+          <h2>Horario de clases</h2>
+        </div>
+      </header>
       <div class="edudash-calendar-wrap docente-calendar-wrap">
         <div id="calendar"></div>
       </div>
@@ -113,7 +238,7 @@
               return true;
             },
             eventRender: function (event, element) {
-              element.attr("title", [event.grupo, event.aula, event.hora, event.materia].filter(Boolean).join(" - "));
+              element.attr("title", [event.grupo, event.aula, event.hora, event.materia, event.estado].filter(Boolean).join(" - "));
               paintEvent(element, event);
             },
             eventAfterRender: function (event, element) {
@@ -126,18 +251,360 @@
   </script>
   <style>
     .docente-summary-panel {
+      align-items: center;
       display: grid;
-      gap: 4px;
+      gap: 14px;
+      grid-template-columns: 64px minmax(0, 1fr) auto;
       margin-bottom: 16px;
+    }
+
+    .docente-avatar {
+      align-items: center;
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+      color: #075985;
+      display: flex;
+      font-size: 28px;
+      font-weight: 800;
+      height: 56px;
+      justify-content: center;
+      width: 56px;
     }
 
     .docente-summary-panel strong {
       color: #111827;
+      display: block;
       font-size: 18px;
     }
 
     .docente-summary-panel span {
       color: #667085;
+    }
+
+    .docente-progress {
+      text-align: right;
+    }
+
+    .docente-progress strong {
+      font-size: 26px;
+    }
+
+    .docente-stats-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .docente-stat-card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      color: #111827;
+      display: block;
+      min-height: 96px;
+      padding: 16px;
+      text-decoration: none;
+    }
+
+    .docente-stat-card:hover {
+      border-color: #0f766e;
+      color: #0f766e;
+      text-decoration: none;
+    }
+
+    .docente-stat-card span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .docente-stat-card strong {
+      display: block;
+      font-size: 32px;
+      line-height: 1;
+      margin-top: 12px;
+    }
+
+    .docente-stat-card.is-action strong {
+      color: #b45309;
+    }
+
+    .docente-stat-card.is-review strong {
+      color: #0369a1;
+    }
+
+    .docente-stat-card.is-observed strong {
+      color: #b42318;
+    }
+
+    .docente-stat-card.is-approved strong {
+      color: #15803d;
+    }
+
+    .docente-work-panel {
+      margin-bottom: 16px;
+      overflow: visible;
+    }
+
+    .docente-panel-header {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .docente-panel-header span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .docente-panel-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .docente-panel-header > strong {
+      color: #475467;
+      font-size: 14px;
+    }
+
+    .docente-status-tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+    }
+
+    .docente-status-tab {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      color: #1f2937;
+      display: inline-grid;
+      flex: 0 0 auto;
+      gap: 8px;
+      grid-template-columns: auto auto auto;
+      min-height: 44px;
+      padding: 9px 12px;
+      text-decoration: none;
+    }
+
+    .docente-status-tab:hover,
+    .docente-status-tab.is-active {
+      border-color: #0f766e;
+      color: #0f766e;
+      text-decoration: none;
+    }
+
+    .docente-status-tab i {
+      font-size: 18px;
+    }
+
+    .docente-status-tab span {
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .docente-status-tab strong {
+      align-items: center;
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #334155;
+      display: inline-flex;
+      font-size: 12px;
+      justify-content: center;
+      min-width: 28px;
+      padding: 4px 8px;
+    }
+
+    .docente-planning-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    }
+
+    .docente-planning-card {
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 250px;
+      padding: 16px;
+    }
+
+    .docente-planning-card.estado-pendiente {
+      border-color: #f59e0b;
+    }
+
+    .docente-planning-card.estado-rechazada {
+      border-color: #f04438;
+    }
+
+    .docente-planning-card.estado-revision {
+      border-color: #38bdf8;
+    }
+
+    .docente-planning-card.estado-aprobada {
+      border-color: #22c55e;
+    }
+
+    .docente-card-top {
+      align-items: flex-start;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 12px minmax(0, 1fr) auto;
+    }
+
+    .subject-color {
+      border-radius: 999px;
+      height: 44px;
+      width: 12px;
+    }
+
+    .docente-card-top h3 {
+      color: #111827;
+      font-size: 17px;
+      margin: 0 0 4px;
+    }
+
+    .docente-card-top p {
+      color: #667085;
+      font-size: 13px;
+      margin: 0;
+    }
+
+    .docente-card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .docente-card-meta span {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 999px;
+      color: #475467;
+      display: inline-flex;
+      font-size: 13px;
+      font-weight: 700;
+      gap: 6px;
+      padding: 6px 10px;
+    }
+
+    .docente-topic {
+      background: #f8fafc;
+      border-left: 3px solid #0f766e;
+      display: grid;
+      gap: 2px;
+      padding: 8px 10px;
+    }
+
+    .docente-topic strong {
+      color: #111827;
+    }
+
+    .docente-topic span {
+      color: #667085;
+      font-size: 13px;
+    }
+
+    .docente-progress-line {
+      background: #e5e7eb;
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+    }
+
+    .docente-progress-line span {
+      background: #0f766e;
+      display: block;
+      height: 100%;
+    }
+
+    .docente-step-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .docente-step-list span {
+      align-items: center;
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #64748b;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 4px;
+      padding: 5px 8px;
+    }
+
+    .docente-step-list span.is-done {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .docente-step-list span.has-note {
+      background: #fef3c7;
+      color: #b45309;
+    }
+
+    .docente-revision-note {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #92400e;
+      padding: 10px;
+    }
+
+    .docente-revision-note strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .docente-revision-note p {
+      margin: 0;
+    }
+
+    .docente-card-actions {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      margin-top: auto;
+    }
+
+    .docente-card-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 40px;
+    }
+
+    .docente-late-label {
+      background: #fef3c7;
+      border-radius: 999px;
+      color: #b45309;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 5px 10px;
     }
 
     .docente-calendar-wrap {
@@ -154,6 +621,39 @@
 
     #calendar .fc-event {
       cursor: pointer;
+    }
+
+    @media (max-width: 991.98px) {
+      .docente-summary-panel,
+      .docente-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .docente-progress {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .docente-summary-panel,
+      .docente-stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .docente-panel-header,
+      .docente-card-actions {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .docente-card-top {
+        grid-template-columns: 10px minmax(0, 1fr);
+      }
+
+      .docente-card-top .status-badge {
+        grid-column: 2;
+        justify-self: start;
+      }
     }
   </style>
 {% endblock %}

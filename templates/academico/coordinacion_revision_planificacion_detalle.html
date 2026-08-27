@@ -11,13 +11,28 @@
     <a class="btn btn-outline-secondary" href="{{ list_url }}">Volver</a>
   </header>
 
-  <section class="panel form-panel">
-    <div class="form-summary-card">
-      <div><span>Grupo</span><strong>{{ clase.materia_curso.grupo }}</strong></div>
-      <div><span>Materia</span><strong>{{ clase.materia_curso.materia }}</strong></div>
-      <div><span>Aula</span><strong>{{ clase.horario_aula_curso.aula_curso.aula }}</strong></div>
-      <div><span>Fecha</span><strong>{{ clase.fecha|date:"d M Y" }} · {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</strong></div>
-      <div>
+  <form class="review-detail-form" method="post" data-review-form data-has-teacher="{{ tiene_docente|yesno:'true,false' }}" novalidate>
+    {% csrf_token %}
+
+    <section class="panel review-hero-panel">
+      <div class="review-hero-main">
+        <span class="subject-color" style="background: {{ clase.materia_curso.materia.color }}"></span>
+        <div>
+          <span class="review-kicker">{{ clase.materia_curso.grupo }}</span>
+          <h2>{{ clase.materia_curso.materia }}</h2>
+          <p>{{ clase.horario_aula_curso.aula_curso.aula }} · {{ clase.fecha|date:"d M Y" }} · {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</p>
+        </div>
+      </div>
+      <div class="review-hero-state">
+        <span class="status-badge status-{{ clase.estado_planificacion }}">{{ clase.get_estado_planificacion_display }}</span>
+        {% if is_late %}
+          <strong class="review-late-label">Atrasada</strong>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="review-meta-grid">
+      <div class="review-meta-item">
         <span>Docente</span>
         <strong>
           {% for docente in docentes %}
@@ -27,143 +42,711 @@
           {% endfor %}
         </strong>
       </div>
-    </div>
+      <div class="review-meta-item">
+        <span>Planificacion enviada</span>
+        <strong>{% if clase.estado_planificacion == "revision" %}Lista para revision{% elif is_unsent %}Sin enviar{% else %}{{ clase.get_estado_planificacion_display }}{% endif %}</strong>
+      </div>
+      <div class="review-meta-item">
+        <span>Avance del docente</span>
+        <strong>{{ planning_progress }}%</strong>
+      </div>
+      <div class="review-meta-item">
+        <span>Revision marcada</span>
+        <strong><span data-review-count>{{ review_checked }}</span>/{{ review_total }}</strong>
+      </div>
+    </section>
 
     {% if not tiene_docente %}
-      <div class="alert alert-warning mt-3">
+      <div class="alert alert-warning review-top-alert">
         Esta clase no puede aprobarse hasta que tenga un docente asignado.
         <a href="{{ planificacion_docente_url }}">Asignar docente</a>
       </div>
     {% endif %}
-
-    <form method="post" class="mt-4">
-      {% csrf_token %}
-      <div class="row g-3">
-        <div class="col-md-6">
-          <label class="review-check">
-            <input class="form-check-input" type="checkbox" name="revision_tema_ok" data-review-check="tema"{% if clase.revision_tema_ok %} checked{% endif %}>
-            <span>Tema y subtema correctos</span>
-          </label>
-          <strong>Tema</strong><p>{{ clase.tema|default:"-" }}</p>
-          <strong>Subtema</strong><p>{{ clase.subtema|default:"-" }}</p>
-        </div>
-        <div class="col-md-6">
-          <label class="review-check">
-            <input class="form-check-input" type="checkbox" name="revision_detalle_ok" data-review-check="detalle"{% if clase.revision_detalle_ok %} checked{% endif %}>
-            <span>Detalle correcto</span>
-          </label>
-          <strong>Detalle</strong><p>{{ clase.descripcion|default:"-" }}</p>
-        </div>
-        <div class="col-md-4">
-          <label class="review-check">
-            <input class="form-check-input" type="checkbox" name="revision_competencias_ok" data-review-check="competencias"{% if clase.revision_competencias_ok %} checked{% endif %}>
-            <span>Competencias correctas</span>
-          </label>
-          <p>{% for item in clase.competencias.all %}{{ item }}{% if not forloop.last %}, {% endif %}{% empty %}-{% endfor %}</p>
-        </div>
-        <div class="col-md-4">
-          <label class="review-check">
-            <input class="form-check-input" type="checkbox" name="revision_estrategias_ok" data-review-check="estrategias"{% if clase.revision_estrategias_ok %} checked{% endif %}>
-            <span>Estrategias correctas</span>
-          </label>
-          <p>{% for item in clase.estrategias.all %}{{ item }}{% if not forloop.last %}, {% endif %}{% empty %}-{% endfor %}</p>
-        </div>
-        <div class="col-md-4">
-          <label class="review-check">
-            <input class="form-check-input" type="checkbox" name="revision_recursos_ok" data-review-check="recursos"{% if clase.revision_recursos_ok %} checked{% endif %}>
-            <span>Recursos correctos</span>
-          </label>
-          {% for item in clase.clase_recursos.all %}
-            <p class="mb-1">
-              {{ item.recurso }}
-              {% if item.archivo %}
-                <a href="{{ item.archivo.url }}" target="_blank">Ver archivo</a>
-              {% endif %}
-            </p>
-          {% empty %}
-            <p>-</p>
-          {% endfor %}
-        </div>
+    {% if is_unsent %}
+      <div class="alert alert-warning review-top-alert">
+        Esta planificacion aun no fue enviada por el docente. Puedes revisarla si necesitas dejar trazabilidad, pero no hay envio formal.
       </div>
+    {% endif %}
 
-      <label class="form-label" for="id_notas_revision">Observaciones generales</label>
-      <textarea class="form-control" id="id_notas_revision" name="notas_revision" rows="4">{{ clase.notas_revision|default:"" }}</textarea>
-      <div class="form-actions">
-        <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#rejectPlanificacionModal">Rechazar</button>
-        <button class="btn btn-primary" type="submit" name="review_action" value="aprobar"{% if not tiene_docente %} disabled{% endif %}>Aprobar</button>
-      </div>
+    <div class="review-detail-layout">
+      <main class="review-main-column">
+        <section class="review-progress-panel">
+          <div>
+            <span>Checklist de revision</span>
+            <h2>Contenido recibido</h2>
+          </div>
+          <button class="btn btn-outline-primary btn-sm" type="button" data-mark-all>
+            <i class="ri-checkbox-multiple-line"></i>
+            Marcar todo correcto
+          </button>
+        </section>
 
-      <div class="modal fade" id="rejectPlanificacionModal" tabindex="-1" aria-labelledby="rejectPlanificacionTitle" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title" id="rejectPlanificacionTitle">Observaciones para subsanar</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-            </div>
-            <div class="modal-body">
-              <p class="text-muted mb-3">Solo se pedira correccion de los puntos que no marcaste como correctos.</p>
-              <div class="review-modal-stack" data-review-observations>
-                <div class="review-observation" data-observation-row="tema">
-                  <label class="form-label" for="id_observacion_tema">Tema y subtema</label>
-                  <textarea class="form-control" id="id_observacion_tema" name="observacion_tema" rows="2">{{ clase.observaciones_revision.tema|default:"" }}</textarea>
-                </div>
-                <div class="review-observation" data-observation-row="detalle">
-                  <label class="form-label" for="id_observacion_detalle">Detalle</label>
-                  <textarea class="form-control" id="id_observacion_detalle" name="observacion_detalle" rows="2">{{ clase.observaciones_revision.detalle|default:"" }}</textarea>
-                </div>
-                <div class="review-observation" data-observation-row="competencias">
-                  <label class="form-label" for="id_observacion_competencias">Competencias</label>
-                  <textarea class="form-control" id="id_observacion_competencias" name="observacion_competencias" rows="2">{{ clase.observaciones_revision.competencias|default:"" }}</textarea>
-                </div>
-                <div class="review-observation" data-observation-row="estrategias">
-                  <label class="form-label" for="id_observacion_estrategias">Estrategias</label>
-                  <textarea class="form-control" id="id_observacion_estrategias" name="observacion_estrategias" rows="2">{{ clase.observaciones_revision.estrategias|default:"" }}</textarea>
-                </div>
-                <div class="review-observation" data-observation-row="recursos">
-                  <label class="form-label" for="id_observacion_recursos">Recursos</label>
-                  <textarea class="form-control" id="id_observacion_recursos" name="observacion_recursos" rows="2">{{ clase.observaciones_revision.recursos|default:"" }}</textarea>
-                </div>
-                <div class="alert alert-success mb-0 d-none" data-all-approved-message>
-                  Marcaste todos los puntos como correctos. Puedes aprobar la planificacion.
-                </div>
+        <div class="review-section-stack">
+          <article class="review-section-card" data-review-card>
+            <label class="review-check">
+              <input class="form-check-input" type="checkbox" name="revision_tema_ok" data-review-check="tema"{% if clase.revision_tema_ok %} checked{% endif %}>
+              <span>Tema y subtema correctos</span>
+            </label>
+            <div class="review-content-grid">
+              <div>
+                <span>Tema</span>
+                <strong>{{ clase.tema|default:"No seleccionado" }}</strong>
+              </div>
+              <div>
+                <span>Subtema</span>
+                <strong>{{ clase.subtema|default:"No seleccionado" }}</strong>
               </div>
             </div>
-            <div class="modal-footer">
-              <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
-              <button class="btn btn-outline-danger" type="submit" name="review_action" value="rechazar">Confirmar rechazo</button>
+            <div class="review-observation-panel" data-observation-panel>
+              <label class="form-label" for="id_observacion_tema">Observacion para el docente</label>
+              <textarea class="form-control" id="id_observacion_tema" name="observacion_tema" rows="3">{{ observaciones_revision.tema|default:"" }}</textarea>
             </div>
-          </div>
+          </article>
+
+          <article class="review-section-card" data-review-card>
+            <label class="review-check">
+              <input class="form-check-input" type="checkbox" name="revision_detalle_ok" data-review-check="detalle"{% if clase.revision_detalle_ok %} checked{% endif %}>
+              <span>Detalle correcto</span>
+            </label>
+            <div class="review-long-content">
+              {% if clase.descripcion %}
+                {{ clase.descripcion|linebreaksbr }}
+              {% else %}
+                <span class="review-empty-text">Sin detalle registrado.</span>
+              {% endif %}
+            </div>
+            <div class="review-observation-panel" data-observation-panel>
+              <label class="form-label" for="id_observacion_detalle">Observacion para el docente</label>
+              <textarea class="form-control" id="id_observacion_detalle" name="observacion_detalle" rows="3">{{ observaciones_revision.detalle|default:"" }}</textarea>
+            </div>
+          </article>
+
+          <article class="review-section-card" data-review-card>
+            <label class="review-check">
+              <input class="form-check-input" type="checkbox" name="revision_competencias_ok" data-review-check="competencias"{% if clase.revision_competencias_ok %} checked{% endif %}>
+              <span>Competencias correctas</span>
+            </label>
+            <div class="review-chip-list">
+              {% for item in clase.competencias.all %}
+                <span>{{ item }}</span>
+              {% empty %}
+                <span class="is-empty">Sin competencias registradas</span>
+              {% endfor %}
+            </div>
+            <div class="review-observation-panel" data-observation-panel>
+              <label class="form-label" for="id_observacion_competencias">Observacion para el docente</label>
+              <textarea class="form-control" id="id_observacion_competencias" name="observacion_competencias" rows="3">{{ observaciones_revision.competencias|default:"" }}</textarea>
+            </div>
+          </article>
+
+          <article class="review-section-card" data-review-card>
+            <label class="review-check">
+              <input class="form-check-input" type="checkbox" name="revision_estrategias_ok" data-review-check="estrategias"{% if clase.revision_estrategias_ok %} checked{% endif %}>
+              <span>Estrategias correctas</span>
+            </label>
+            <div class="review-chip-list">
+              {% for item in clase.estrategias.all %}
+                <span>{{ item }}</span>
+              {% empty %}
+                <span class="is-empty">Sin estrategias registradas</span>
+              {% endfor %}
+            </div>
+            <div class="review-observation-panel" data-observation-panel>
+              <label class="form-label" for="id_observacion_estrategias">Observacion para el docente</label>
+              <textarea class="form-control" id="id_observacion_estrategias" name="observacion_estrategias" rows="3">{{ observaciones_revision.estrategias|default:"" }}</textarea>
+            </div>
+          </article>
+
+          <article class="review-section-card" data-review-card>
+            <label class="review-check">
+              <input class="form-check-input" type="checkbox" name="revision_recursos_ok" data-review-check="recursos"{% if clase.revision_recursos_ok %} checked{% endif %}>
+              <span>Recursos correctos</span>
+            </label>
+            <div class="review-resource-list">
+              {% for item in resource_items %}
+                <div class="review-resource-item">
+                  <i class="ri-attachment-2"></i>
+                  <span>{{ item.recurso }}</span>
+                  {% if item.archivo %}
+                    <a href="{{ item.archivo.url }}" target="_blank">Ver archivo</a>
+                  {% endif %}
+                </div>
+              {% empty %}
+                <span class="review-empty-text">Sin recursos registrados.</span>
+              {% endfor %}
+            </div>
+            <div class="review-observation-panel" data-observation-panel>
+              <label class="form-label" for="id_observacion_recursos">Observacion para el docente</label>
+              <textarea class="form-control" id="id_observacion_recursos" name="observacion_recursos" rows="3">{{ observaciones_revision.recursos|default:"" }}</textarea>
+            </div>
+          </article>
         </div>
-      </div>
-    </form>
-  </section>
+      </main>
+
+      <aside class="review-side-column">
+        <section class="panel review-decision-panel">
+          <div class="review-score">
+            <span>Revision</span>
+            <strong><span data-review-count>{{ review_checked }}</span>/{{ review_total }}</strong>
+          </div>
+          <div class="review-score-line">
+            <span data-review-progress style="width: {{ review_progress }}%"></span>
+          </div>
+          <div class="review-planning-line">
+            <span>Avance del docente</span>
+            <strong>{{ planning_progress }}%</strong>
+          </div>
+          <div class="review-planning-steps">
+            {% for item in planning_items %}
+              <span class="{% if item.done %}is-done{% endif %}">
+                {% if item.done %}<i class="ri-check-line"></i>{% else %}<i class="ri-close-line"></i>{% endif %}
+                {{ item.label }}
+              </span>
+            {% endfor %}
+          </div>
+
+          <div class="review-inline-alert" data-review-inline-alert hidden></div>
+
+          <label class="form-label" for="id_notas_revision">Observaciones generales</label>
+          <textarea class="form-control" id="id_notas_revision" name="notas_revision" rows="5" data-general-notes>{{ clase.notas_revision|default:"" }}</textarea>
+
+          <div class="review-action-grid">
+            <button class="btn btn-outline-danger" type="submit" name="review_action" value="rechazar" data-reject-button>
+              <i class="ri-arrow-go-back-line"></i>
+              Devolver
+            </button>
+            <button class="btn btn-primary" type="submit" name="review_action" value="aprobar" data-approve-button{% if not tiene_docente or review_checked != review_total %} disabled{% endif %}>
+              <i class="ri-checkbox-circle-line"></i>
+              Aprobar
+            </button>
+          </div>
+        </section>
+
+        <section class="panel review-audit-panel">
+          <span>Estado actual</span>
+          <strong>{{ clase.get_estado_planificacion_display }}</strong>
+          {% if clase.revisado_por %}
+            <p>Revisado por {{ clase.revisado_por }}{% if clase.fecha_revision %} el {{ clase.fecha_revision|date:"d/m/Y H:i" }}{% endif %}</p>
+          {% else %}
+            <p>Sin revision registrada.</p>
+          {% endif %}
+        </section>
+      </aside>
+    </div>
+  </form>
 {% endblock %}
 
 {% block extra_scripts %}
   <script>
     (function () {
-      const modal = document.getElementById("rejectPlanificacionModal");
-      const allApprovedMessage = document.querySelector("[data-all-approved-message]");
+      const form = document.querySelector("[data-review-form]");
+      if (!form) return;
 
-      function syncRejectModal() {
-        let visibleRows = 0;
-        document.querySelectorAll("[data-observation-row]").forEach(function (row) {
-          const key = row.dataset.observationRow;
-          const check = document.querySelector(`[data-review-check="${key}"]`);
-          const shouldShow = !check || !check.checked;
-          row.classList.toggle("d-none", !shouldShow);
-          row.querySelectorAll("textarea").forEach(function (textarea) {
-            textarea.required = shouldShow;
-          });
-          if (shouldShow) visibleRows += 1;
-        });
-        allApprovedMessage?.classList.toggle("d-none", visibleRows !== 0);
+      const hasTeacher = form.dataset.hasTeacher === "true";
+      const cards = Array.from(form.querySelectorAll("[data-review-card]"));
+      const counters = Array.from(form.querySelectorAll("[data-review-count]"));
+      const progressBar = form.querySelector("[data-review-progress]");
+      const approveButton = form.querySelector("[data-approve-button]");
+      const rejectButton = form.querySelector("[data-reject-button]");
+      const markAllButton = form.querySelector("[data-mark-all]");
+      const generalNotes = form.querySelector("[data-general-notes]");
+      const inlineAlert = form.querySelector("[data-review-inline-alert]");
+
+      function checkedCount() {
+        return cards.filter(function (card) {
+          return card.querySelector("[data-review-check]").checked;
+        }).length;
       }
 
-      modal?.addEventListener("show.bs.modal", syncRejectModal);
-      document.querySelectorAll("[data-review-check]").forEach(function (check) {
-        check.addEventListener("change", syncRejectModal);
+      function setAlert(message) {
+        if (!inlineAlert) return;
+        inlineAlert.textContent = message || "";
+        inlineAlert.hidden = !message;
+      }
+
+      function setRequirements(action) {
+        const isReject = action === "rechazar";
+        if (generalNotes) generalNotes.required = isReject;
+        cards.forEach(function (card) {
+          const check = card.querySelector("[data-review-check]");
+          const textarea = card.querySelector("textarea");
+          if (!textarea) return;
+          textarea.required = isReject && !check.checked;
+        });
+      }
+
+      function getFirstMissingObservation() {
+        return cards.find(function (card) {
+          const check = card.querySelector("[data-review-check]");
+          const textarea = card.querySelector("textarea");
+          return check && !check.checked && textarea && !textarea.value.trim();
+        });
+      }
+
+      function syncReview() {
+        const checked = checkedCount();
+        const total = cards.length || 1;
+        const percent = Math.round((checked / total) * 100);
+
+        counters.forEach(function (counter) {
+          counter.textContent = checked;
+        });
+        if (progressBar) progressBar.style.width = percent + "%";
+
+        cards.forEach(function (card) {
+          const check = card.querySelector("[data-review-check]");
+          const panel = card.querySelector("[data-observation-panel]");
+          const textarea = card.querySelector("textarea");
+          card.classList.toggle("is-approved", check.checked);
+          card.classList.toggle("is-observed", !check.checked);
+          if (panel) panel.hidden = check.checked;
+          if (textarea) textarea.disabled = check.checked;
+        });
+
+        if (approveButton) approveButton.disabled = !hasTeacher || checked !== cards.length;
+        if (rejectButton) rejectButton.disabled = checked === cards.length;
+        setRequirements(form.dataset.reviewAction || "");
+      }
+
+      cards.forEach(function (card) {
+        card.querySelector("[data-review-check]").addEventListener("change", function () {
+          setAlert("");
+          syncReview();
+        });
       });
+
+      markAllButton?.addEventListener("click", function () {
+        cards.forEach(function (card) {
+          card.querySelector("[data-review-check]").checked = true;
+        });
+        setAlert("");
+        syncReview();
+      });
+
+      form.querySelectorAll("button[type='submit']").forEach(function (button) {
+        button.addEventListener("click", function () {
+          form.dataset.reviewAction = button.value;
+          setRequirements(button.value);
+        });
+      });
+
+      form.addEventListener("submit", function (event) {
+        const action = event.submitter?.value || form.dataset.reviewAction || "";
+        const checked = checkedCount();
+        setRequirements(action);
+
+        if (action === "aprobar" && (!hasTeacher || checked !== cards.length)) {
+          event.preventDefault();
+          setAlert(hasTeacher ? "Marca todos los puntos como correctos antes de aprobar." : "Asigna un docente antes de aprobar.");
+          return;
+        }
+        if (action === "rechazar" && checked === cards.length) {
+          event.preventDefault();
+          setAlert("Para devolver, deja al menos un punto observado.");
+          return;
+        }
+        if (action === "rechazar" && generalNotes && !generalNotes.value.trim()) {
+          event.preventDefault();
+          setAlert("Escribe observaciones generales para devolver.");
+          generalNotes.focus();
+          return;
+        }
+        const missingObservation = action === "rechazar" ? getFirstMissingObservation() : null;
+        if (missingObservation) {
+          event.preventDefault();
+          setAlert("Agrega una observacion en cada punto que vas a devolver.");
+          missingObservation.querySelector("textarea")?.focus();
+        }
+      });
+
+      syncReview();
     })();
   </script>
+  <style>
+    .review-detail-form {
+      display: grid;
+      gap: 16px;
+    }
+
+    .review-hero-panel {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+    }
+
+    .review-hero-main {
+      align-items: center;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 14px minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .subject-color {
+      border-radius: 999px;
+      height: 58px;
+      width: 14px;
+    }
+
+    .review-kicker,
+    .review-meta-item span,
+    .review-progress-panel span,
+    .review-score span,
+    .review-audit-panel span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .review-hero-main h2 {
+      color: #111827;
+      font-size: 30px;
+      line-height: 1.1;
+      margin: 2px 0 4px;
+    }
+
+    .review-hero-main p {
+      color: #475467;
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .review-hero-state {
+      align-items: flex-end;
+      display: grid;
+      gap: 8px;
+      justify-items: end;
+    }
+
+    .review-late-label {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 999px;
+      color: #b45309;
+      font-size: 12px;
+      padding: 5px 10px;
+    }
+
+    .review-meta-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .review-meta-item {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-height: 86px;
+      padding: 14px;
+    }
+
+    .review-meta-item strong {
+      color: #111827;
+      display: block;
+      font-size: 17px;
+      margin-top: 8px;
+    }
+
+    .review-top-alert {
+      margin: 0;
+    }
+
+    .review-detail-layout {
+      align-items: start;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    }
+
+    .review-main-column,
+    .review-side-column,
+    .review-section-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .review-side-column {
+      position: sticky;
+      top: 18px;
+    }
+
+    .review-progress-panel {
+      align-items: center;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      padding: 4px 0;
+    }
+
+    .review-progress-panel h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .review-progress-panel .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .review-section-card {
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .review-section-card.is-approved {
+      border-color: #86efac;
+    }
+
+    .review-section-card.is-observed {
+      border-color: #f59e0b;
+    }
+
+    .review-check {
+      align-items: center;
+      color: #111827;
+      display: flex;
+      font-size: 15px;
+      font-weight: 800;
+      gap: 10px;
+      margin: 0;
+    }
+
+    .review-check .form-check-input {
+      height: 20px;
+      margin: 0;
+      width: 20px;
+    }
+
+    .review-content-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .review-content-grid div,
+    .review-long-content,
+    .review-resource-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .review-content-grid span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .review-content-grid strong,
+    .review-long-content {
+      color: #1f2937;
+    }
+
+    .review-long-content {
+      line-height: 1.6;
+      min-height: 80px;
+    }
+
+    .review-chip-list,
+    .review-planning-steps {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .review-chip-list span,
+    .review-planning-steps span {
+      align-items: center;
+      background: #eef6ff;
+      border-radius: 999px;
+      color: #1e40af;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 4px;
+      padding: 6px 10px;
+    }
+
+    .review-chip-list .is-empty,
+    .review-empty-text {
+      background: #f1f5f9;
+      color: #667085;
+    }
+
+    .review-resource-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .review-resource-item {
+      align-items: center;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+
+    .review-resource-item span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .review-observation-panel {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .review-observation-panel .form-label {
+      color: #92400e;
+      font-weight: 800;
+    }
+
+    .review-decision-panel,
+    .review-audit-panel {
+      display: grid;
+      gap: 12px;
+    }
+
+    .review-score {
+      align-items: end;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+    }
+
+    .review-score strong {
+      color: #111827;
+      font-size: 34px;
+      line-height: 1;
+    }
+
+    .review-score-line,
+    .review-planning-progress {
+      background: #e5e7eb;
+      border-radius: 999px;
+      height: 9px;
+      overflow: hidden;
+    }
+
+    .review-score-line span {
+      background: #0f766e;
+      display: block;
+      height: 100%;
+      transition: width 0.2s ease;
+    }
+
+    .review-planning-line {
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .review-planning-line span {
+      color: #667085;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .review-planning-line strong {
+      color: #111827;
+    }
+
+    .review-planning-steps span {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+
+    .review-planning-steps .is-done {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .review-inline-alert {
+      background: #fef3c7;
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      color: #92400e;
+      font-weight: 700;
+      padding: 10px;
+    }
+
+    .review-action-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .review-action-grid .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 42px;
+    }
+
+    .review-audit-panel strong {
+      color: #111827;
+      font-size: 18px;
+    }
+
+    .review-audit-panel p {
+      color: #667085;
+      margin: 0;
+    }
+
+    @media (max-width: 1199.98px) {
+      .review-meta-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .review-detail-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .review-side-column {
+        position: static;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .review-hero-panel,
+      .review-progress-panel {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .review-hero-state {
+        justify-items: start;
+      }
+
+      .review-meta-grid,
+      .review-content-grid,
+      .review-action-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .review-hero-main h2 {
+        font-size: 24px;
+      }
+    }
+  </style>
 {% endblock %}
