@@ -370,6 +370,124 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(events[0]["fecha"], selected_date.isoformat())
         self.assertTrue(events[0]["singleDate"])
 
+    def test_academic_planning_updates_schedule_block(self):
+        periodo = self.create_periodo_for_course()
+        self.make_superuser()
+        aula_origen = Aula.objects.create(nombre="Aula 4")
+        aula_destino = Aula.objects.create(nombre="Aula 5")
+        dia, _ = Dia.objects.get_or_create(dia="Martes")
+        horario = Horario.objects.create(hora_inicio=time(10, 0), hora_fin=time(11, 0))
+        horario_dia = HorarioDia.objects.create(dia=dia, horario=horario)
+        aula_curso = AulaCurso.objects.create(aula=aula_origen, curso=self.curso)
+        horario_aula_curso = HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
+        selected_date = self.date_for_weekday(periodo, 1)
+        self.client.force_login(self.user)
+
+        page_response = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertContains(page_response, "data-edit-schedule-button")
+        self.assertContains(page_response, "aulaId")
+        self.assertContains(page_response, "horaInicio")
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "planning_action": "update_schedule",
+                "curso": self.curso.pk,
+                "schedule_horario_aula_curso": horario_aula_curso.pk,
+                "generar_periodo": "on",
+                "schedule_fecha": selected_date.isoformat(),
+                "schedule-aula": aula_destino.pk,
+                "schedule-dia": dia.pk,
+                "schedule-hora_inicio": "10:30",
+                "schedule-hora_fin": "11:30",
+            },
+            HTTP_HOST="localhost",
+        )
+        horario_aula_curso.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(horario_aula_curso.aula_curso.aula, aula_destino)
+        self.assertIsNone(horario_aula_curso.fecha)
+        self.assertEqual(horario_aula_curso.horario_dia.horario.hora_inicio, time(10, 30))
+        self.assertEqual(horario_aula_curso.horario_dia.horario.hora_fin, time(11, 30))
+
+    def test_academic_planning_updates_schedule_block_to_single_date(self):
+        periodo = self.create_periodo_for_course()
+        self.make_superuser()
+        aula = Aula.objects.create(nombre="Aula 6")
+        dia, _ = Dia.objects.get_or_create(dia="Viernes")
+        horario = Horario.objects.create(hora_inicio=time(14, 0), hora_fin=time(15, 0))
+        horario_dia = HorarioDia.objects.create(dia=dia, horario=horario)
+        aula_curso = AulaCurso.objects.create(aula=aula, curso=self.curso)
+        horario_aula_curso = HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
+        selected_date = self.date_for_weekday(periodo, 4)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "planning_action": "update_schedule",
+                "curso": self.curso.pk,
+                "schedule_horario_aula_curso": horario_aula_curso.pk,
+                "generar_periodo": "off",
+                "schedule_fecha": selected_date.isoformat(),
+                "schedule-aula": aula.pk,
+                "schedule-dia": dia.pk,
+                "schedule-hora_inicio": "14:00",
+                "schedule-hora_fin": "15:00",
+            },
+            HTTP_HOST="localhost",
+        )
+        horario_aula_curso.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(horario_aula_curso.fecha, selected_date)
+
+    def test_academic_planning_does_not_update_schedule_with_approved_class(self):
+        periodo = self.create_periodo_for_course()
+        self.make_superuser()
+        aula = Aula.objects.create(nombre="Aula 7")
+        dia, _ = Dia.objects.get_or_create(dia="Martes")
+        horario = Horario.objects.create(hora_inicio=time(15, 0), hora_fin=time(16, 0))
+        horario_dia = HorarioDia.objects.create(dia=dia, horario=horario)
+        aula_curso = AulaCurso.objects.create(aula=aula, curso=self.curso)
+        horario_aula_curso = HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
+        selected_date = self.date_for_weekday(periodo, 1)
+        Clase.objects.create(
+            horario_aula_curso=horario_aula_curso,
+            materia_curso=self.materia_curso,
+            fecha=selected_date,
+            estado_planificacion="aprobada",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "planning_action": "update_schedule",
+                "curso": self.curso.pk,
+                "schedule_horario_aula_curso": horario_aula_curso.pk,
+                "generar_periodo": "on",
+                "schedule_fecha": selected_date.isoformat(),
+                "schedule-aula": aula.pk,
+                "schedule-dia": dia.pk,
+                "schedule-hora_inicio": "15:30",
+                "schedule-hora_fin": "16:30",
+            },
+            HTTP_HOST="localhost",
+        )
+        horario_aula_curso.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No se puede modificar el horario porque tiene una planificacion aprobada.")
+        self.assertEqual(horario_aula_curso.horario_dia.horario.hora_inicio, time(15, 0))
+        self.assertEqual(horario_aula_curso.horario_dia.horario.hora_fin, time(16, 0))
+
     def test_docente_status_filter_limits_cards(self):
         self.client.force_login(self.user)
 

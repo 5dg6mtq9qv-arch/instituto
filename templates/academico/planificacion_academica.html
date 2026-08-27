@@ -107,6 +107,13 @@
         <small data-planning-time></small>
       </div>
 
+      {% if can_add_schedule and selected_curso %}
+        <button class="btn btn-outline-primary w-100 mb-3" type="button" data-edit-schedule-button>
+          <i class="ri-edit-2-line"></i>
+          Editar horario
+        </button>
+      {% endif %}
+
       {% if can_save and selected_curso %}
         <form method="post" novalidate>
           {% csrf_token %}
@@ -140,7 +147,9 @@
 
   <div class="offcanvas offcanvas-end schedule-offcanvas" tabindex="-1" id="planificacionHorarioOffcanvas" aria-labelledby="planificacionHorarioTitle">
     <div class="offcanvas-header">
-      <h5 class="offcanvas-title" id="planificacionHorarioTitle">Crear horario</h5>
+      <h5 class="offcanvas-title" id="planificacionHorarioTitle" data-schedule-panel-title>
+        {% if schedule_action == "update_schedule" %}Editar horario{% else %}Crear horario{% endif %}
+      </h5>
       <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
     </div>
     <div class="offcanvas-body">
@@ -153,8 +162,9 @@
       {% if can_add_schedule and selected_curso %}
         <form method="post" novalidate>
           {% csrf_token %}
-          <input type="hidden" name="planning_action" value="add_schedule">
+          <input type="hidden" name="planning_action" value="{{ schedule_action }}" data-schedule-action>
           <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
+          <input type="hidden" name="schedule_horario_aula_curso" value="{{ schedule_edit_id }}" data-schedule-id>
           <input type="hidden" name="schedule_fecha" value="{{ schedule_date_value }}" data-schedule-fecha>
           <input type="hidden" name="generar_periodo" value="off">
           {{ schedule_form.dia.as_hidden }}
@@ -200,7 +210,9 @@
             {% endfor %}
             <button class="btn btn-primary-600 w-100" type="submit">
               <i class="ri-add-line"></i>
-              Guardar horario
+              <span data-schedule-submit-label>
+                {% if schedule_action == "update_schedule" %}Actualizar horario{% else %}Guardar horario{% endif %}
+              </span>
             </button>
           </div>
         </form>
@@ -249,6 +261,7 @@
       const calendarNotice = document.querySelector("[data-calendar-notice]");
       let periodSwitchery = null;
       let schedulePeriodSwitchery = null;
+      let activePlanningEvent = null;
 
       if (window.Switchery) {
         const switchInput = document.querySelector("[data-planning-periodo-switch]");
@@ -347,17 +360,40 @@
         }
       }
 
-      function resetSchedulePeriodSwitch() {
+      function setInputValue(input, value) {
+        if (!input) return;
+        if (input._flatpickr) {
+          input._flatpickr.setDate(value || "", false, "H:i");
+        } else {
+          input.value = value || "";
+        }
+      }
+
+      function setScheduleMode(mode, event) {
+        const isEdit = mode === "edit";
+        const titleTarget = document.querySelector("[data-schedule-panel-title]");
+        const actionInput = document.querySelector("[data-schedule-action]");
+        const idInput = document.querySelector("[data-schedule-id]");
+        const submitLabel = document.querySelector("[data-schedule-submit-label]");
+        if (titleTarget) titleTarget.textContent = isEdit ? "Editar horario" : "Crear horario";
+        if (actionInput) actionInput.value = isEdit ? "update_schedule" : "add_schedule";
+        if (idInput) idInput.value = isEdit && event ? event.horarioId : "";
+        if (submitLabel) submitLabel.textContent = isEdit ? "Actualizar horario" : "Guardar horario";
+      }
+
+      function resetSchedulePeriodSwitch(checked) {
         const switchInput = document.querySelector("[data-schedule-periodo-switch]");
         if (!switchInput) return;
-        switchInput.checked = true;
+        switchInput.checked = checked;
         if (schedulePeriodSwitchery) {
           schedulePeriodSwitchery.setPosition();
         }
       }
 
-      function openSchedulePanel(start, end, allDay) {
+      function openSchedulePanel(start, end, allDay, options) {
         if (!canAddSchedule) return;
+        options = options || {};
+        const editingEvent = options.event || null;
         let startDate = cloneCalendarDate(start);
         let endDate = cloneCalendarDate(end);
         if (!startDate) return;
@@ -370,7 +406,7 @@
           endDate = addMinutes(startDate, 60);
         }
 
-        const diaId = weekdayDiaIds[String(startDate.getDay())];
+        const diaId = editingEvent ? editingEvent.diaId : weekdayDiaIds[String(startDate.getDay())];
         if (!diaId) {
           showCalendarNotice("No existe un dia configurado para la fecha seleccionada.");
           return;
@@ -378,18 +414,21 @@
 
         const fechaInput = document.querySelector("[data-schedule-fecha]");
         const diaInput = document.querySelector("[name='schedule-dia']");
+        const aulaInput = document.querySelector("[name='schedule-aula']");
         const startInput = document.querySelector("[name='schedule-hora_inicio']");
         const endInput = document.querySelector("[name='schedule-hora_fin']");
         const startTime = formatTimeValue(startDate);
         const endTime = formatTimeValue(endDate);
 
         hideCalendarNotice();
+        setScheduleMode(editingEvent ? "edit" : "create", editingEvent);
         if (fechaInput) fechaInput.value = formatDateValue(startDate);
         if (diaInput) diaInput.value = diaId;
-        if (startInput) startInput.value = startTime;
-        if (endInput) endInput.value = endTime;
+        if (aulaInput) aulaInput.value = editingEvent ? editingEvent.aulaId : "";
+        setInputValue(startInput, editingEvent ? editingEvent.horaInicio : startTime);
+        setInputValue(endInput, editingEvent ? editingEvent.horaFin : endTime);
         setScheduleSummary(startDate, diaId, startTime, endTime);
-        resetSchedulePeriodSwitch();
+        resetSchedulePeriodSwitch(editingEvent ? !editingEvent.singleDate : true);
         bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("planificacionHorarioOffcanvas")).show();
       }
 
@@ -412,6 +451,7 @@
           showCalendarNotice(event.lockedReason);
           return;
         }
+        activePlanningEvent = event;
         hideCalendarNotice();
         document.querySelector("[data-planning-horario]").value = event.horarioId;
         document.querySelector("[data-planning-fecha]").value = event.fecha;
@@ -421,6 +461,23 @@
         document.querySelector("[data-planning-time]").textContent = event.hora || "";
         resetPeriodSwitch(!event.singleDate);
         bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("planificacionMateriaOffcanvas")).show();
+      }
+
+      const editScheduleButton = document.querySelector("[data-edit-schedule-button]");
+      if (editScheduleButton) {
+        editScheduleButton.addEventListener("click", function () {
+          if (!activePlanningEvent || !window.bootstrap) return;
+          const materiaPanel = document.getElementById("planificacionMateriaOffcanvas");
+          const openEditor = function () {
+            openSchedulePanel(activePlanningEvent.start, activePlanningEvent.end, false, { event: activePlanningEvent });
+          };
+          if (materiaPanel && materiaPanel.classList.contains("show")) {
+            materiaPanel.addEventListener("hidden.bs.offcanvas", openEditor, { once: true });
+            bootstrap.Offcanvas.getOrCreateInstance(materiaPanel).hide();
+          } else {
+            openEditor();
+          }
+        });
       }
 
       function showCalendarNotice(message) {

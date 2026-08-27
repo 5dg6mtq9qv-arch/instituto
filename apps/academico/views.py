@@ -658,6 +658,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             if not self.can_add_schedule(request.user):
                 return self.handle_no_permission()
             return self.handle_add_schedule(request)
+        if action == "update_schedule":
+            if not self.can_add_schedule(request.user):
+                return self.handle_no_permission()
+            return self.handle_update_schedule(request)
         if action != "assign_class":
             messages.error(request, "Accion de planificacion no valida.")
             curso_id = self.get_request_curso_id(request)
@@ -726,6 +730,53 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     return self.save_schedule_block(request, curso, schedule_form, fecha_base)
         return render(request, self.template_name, self.get_context(schedule_form=schedule_form))
 
+    def handle_update_schedule(self, request):
+        curso = self.get_request_curso(request)
+        if not curso:
+            messages.error(request, "Selecciona un grupo valido para editar el horario.")
+            return self.redirect_to_planning()
+
+        schedule_id = request.POST.get("schedule_horario_aula_curso")
+        try:
+            horario_aula_curso = HorarioAulaCurso.objects.get(pk=schedule_id, aula_curso__curso=curso)
+        except (HorarioAulaCurso.DoesNotExist, TypeError, ValueError):
+            messages.error(request, "Selecciona un horario valido para editar.")
+            return self.redirect_to_planning(curso)
+        schedule_form = HorarioDistribucionItemForm(request.POST, prefix="schedule")
+        generar_periodo = request.POST.get("generar_periodo", "on") == "on"
+        fecha_horario, fecha_error = self.get_schedule_date(request)
+        if schedule_form.is_valid():
+            if fecha_error:
+                schedule_form.add_error(None, fecha_error)
+            elif not schedule_form.has_schedule_data():
+                schedule_form.add_error(None, "Completa aula, dia y horas para editar el horario.")
+            else:
+                curso_periodo = self.get_schedule_period(curso, fecha_horario)
+                fecha_base = None if generar_periodo else fecha_horario
+                if not curso_periodo:
+                    schedule_form.add_error(None, "La fecha seleccionada no pertenece a un periodo del grupo.")
+                elif not generar_periodo and not fecha_horario:
+                    schedule_form.add_error(None, "Selecciona una fecha para convertir el horario en puntual.")
+                elif fecha_horario and schedule_form.cleaned_data["dia"].dia != self.weekday_to_dia()[fecha_horario.weekday()]:
+                    schedule_form.add_error("dia", "La fecha seleccionada no corresponde al dia del horario.")
+                elif self.has_schedule_edit_lock(schedule_form, horario_aula_curso, fecha_base):
+                    pass
+                elif self.has_schedule_overlap(
+                    schedule_form,
+                    generar_periodo,
+                    fecha_horario,
+                    curso_periodo,
+                    exclude_schedule=horario_aula_curso,
+                ):
+                    pass
+                else:
+                    return self.update_schedule_block(request, curso, horario_aula_curso, schedule_form, fecha_base)
+        return render(
+            request,
+            self.template_name,
+            self.get_context(schedule_form=schedule_form, schedule_action="update_schedule"),
+        )
+
     def get_schedule_date(self, request):
         fecha_value = request.POST.get("schedule_fecha") or ""
         if not fecha_value:
@@ -744,25 +795,29 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             ).first()
         return periodos.order_by("-periodo__fecha_inicio").first()
 
-    def save_schedule_block(self, request, curso, schedule_form, fecha_horario=None):
+    def get_schedule_parts(self, curso, schedule_form):
         aula = schedule_form.cleaned_data["aula"]
         dia = schedule_form.cleaned_data["dia"]
         hora_inicio = schedule_form.cleaned_data["hora_inicio"]
         hora_fin = schedule_form.cleaned_data["hora_fin"]
+        aula_curso, _ = AulaCurso.objects.get_or_create(
+            aula=aula,
+            curso=curso,
+            defaults={"nombre": f"{aula} - {curso}"},
+        )
+        horario, _ = Horario.objects.get_or_create(
+            hora_inicio=hora_inicio,
+            hora_fin=hora_fin,
+        )
+        horario_dia, _ = HorarioDia.objects.get_or_create(
+            dia=dia,
+            horario=horario,
+        )
+        return aula_curso, horario_dia
+
+    def save_schedule_block(self, request, curso, schedule_form, fecha_horario=None):
         with transaction.atomic():
-            aula_curso, _ = AulaCurso.objects.get_or_create(
-                aula=aula,
-                curso=curso,
-                defaults={"nombre": f"{aula} - {curso}"},
-            )
-            horario, _ = Horario.objects.get_or_create(
-                hora_inicio=hora_inicio,
-                hora_fin=hora_fin,
-            )
-            horario_dia, _ = HorarioDia.objects.get_or_create(
-                dia=dia,
-                horario=horario,
-            )
+            aula_curso, horario_dia = self.get_schedule_parts(curso, schedule_form)
             _, created = HorarioAulaCurso.objects.get_or_create(
                 aula_curso=aula_curso,
                 horario_dia=horario_dia,
@@ -775,6 +830,16 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 messages.success(request, "Horario agregado al calendario del grupo.")
         else:
             messages.info(request, "Ese horario ya estaba agregado al grupo.")
+        return self.redirect_to_planning(curso)
+
+    def update_schedule_block(self, request, curso, horario_aula_curso, schedule_form, fecha_horario=None):
+        with transaction.atomic():
+            aula_curso, horario_dia = self.get_schedule_parts(curso, schedule_form)
+            horario_aula_curso.aula_curso = aula_curso
+            horario_aula_curso.horario_dia = horario_dia
+            horario_aula_curso.fecha = fecha_horario
+            horario_aula_curso.save(update_fields=["aula_curso", "horario_dia", "fecha"])
+        messages.success(request, "Horario actualizado correctamente.")
         return self.redirect_to_planning(curso)
 
     def weekday_to_dia(self):
@@ -801,7 +866,25 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             current_date += timedelta(days=1)
         return dates
 
-    def has_schedule_overlap(self, schedule_form, generar_periodo, fecha_horario, curso_periodo):
+    def has_schedule_edit_lock(self, schedule_form, horario_aula_curso, fecha_horario):
+        clases = Clase.objects.filter(horario_aula_curso=horario_aula_curso)
+        if clases.filter(estado_planificacion="aprobada").exists():
+            schedule_form.add_error(None, "No se puede modificar el horario porque tiene una planificacion aprobada.")
+            return True
+        if clases.filter(fecha__lt=timezone.localdate()).exists():
+            schedule_form.add_error(None, "No se puede modificar el horario porque tiene clases anteriores a hoy.")
+            return True
+        day_changed = horario_aula_curso.horario_dia.dia_id != schedule_form.cleaned_data["dia"].pk
+        scope_changed = horario_aula_curso.fecha != fecha_horario
+        if (day_changed or scope_changed) and clases.exists():
+            schedule_form.add_error(
+                None,
+                "No se puede cambiar el dia o alcance de un horario que ya tiene clases planificadas.",
+            )
+            return True
+        return False
+
+    def has_schedule_overlap(self, schedule_form, generar_periodo, fecha_horario, curso_periodo, exclude_schedule=None):
         aula = schedule_form.cleaned_data["aula"]
         dia = schedule_form.cleaned_data["dia"]
         hora_inicio = schedule_form.cleaned_data["hora_inicio"]
@@ -815,6 +898,8 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             horario_dia__horario__hora_inicio__lt=hora_fin,
             horario_dia__horario__hora_fin__gt=hora_inicio,
         )
+        if exclude_schedule:
+            conflicts = conflicts.exclude(pk=exclude_schedule.pk)
         if generar_periodo:
             period_dates = self.period_dates_for_day(curso_periodo.periodo, dia.dia)
             conflicts = conflicts.filter(Q(fecha__isnull=True) | Q(fecha__in=period_dates))
@@ -1005,7 +1090,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             if cursor.fetchone():
                 cursor.execute("DELETE FROM academico.clase_recursos WHERE clase_id = %s", [clase_id])
 
-    def get_context(self, schedule_form=None):
+    def get_context(self, schedule_form=None, schedule_action=None):
         cursos = Curso.objects.filter(activo=True).order_by("nombre")
         materias = list(Materia.objects.order_by("nombre"))
         selected_curso_id = self.request.GET.get("curso") or self.request.POST.get("curso") or ""
@@ -1030,6 +1115,9 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         schedule_period_enabled = True
         if schedule_form.is_bound:
             schedule_period_enabled = self.request.POST.get("generar_periodo", "on") == "on"
+        schedule_action = schedule_action or self.request.POST.get("planning_action") or "add_schedule"
+        if schedule_action not in {"add_schedule", "update_schedule"}:
+            schedule_action = "add_schedule"
 
         if selected_curso_id:
             try:
@@ -1154,7 +1242,11 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 "borderColor": "#f59e0b" if sin_docente else event_color,
                                 "textColor": "#92400e" if sin_docente else (readable_text_color(event_color) if materia else "#7c3aed"),
                                 "aula": str(horario_aula_curso.aula_curso.aula),
+                                "aulaId": horario_aula_curso.aula_curso.aula_id,
+                                "diaId": horario_aula_curso.horario_dia.dia_id,
                                 "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
+                                "horaInicio": f"{horario.hora_inicio:%H:%M}",
+                                "horaFin": f"{horario.hora_fin:%H:%M}",
                                 "materiaId": materia_id or "",
                                 "materia": getattr(materia, "nombre", "") if materia else "",
                                 "docente": docente_label or ("Sin docente asignado" if sin_docente else ""),
@@ -1181,6 +1273,8 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "selected_curso_id": selected_curso_id,
             "schedule_form": schedule_form,
             "schedule_form_has_errors": schedule_form.is_bound and bool(schedule_form.errors),
+            "schedule_action": schedule_action,
+            "schedule_edit_id": self.request.POST.get("schedule_horario_aula_curso", ""),
             "schedule_date_value": self.request.POST.get("schedule_fecha", ""),
             "weekday_dia_ids_json": json.dumps(weekday_dia_ids),
             "dia_labels_json": json.dumps(dia_labels),
