@@ -1,9 +1,11 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import TestCase
 from django.urls import reverse
 
 from apps.core.forms import SystemUserForm
 from apps.core.current_user import set_current_request
+from apps.core.models import Partner, TipoIdentificacion
 
 
 class SystemUserFormPasswordTests(TestCase):
@@ -78,3 +80,58 @@ class MiPerfilPasswordTests(TestCase):
         self.assertRedirects(response, reverse("core:mi_perfil"), fetch_redirect_response=False)
         user.refresh_from_db()
         self.assertTrue(user.check_password("NuevaClave987!"))
+
+
+class DashboardPersonalizationTests(TestCase):
+    def setUp(self):
+        set_current_request(None)
+        self.tipo_identificacion = TipoIdentificacion.objects.create(nombre="Cedula", codigo="CED")
+
+    def tearDown(self):
+        set_current_request(None)
+
+    def test_docente_dashboard_uses_teacher_profile(self):
+        user = get_user_model().objects.create_user(username="docente", password="ClaveActual987!")
+        Partner.objects.create(
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion="DOC-100",
+            nombre="Docente Dashboard",
+            usuario=user,
+            es_docente=True,
+            activo=True,
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("home"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["dashboard_profile"]["role"], "docente")
+        self.assertContains(response, "Panel docente")
+        self.assertContains(response, "Mis clases")
+        self.assertContains(response, "Calendario")
+
+    def test_coordinacion_dashboard_uses_review_profile(self):
+        user = get_user_model().objects.create_user(username="coordinador", password="ClaveActual987!")
+        user.groups.add(Group.objects.get_or_create(name="Coordinacion")[0])
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("home"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["dashboard_profile"]["role"], "coordinacion")
+        self.assertContains(response, "Panel de coordinacion")
+        self.assertContains(response, "Por revisar")
+        self.assertContains(response, "Revision docente")
+
+    def test_director_dashboard_uses_institutional_pending_profile(self):
+        user = get_user_model().objects.create_user(username="director", password="ClaveActual987!")
+        user.groups.add(Group.objects.get_or_create(name="Director")[0])
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("home"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["dashboard_profile"]["role"], "direccion")
+        self.assertContains(response, "Panel directivo")
+        self.assertContains(response, "Clases sin docente")
+        self.assertContains(response, "Cartera")

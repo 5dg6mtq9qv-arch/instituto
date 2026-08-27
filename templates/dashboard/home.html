@@ -6,40 +6,84 @@
 {% block content %}
   <header class="page-header">
     <div>
-      <p class="eyebrow">Panel institucional</p>
-      <h1>{{ institution.nombre_comercial|default:"Instituto" }}</h1>
+      <p class="eyebrow">{{ dashboard_profile.eyebrow }}</p>
+      <h1>{{ dashboard_profile.title }}</h1>
     </div>
     {% if active_period %}
       <span class="period-pill">{{ active_period.nombre }}</span>
     {% endif %}
   </header>
 
-  <section class="summary-grid" aria-label="Resumen">
+  <section class="panel dashboard-role-panel dashboard-role-{{ dashboard_profile.role }}">
+    <div>
+      <span>{{ dashboard_profile.eyebrow }}</span>
+      <strong>{{ dashboard_profile.subtitle }}</strong>
+    </div>
+    {% if dashboard_actions %}
+      <nav class="dashboard-role-actions" aria-label="Acciones principales">
+        {% for action in dashboard_actions %}
+          <a class="btn {% if action.variant == 'primary' %}btn-primary-600{% else %}btn-outline-primary{% endif %}" href="{{ action.url }}">
+            <i class="{{ action.icon }}"></i>
+            {{ action.label }}
+          </a>
+        {% endfor %}
+      </nav>
+    {% endif %}
+  </section>
+
+  <section class="summary-grid dashboard-summary-grid" aria-label="Resumen">
     {% for metric in metrics %}
-      <article class="metric-card metric-card-{{ forloop.counter }} {{ metric.accent }} gradient-bg-end-{{ forloop.counter }}">
+      <article class="metric-card metric-card-{{ forloop.counter }} dashboard-metric-card metric-accent-{{ metric.accent }}">
         <div class="metric-heading">
           <span class="metric-icon">
-            {% if forloop.counter == 1 %}
-              <img src="{% static 'assets/images/icons/dashboard-icon1.png' %}" alt="">
-            {% elif forloop.counter == 2 %}
-              <img src="{% static 'assets/images/icons/dashboard-icon2.png' %}" alt="">
-            {% elif forloop.counter == 3 %}
-              <img src="{% static 'assets/images/icons/dashboard-icon3.png' %}" alt="">
-            {% else %}
-              <img src="{% static 'assets/images/icons/dashboard-icon4.png' %}" alt="">
-            {% endif %}
+            <i class="{{ metric.icon }}"></i>
           </span>
           <span class="metric-title">{{ metric.label }}</span>
         </div>
         <strong>{{ metric.value }}</strong>
         <p class="metric-trend">
-          <span>10% <i class="ri-arrow-up-s-fill"></i></span>
-          <small>este mes</small>
+          <small>{{ metric.helper }}</small>
         </p>
+        {% if metric.url %}
+          <a class="metric-card-link" href="{{ metric.url }}" aria-label="Ver {{ metric.label }}"></a>
+        {% endif %}
       </article>
     {% endfor %}
   </section>
 
+  {% if priority_sections %}
+    <section class="dashboard-priority-grid" aria-label="Pendientes">
+      {% for section in priority_sections %}
+        <article class="panel dashboard-priority-panel priority-accent-{{ section.accent }}">
+          <header>
+            <span class="priority-icon"><i class="{{ section.icon }}"></i></span>
+            <div>
+              <h2>{{ section.title }}</h2>
+              <p>{{ section.description }}</p>
+            </div>
+          </header>
+
+          <div class="priority-list">
+            {% for item in section.items %}
+              <a class="priority-item priority-item-{{ item.accent }}" href="{{ item.url }}">
+                <span><i class="{{ item.icon }}"></i></span>
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <small>{{ item.meta }}</small>
+                  {% if item.note %}<em>{{ item.note }}</em>{% endif %}
+                </div>
+                <b>{{ item.badge }}</b>
+              </a>
+            {% empty %}
+              <div class="priority-empty">{{ section.empty_text }}</div>
+            {% endfor %}
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {% if dashboard_sections %}
   <section class="dashboard-hub">
     <aside class="hub-nav" aria-label="Areas del panel">
       {% for section in dashboard_sections %}
@@ -86,4 +130,5 @@
       {% endfor %}
     </div>
   </section>
+  {% endif %}
 {% endblock %}
