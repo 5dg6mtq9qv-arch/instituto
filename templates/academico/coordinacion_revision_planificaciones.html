@@ -10,6 +10,20 @@
     </div>
   </header>
 
+  {% if unassigned_alert.count %}
+    <section class="alert alert-warning coordination-teacher-alert">
+      <div>
+        <strong>{{ unassigned_alert.count }} clase(s) proximas sin docente asignado.</strong>
+        <div class="coordination-teacher-alert-list">
+          {% for clase in unassigned_alert.items %}
+            <span>{{ clase.fecha|date:"d/m/Y" }} · {{ clase.materia_curso.grupo }} · {{ clase.materia_curso.materia }} · {{ clase.horario_aula_curso.aula_curso.aula }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <a class="btn btn-outline-warning btn-sm" href="{{ unassigned_alert.assign_url }}">Asignar docentes</a>
+    </section>
+  {% endif %}
+
   <section class="panel list-panel">
     <form class="list-toolbar" method="get">
       <div class="list-search">
@@ -47,7 +61,7 @@
                 {% for item in clase.materia_curso.profesor_materia_cursos.all %}
                   {{ item.partner }}{% if not forloop.last %}, {% endif %}
                 {% empty %}
-                  <span class="text-muted">Sin docente</span>
+                  <span class="text-warning fw-semibold">Sin docente asignado</span>
                 {% endfor %}
               </td>
               <td>{{ clase.tema|default:"-" }}</td>
@@ -65,4 +79,32 @@
       </table>
     </div>
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .coordination-teacher-alert {
+      align-items: center;
+      display: flex;
+      gap: 14px;
+      justify-content: space-between;
+    }
+
+    .coordination-teacher-alert-list {
+      display: grid;
+      gap: 4px;
+      margin-top: 6px;
+    }
+
+    .coordination-teacher-alert-list span {
+      color: #7c2d12;
+    }
+
+    @media (max-width: 575.98px) {
+      .coordination-teacher-alert {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
 {% endblock %}

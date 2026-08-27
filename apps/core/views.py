@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.mixins import UserPassesTestMixin
 from django.contrib.auth.models import Group
@@ -8,7 +9,14 @@ from django.urls import reverse_lazy
 from django.shortcuts import redirect, render
 from django.views import View
 
-from apps.core.forms import EmpresaForm, GroupPermissionForm, MiPerfilPartnerForm, PartnerForm, SystemUserForm
+from apps.core.forms import (
+    EmpresaForm,
+    GroupPermissionForm,
+    MiPerfilPartnerForm,
+    MiPerfilPasswordChangeForm,
+    PartnerForm,
+    SystemUserForm,
+)
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 
 from .models import Empresa, Partner
@@ -86,29 +94,47 @@ class PartnerUpdateView(InstitutoUpdateView):
     cancel_url = reverse_lazy("core:partner_list")
 
 
-class MiPerfilView(LoginRequiredMixin, UserPassesTestMixin, View):
+class MiPerfilView(LoginRequiredMixin, View):
     template_name = "core/mi_perfil.html"
 
-    def test_func(self):
-        return hasattr(self.request.user, "partner")
-
-    def handle_no_permission(self):
-        messages.warning(self.request, "Tu usuario no tiene un perfil vinculado.")
-        return redirect("home")
-
     def get(self, request):
-        form = MiPerfilPartnerForm(instance=request.user.partner)
-        return render(request, self.template_name, {"title": "Mi perfil", "form": form})
+        return render(request, self.template_name, self.get_context())
 
     def post(self, request):
-        form = MiPerfilPartnerForm(request.POST, request.FILES, instance=request.user.partner)
+        if request.POST.get("form_type") == "password":
+            password_form = MiPerfilPasswordChangeForm(request.user, request.POST)
+            if password_form.is_valid():
+                password_form.save()
+                update_session_auth_hash(request, request.user)
+                messages.success(request, "Contraseña actualizada correctamente.")
+                return redirect("core:mi_perfil")
+            return render(request, self.template_name, self.get_context(password_form=password_form))
+
+        partner = self.get_partner()
+        if partner is None:
+            messages.warning(request, "Tu usuario no tiene un perfil vinculado.")
+            return redirect("core:mi_perfil")
+
+        form = MiPerfilPartnerForm(request.POST, request.FILES, instance=partner)
         if form.is_valid():
             perfil = form.save(commit=False)
             perfil.usuario_updated = request.user
             perfil.save()
             messages.success(request, "Perfil actualizado correctamente.")
             return redirect("core:mi_perfil")
-        return render(request, self.template_name, {"title": "Mi perfil", "form": form})
+        return render(request, self.template_name, self.get_context(form=form))
+
+    def get_context(self, form=None, password_form=None):
+        partner = self.get_partner()
+        return {
+            "title": "Mi perfil",
+            "form": form if form is not None else (MiPerfilPartnerForm(instance=partner) if partner else None),
+            "has_partner_profile": partner is not None,
+            "password_form": password_form if password_form is not None else MiPerfilPasswordChangeForm(self.request.user),
+        }
+
+    def get_partner(self):
+        return getattr(self.request.user, "partner", None)
 
 
 class SecurityAccessMixin(UserPassesTestMixin):

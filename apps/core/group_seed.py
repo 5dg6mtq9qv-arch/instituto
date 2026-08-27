@@ -8,13 +8,24 @@ from django.dispatch import receiver
 DEFAULT_GROUPS = ("Administrador", "Direccion", "Coordinacion", "Docente", "Director")
 
 DIRECTOR_PERMISSIONS = (
+    ("academico", "aula", "view"),
+    ("academico", "clase", "add"),
+    ("academico", "clase", "change"),
+    ("academico", "clase", "view"),
+    ("academico", "curso", "view"),
     ("academico", "horarioclase", "add"),
     ("academico", "horarioclase", "change"),
     ("academico", "horarioclase", "view"),
     ("academico", "horarioclase", "view_all"),
+    ("academico", "horarioaulacurso", "view"),
+    ("academico", "materia", "view"),
+    ("academico", "materiacurso", "view"),
     ("academico", "planificacionclase", "change"),
     ("academico", "planificacionclase", "view"),
     ("academico", "planificacionclase", "review"),
+    ("academico", "profesormateriacurso", "add"),
+    ("academico", "profesormateriacurso", "change"),
+    ("academico", "profesormateriacurso", "view"),
     ("academico", "tema", "add"),
 )
 

@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import Group, Permission
 
 from .models import Empresa, Partner, TipoIdentificacion
@@ -88,6 +89,24 @@ class MiPerfilPartnerForm(BootstrapFormMixin, forms.ModelForm):
         }
 
 
+class MiPerfilPasswordChangeForm(BootstrapFormMixin, PasswordChangeForm):
+    old_password = forms.CharField(
+        label="Contraseña actual",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "current-password"}),
+    )
+    new_password1 = forms.CharField(
+        label="Nueva contraseña",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+    new_password2 = forms.CharField(
+        label="Confirmar nueva contraseña",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+
+
 class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
     permissions = forms.ModelMultipleChoiceField(
         label="Permisos",
@@ -147,7 +166,8 @@ class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
     password = forms.CharField(
         label="Contraseña",
         required=False,
-        widget=forms.PasswordInput(render_value=False),
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}, render_value=False),
         help_text="En edición puedes dejarla vacía para conservar la contraseña actual.",
     )
     groups = forms.ModelMultipleChoiceField(
@@ -178,9 +198,12 @@ class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.current_password_hash = self.instance.password if self.instance.pk else ""
         self.fields["groups"].queryset = Group.objects.order_by("name")
         if self.instance.pk:
             self.fields["groups"].initial = self.instance.groups.all()
+            self.fields["password"].label = "Nueva contraseña"
+            self.fields["password"].widget.attrs.setdefault("placeholder", "Contraseña actual protegida")
         else:
             self.fields["password"].required = True
 
@@ -195,6 +218,8 @@ class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
         password = self.cleaned_data.get("password")
         if password:
             user.set_password(password)
+        elif self.current_password_hash:
+            user.password = self.current_password_hash
         if commit:
             user.save()
             user.groups.set(self.cleaned_data["groups"])

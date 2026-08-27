@@ -23,7 +23,16 @@
       </div>
       <div class="row g-3">
         {% include "web/form_field.html" with field=form.username cols="col-md-6" %}
-        {% include "web/form_field.html" with field=form.password cols="col-md-6" %}
+        <div class="col-md-6 field-{{ form.password.name }}">
+          <label class="form-label" for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+          {{ form.password }}
+          {% if form.password.help_text %}
+            <div class="form-text">{{ form.password.help_text }}</div>
+          {% endif %}
+          {% for error in form.password.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
         {% include "web/form_field.html" with field=form.first_name cols="col-md-6" %}
         {% include "web/form_field.html" with field=form.last_name cols="col-md-6" %}
         {% include "web/form_field.html" with field=form.email cols="col-md-6" %}

@@ -63,6 +63,15 @@
             <a href="{{ periodo_create_url }}">Crear periodo</a>
           </div>
         {% endif %}
+        {% if unassigned_alert.count %}
+          <div class="alert alert-warning planning-teacher-alert">
+            <div>
+              <strong>{{ unassigned_alert.count }} clase(s) proximas sin docente asignado.</strong>
+              <span>La asignacion se realiza desde el tablero docente.</span>
+            </div>
+            <a class="btn btn-outline-warning btn-sm" href="{{ unassigned_alert.assign_url }}">Asignar docentes</a>
+          </div>
+        {% endif %}
       </div>
 
       {% if selected_curso_periodo %}
@@ -327,6 +336,29 @@
       background-color: #ead7ff;
       border-color: #d8b4fe;
       color: #7c3aed;
+    }
+
+    .planning-teacher-alert {
+      align-items: center;
+      display: flex;
+      gap: 14px;
+      justify-content: space-between;
+    }
+
+    .planning-teacher-alert span {
+      display: block;
+      margin-top: 2px;
+    }
+
+    #calendar .fc-event.sin-docente-event {
+      border-width: 1px;
+    }
+
+    @media (max-width: 575.98px) {
+      .planning-teacher-alert {
+        align-items: flex-start;
+        flex-direction: column;
+      }
     }
   </style>
 {% endblock %}

@@ -10,53 +10,90 @@
     </div>
   </header>
 
-  <form class="panel form-panel profile-form" method="post" enctype="multipart/form-data" novalidate>
-    {% csrf_token %}
-    {% if form.non_field_errors %}
-      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+  <div class="profile-page-stack">
+    {% if has_partner_profile %}
+      <form class="panel form-panel profile-form" method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="form_type" value="profile">
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <section class="form-section form-section-current">
+          <div class="section-heading">
+            <h2>Datos personales</h2>
+          </div>
+
+          <div class="profile-edit-layout">
+            <div class="profile-photo-panel">
+              {% if form.instance.foto %}
+                <img src="{{ form.instance.foto.url }}" alt="{{ form.instance.nombre }}">
+              {% else %}
+                <span>{{ request.user.username|first|upper }}</span>
+              {% endif %}
+              <label class="form-label" for="{{ form.foto.id_for_label }}">{{ form.foto.label }}</label>
+              <input class="form-control" type="file" name="{{ form.foto.html_name }}" id="{{ form.foto.id_for_label }}" accept="image/*">
+              {% for error in form.foto.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
+
+            <div class="row g-3 profile-fields">
+              {% include "web/form_field.html" with field=form.nombre cols="col-12" %}
+              {% include "web/form_field.html" with field=form.email cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.telefono cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.telefono_celular cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.fecha_nacimiento cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.genero cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.ocupacion cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.direccion cols="col-12" %}
+            </div>
+          </div>
+        </section>
+
+        <div class="form-actions">
+          <a class="btn btn-outline-secondary" href="{% url 'home' %}">Cancelar</a>
+          <button class="btn btn-primary" type="submit">Guardar perfil</button>
+        </div>
+      </form>
+    {% else %}
+      <section class="panel form-panel">
+        <div class="alert alert-warning mb-0">Tu usuario no tiene un perfil personal vinculado.</div>
+      </section>
     {% endif %}
 
-    <section class="form-section form-section-current">
-      <div class="section-heading">
-        <h2>Datos personales</h2>
-      </div>
+    <form class="panel form-panel profile-password-form" method="post" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="form_type" value="password">
+      {% if password_form.non_field_errors %}
+        <div class="alert alert-danger">{{ password_form.non_field_errors }}</div>
+      {% endif %}
 
-      <div class="profile-edit-layout">
-        <div class="profile-photo-panel">
-          {% if form.instance.foto %}
-            <img src="{{ form.instance.foto.url }}" alt="{{ form.instance.nombre }}">
-          {% else %}
-            <span>{{ request.user.username|first|upper }}</span>
-          {% endif %}
-          <label class="form-label" for="{{ form.foto.id_for_label }}">{{ form.foto.label }}</label>
-          <input class="form-control" type="file" name="{{ form.foto.html_name }}" id="{{ form.foto.id_for_label }}" accept="image/*">
-          {% for error in form.foto.errors %}
-            <div class="invalid-feedback d-block">{{ error }}</div>
-          {% endfor %}
+      <section class="form-section form-section-current">
+        <div class="section-heading">
+          <h2>Cambiar contraseña</h2>
         </div>
-
-        <div class="row g-3 profile-fields">
-          {% include "web/form_field.html" with field=form.nombre cols="col-12" %}
-          {% include "web/form_field.html" with field=form.email cols="col-md-6" %}
-          {% include "web/form_field.html" with field=form.telefono cols="col-md-6" %}
-          {% include "web/form_field.html" with field=form.telefono_celular cols="col-md-6" %}
-          {% include "web/form_field.html" with field=form.fecha_nacimiento cols="col-md-6" %}
-          {% include "web/form_field.html" with field=form.genero cols="col-md-6" %}
-          {% include "web/form_field.html" with field=form.ocupacion cols="col-md-6" %}
-          {% include "web/form_field.html" with field=form.direccion cols="col-12" %}
+        <div class="row g-3">
+          {% include "web/form_field.html" with field=password_form.old_password cols="col-md-4" %}
+          {% include "web/form_field.html" with field=password_form.new_password1 cols="col-md-4" %}
+          {% include "web/form_field.html" with field=password_form.new_password2 cols="col-md-4" %}
         </div>
-      </div>
-    </section>
+      </section>
 
-    <div class="form-actions">
-      <a class="btn btn-outline-secondary" href="{% url 'home' %}">Cancelar</a>
-      <button class="btn btn-primary" type="submit">Guardar perfil</button>
-    </div>
-  </form>
+      <div class="form-actions">
+        <button class="btn btn-primary" type="submit">Actualizar contraseña</button>
+      </div>
+    </form>
+  </div>
 {% endblock %}
 
 {% block extra_scripts %}
   <style>
+    .profile-page-stack {
+      display: grid;
+      gap: 18px;
+    }
+
     .profile-edit-layout {
       display: grid;
       gap: 24px;

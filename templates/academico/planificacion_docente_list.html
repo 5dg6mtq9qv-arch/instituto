@@ -8,73 +8,513 @@
       <p class="eyebrow">Academico</p>
       <h1>{{ title }}</h1>
     </div>
-    {% if perms.academico.add_profesormateriacurso %}
-      <a class="btn btn-primary-600 list-create-btn" href="{% url 'academico:planificacion_docente_asignar' %}">
-        <i class="ri-add-line"></i>
-        <span>Asignar docente</span>
+    {% if can_assign_docente %}
+      <a class="btn btn-outline-primary list-create-btn" href="{% url 'academico:planificacion_docente_asignar' %}">
+        <i class="ri-list-check-2"></i>
+        <span>Formulario masivo</span>
       </a>
     {% endif %}
   </header>
 
-  <section class="panel list-panel">
+  {% if group_tabs %}
+    <nav class="teacher-group-tabs" aria-label="Grupos">
+      {% for tab in group_tabs %}
+        <a class="teacher-group-tab{% if tab.is_active %} is-active{% endif %}{% if tab.pendientes %} has-pending{% endif %}" href="{{ tab.url }}">
+          <span>{{ tab.grupo }}</span>
+          <small>{{ tab.asignadas }}/{{ tab.total }} asignadas</small>
+          {% if tab.pendientes %}
+            <strong>{{ tab.pendientes }}</strong>
+          {% endif %}
+        </a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
+  <section class="teacher-active-group">
+    {% if selected_group %}
+      <div>
+        <span>Grupo activo</span>
+        <h2>{{ selected_group }}</h2>
+      </div>
+      <p>{{ active_group_summary.asignadas }} de {{ active_group_summary.total }} materia(s) con docente asignado.</p>
+    {% else %}
+      <div>
+        <span>Grupo activo</span>
+        <h2>Sin grupos activos</h2>
+      </div>
+      <p>Crea o activa un grupo para asignar docentes.</p>
+    {% endif %}
+  </section>
+
+  <section class="teacher-board-summary">
+    <div class="teacher-stat">
+      <span>Materias del grupo</span>
+      <strong>{{ stats.total }}</strong>
+    </div>
+    <div class="teacher-stat">
+      <span>Asignadas</span>
+      <strong>{{ stats.asignadas }}</strong>
+    </div>
+    <div class="teacher-stat teacher-stat-warning">
+      <span>Pendientes</span>
+      <strong>{{ stats.pendientes }}</strong>
+    </div>
+    <div class="teacher-stat">
+      <span>Docentes</span>
+      <strong>{{ stats.docentes }}</strong>
+    </div>
+  </section>
+
+  {% if unassigned_alert.count %}
+    <section class="alert alert-warning teacher-alert">
+      <div>
+        <strong>{{ unassigned_alert.count }} clase(s) proximas sin docente asignado.</strong>
+        <span>La aprobacion queda pendiente hasta asignar docente.</span>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="panel teacher-board-panel">
     <form class="list-toolbar" method="get">
+      {% if selected_group %}
+        <input type="hidden" name="grupo" value="{{ selected_group.pk }}">
+      {% endif %}
       <div class="list-search">
         <i class="ri-search-line"></i>
-        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar docente">
+        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar materia o docente en este grupo">
       </div>
       <button class="btn btn-primary-600 list-search-btn" type="submit">Buscar</button>
     </form>
 
-    <div class="table-responsive list-table-responsive">
-      <table class="table table-hover align-middle app-table">
-        <thead>
-          <tr>
-            <th>Docente</th>
-            <th>Identificacion</th>
-            <th>Asignaciones</th>
-            <th class="text-end">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for docente in docentes %}
-            <tr>
-              <td>
-                {% if perms.academico.change_profesormateriacurso %}
-                  <a class="table-primary-link" href="{% url 'academico:planificacion_docente_editar' docente.pk %}">
-                    {{ docente.nombre }}
-                  </a>
-                {% else %}
-                  {{ docente.nombre }}
-                {% endif %}
-              </td>
-              <td>{{ docente.identificacion|default:"-" }}</td>
-              <td>{{ docente.total_asignaciones }}</td>
-              <td class="text-end">
-                {% if perms.academico.add_profesormateriacurso or perms.academico.change_profesormateriacurso %}
-                  <div class="dropdown table-action">
-                    <button class="table-action-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Acciones">
-                      <i class="ri-more-2-fill"></i>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                      <li>
-                        <a class="dropdown-item" href="{% url 'academico:planificacion_docente_editar' docente.pk %}">
-                          Asignar
-                        </a>
-                      </li>
-                    </ul>
+    {% if active_group_summary.items %}
+      <div class="teacher-assignment-board">
+        <section class="teacher-group-section">
+          <header class="teacher-group-header">
+            <div>
+              <span>Asignacion del grupo</span>
+              <h2>{{ active_group_summary.grupo }}</h2>
+            </div>
+            <div class="teacher-group-counters">
+              <span>{{ active_group_summary.asignadas }} asignadas</span>
+              {% if active_group_summary.pendientes %}
+                <strong>{{ active_group_summary.pendientes }} pendientes</strong>
+              {% else %}
+                <strong class="is-complete">Completo</strong>
+              {% endif %}
+            </div>
+          </header>
+
+          <div class="teacher-card-grid">
+            {% for item in active_group_summary.items %}
+              <form class="teacher-assignment-card{% if not item.has_docente %} is-pending{% endif %}" method="post">
+                {% csrf_token %}
+                <input type="hidden" name="materia_curso" value="{{ item.materia_curso.pk }}">
+                <input type="hidden" name="grupo" value="{{ selected_group.pk }}">
+                <input type="hidden" name="q" value="{{ request.GET.q }}">
+
+                <div class="teacher-card-top">
+                  <span class="subject-color" style="background: {{ item.materia_curso.materia.color }}"></span>
+                  <div>
+                    <h3>{{ item.materia_curso.materia }}</h3>
+                    <p>
+                      {{ item.total_clases }} clase(s)
+                      {% if item.proxima_clase %}
+                        · proxima {{ item.proxima_clase|date:"d/m/Y" }}
+                      {% endif %}
+                    </p>
                   </div>
-                {% else %}
-                  <span class="text-muted">-</span>
+                  {% if item.has_docente %}
+                    <span class="assignment-status is-assigned">Asignada</span>
+                  {% else %}
+                    <span class="assignment-status is-pending">Pendiente</span>
+                  {% endif %}
+                </div>
+
+                <div class="assigned-teacher">
+                  {% for docente in item.docentes %}
+                    <span>{{ docente }}</span>
+                  {% empty %}
+                    <span class="text-warning">Sin docente asignado</span>
+                  {% endfor %}
+                </div>
+
+                {% if can_assign_docente %}
+                  <div class="teacher-card-actions">
+                    <select class="form-select" name="docente" aria-label="Docente para {{ item.materia_curso.materia }}">
+                      <option value="">Sin docente asignado</option>
+                      {% for docente in docentes_disponibles %}
+                        <option value="{{ docente.pk }}"{% if item.docente_principal_id == docente.pk %} selected{% endif %}>
+                          {{ docente.nombre }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                    <button class="btn btn-primary-600" type="submit" title="Guardar docente">
+                      <i class="ri-save-3-line"></i>
+                    </button>
+                  </div>
                 {% endif %}
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="4" class="text-center text-muted py-4">No hay docentes con materias asignadas.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+              </form>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+    {% else %}
+      <div class="academic-empty-state">
+        {% if request.GET.q %}
+          Sin resultados para esta busqueda en el grupo.
+        {% elif selected_group %}
+          Sin materias para este grupo.
+        {% else %}
+          Sin grupos activos para planificar docentes.
+        {% endif %}
+      </div>
+    {% endif %}
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .teacher-group-tabs {
+      display: flex;
+      gap: 10px;
+      margin: 0 0 14px;
+      overflow-x: auto;
+      padding: 2px 2px 8px;
+    }
+
+    .teacher-group-tab {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      color: #1f2937;
+      display: grid;
+      flex: 0 0 220px;
+      gap: 3px 10px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      min-height: 68px;
+      padding: 12px 14px;
+      text-decoration: none;
+    }
+
+    .teacher-group-tab:hover {
+      border-color: #0f766e;
+      color: #0f766e;
+      text-decoration: none;
+    }
+
+    .teacher-group-tab.is-active {
+      border-color: #0f766e;
+      box-shadow: inset 0 -3px 0 #0f766e;
+    }
+
+    .teacher-group-tab span {
+      font-size: 14px;
+      font-weight: 800;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .teacher-group-tab small {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .teacher-group-tab strong {
+      align-items: center;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 999px;
+      color: #b45309;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      grid-column: 2;
+      grid-row: 1 / 3;
+      justify-content: center;
+      min-width: 28px;
+      padding: 4px 8px;
+    }
+
+    .teacher-active-group {
+      align-items: center;
+      border-left: 4px solid #0f766e;
+      display: flex;
+      gap: 14px;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding: 4px 0 4px 14px;
+    }
+
+    .teacher-active-group span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-active-group h2 {
+      color: #111827;
+      font-size: 24px;
+      margin: 2px 0 0;
+    }
+
+    .teacher-active-group p {
+      color: #475467;
+      font-weight: 700;
+      margin: 0;
+      text-align: right;
+    }
+
+    .teacher-board-summary {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .teacher-stat {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .teacher-stat span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .teacher-stat strong {
+      color: #111827;
+      display: block;
+      font-size: 30px;
+      line-height: 1;
+      margin-top: 8px;
+    }
+
+    .teacher-stat-warning strong {
+      color: #b45309;
+    }
+
+    .teacher-alert {
+      margin-bottom: 16px;
+    }
+
+    .teacher-alert span {
+      display: block;
+      margin-top: 2px;
+    }
+
+    .teacher-board-panel {
+      overflow: visible;
+    }
+
+    .teacher-assignment-board {
+      display: grid;
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .teacher-group-section {
+      border-top: 1px solid #e5e7eb;
+      padding-top: 18px;
+    }
+
+    .teacher-group-section:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .teacher-group-header {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .teacher-group-header span,
+    .teacher-card-top p {
+      color: #667085;
+      font-size: 13px;
+      margin: 0;
+    }
+
+    .teacher-group-header h2 {
+      color: #111827;
+      font-size: 20px;
+      margin: 2px 0 0;
+    }
+
+    .teacher-group-counters {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      white-space: nowrap;
+    }
+
+    .teacher-group-counters strong {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 999px;
+      color: #b45309;
+      font-size: 12px;
+      padding: 5px 10px;
+    }
+
+    .teacher-group-counters strong.is-complete {
+      background: #ecfdf3;
+      border-color: #bbf7d0;
+      color: #15803d;
+    }
+
+    .teacher-card-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .teacher-assignment-card {
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 188px;
+      padding: 16px;
+    }
+
+    .teacher-assignment-card.is-pending {
+      background: #fffaf0;
+      border-color: #f59e0b;
+    }
+
+    .teacher-card-top {
+      align-items: flex-start;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 12px minmax(0, 1fr) auto;
+    }
+
+    .subject-color {
+      border-radius: 999px;
+      height: 44px;
+      width: 12px;
+    }
+
+    .teacher-card-top h3 {
+      color: #111827;
+      font-size: 17px;
+      margin: 0 0 4px;
+    }
+
+    .assignment-status {
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 10px;
+      white-space: nowrap;
+    }
+
+    .assignment-status.is-assigned {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .assignment-status.is-pending {
+      background: #ffedd5;
+      color: #b45309;
+    }
+
+    .assigned-teacher {
+      align-items: flex-start;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-height: 30px;
+    }
+
+    .assigned-teacher span {
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 10px;
+    }
+
+    .assigned-teacher .text-warning {
+      background: #ffedd5;
+      color: #b45309 !important;
+    }
+
+    .teacher-card-actions {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: minmax(0, 1fr) 46px;
+      margin-top: auto;
+    }
+
+    .teacher-card-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      justify-content: center;
+      min-height: 42px;
+    }
+
+    .academic-empty-state {
+      color: #667085;
+      padding: 32px;
+      text-align: center;
+    }
+
+    @media (max-width: 991.98px) {
+      .teacher-board-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .teacher-board-summary {
+        grid-template-columns: 1fr;
+      }
+
+      .teacher-group-tab {
+        flex-basis: 190px;
+      }
+
+      .teacher-active-group {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .teacher-active-group p {
+        text-align: left;
+      }
+
+      .teacher-group-header,
+      .teacher-group-counters {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .teacher-card-top {
+        grid-template-columns: 10px minmax(0, 1fr);
+      }
+
+      .assignment-status {
+        grid-column: 2;
+        justify-self: start;
+      }
+    }
+  </style>
 {% endblock %}
