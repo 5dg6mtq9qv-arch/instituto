@@ -1,0 +1,479 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Docente</p>
+      <h1>{{ title }}</h1>
+    </div>
+    {% if docente %}
+      <a
+        class="btn btn-primary-600 teacher-export-button"
+        href="{{ export_url }}"
+        data-export-link
+        data-export-base-url="{{ export_base_url }}"
+      >
+        <i class="ri-file-excel-line"></i>
+        Descargar Excel
+      </a>
+    {% endif %}
+  </header>
+
+  {% include "academico/includes/docente_tabs.html" with active_tab="calendario" %}
+
+  {% if not docente %}
+    <section class="panel">
+      <p class="text-muted mb-0">Tu usuario no esta vinculado a un docente activo.</p>
+    </section>
+  {% else %}
+    <div class="teacher-calendar-shell">
+      <section class="panel teacher-calendar-summary">
+        <div class="teacher-calendar-profile">
+          <span class="teacher-calendar-avatar">{{ docente.nombre|first|upper }}</span>
+          <div>
+            <strong>{{ docente.nombre }}</strong>
+            <span>{{ docente.identificacion|default:"Docente" }}</span>
+          </div>
+        </div>
+
+        <div class="teacher-calendar-metrics">
+          <div>
+            <span>Semana</span>
+            <strong data-week-range>{{ week_start|date:"d/m/Y" }} - {{ week_end|date:"d/m/Y" }}</strong>
+          </div>
+          <div>
+            <span>Clases</span>
+            <strong data-week-count>{{ week_count }}</strong>
+          </div>
+          <div>
+            <span>Materias</span>
+            <strong data-week-materia-count>{{ materia_count }}</strong>
+          </div>
+          <div>
+            <span>Grupos</span>
+            <strong data-week-grupo-count>{{ grupo_count }}</strong>
+          </div>
+        </div>
+
+        <form class="teacher-week-form" method="get">
+          <label class="form-label" for="teacherWeekDate">Fecha</label>
+          <div>
+            <input class="form-control" id="teacherWeekDate" type="date" name="fecha" value="{{ selected_date|date:'Y-m-d' }}">
+            <button class="btn btn-outline-primary" type="submit">
+              <i class="ri-calendar-line"></i>
+              Semana
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel docente-calendar-full-panel">
+        <header class="docente-calendar-header">
+          <div>
+            <span>Horario</span>
+            <h2>Semana con horas y materias</h2>
+          </div>
+          <strong>{{ total_count }} clase(s) asignada(s)</strong>
+        </header>
+
+        <div class="edudash-calendar-wrap docente-full-calendar">
+          <div id="docenteCalendar"></div>
+        </div>
+
+        {% if not has_events %}
+          <div class="academic-empty-state">
+            No tienes horarios asignados.
+          </div>
+        {% endif %}
+      </section>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
+  <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
+  <script src="{% static 'assets/js/full-calendar.js' %}"></script>
+  <script>
+    (function () {
+      const events = {{ calendar_events_json|safe }};
+      const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
+      const calendarNode = document.getElementById("docenteCalendar");
+      const exportLink = document.querySelector("[data-export-link]");
+      const exportBaseUrl = exportLink ? exportLink.dataset.exportBaseUrl : "";
+      const weekInput = document.getElementById("teacherWeekDate");
+      const weekRange = document.querySelector("[data-week-range]");
+      const weekCount = document.querySelector("[data-week-count]");
+      const weekMateriaCount = document.querySelector("[data-week-materia-count]");
+      const weekGrupoCount = document.querySelector("[data-week-grupo-count]");
+
+      function normalizeDate(value) {
+        if (value instanceof Date) return value;
+        if (value && value._d instanceof Date) return value._d;
+        if (typeof value === "string") return new Date(value);
+        return new Date();
+      }
+
+      function cloneDay(date) {
+        return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      }
+
+      function pad(value) {
+        return String(value).padStart(2, "0");
+      }
+
+      function isoDay(date) {
+        return [date.getFullYear(), pad(date.getMonth() + 1), pad(date.getDate())].join("-");
+      }
+
+      function displayDay(date) {
+        return [pad(date.getDate()), pad(date.getMonth() + 1), date.getFullYear()].join("/");
+      }
+
+      function weekSummary(start, end) {
+        const weekStart = cloneDay(start);
+        const weekEnd = cloneDay(end);
+        const visibleEvents = events.filter(function (item) {
+          const eventDate = cloneDay(normalizeDate(item.start));
+          return eventDate >= weekStart && eventDate < weekEnd;
+        });
+        return {
+          count: visibleEvents.length,
+          materias: new Set(visibleEvents.map(function (item) { return item.materia; }).filter(Boolean)).size,
+          grupos: new Set(visibleEvents.map(function (item) { return item.grupo; }).filter(Boolean)).size
+        };
+      }
+
+      function updateWeekControls(view) {
+        const start = cloneDay(normalizeDate(view && view.start ? view.start : defaultDate));
+        const end = cloneDay(normalizeDate(view && view.end ? view.end : start));
+        if (!(view && view.end)) {
+          end.setDate(start.getDate() + 7);
+        }
+        const inclusiveEnd = cloneDay(end);
+        inclusiveEnd.setDate(inclusiveEnd.getDate() - 1);
+
+        if (exportLink && exportBaseUrl) {
+          exportLink.href = exportBaseUrl + "?fecha=" + isoDay(start);
+        }
+        if (weekInput) {
+          weekInput.value = isoDay(start);
+        }
+        if (weekRange) {
+          weekRange.textContent = displayDay(start) + " - " + displayDay(inclusiveEnd);
+        }
+        const summary = weekSummary(start, end);
+        if (weekCount) {
+          weekCount.textContent = summary.count;
+        }
+        if (weekMateriaCount) {
+          weekMateriaCount.textContent = summary.materias;
+        }
+        if (weekGrupoCount) {
+          weekGrupoCount.textContent = summary.grupos;
+        }
+      }
+
+      function paintEvent(element, event) {
+        if (!event.backgroundColor) return;
+        const node = element.get(0);
+        const innerNode = element.find(".fc-event-inner").get(0);
+        const textNodes = element.find(".fc-event-title, .fc-event-time").toArray();
+        const background = event.backgroundColor;
+        const border = event.borderColor || background;
+        const text = event.textColor || "#ffffff";
+
+        [node, innerNode].filter(Boolean).forEach(function (target) {
+          target.style.setProperty("background-color", background, "important");
+          target.style.setProperty("border-color", border, "important");
+          target.style.setProperty("color", text, "important");
+        });
+        textNodes.forEach(function (target) {
+          target.style.setProperty("color", text, "important");
+        });
+      }
+
+      if (calendarNode) {
+        $(function () {
+          const $calendar = $("#docenteCalendar");
+          if ($calendar.data("fullCalendar")) {
+            $calendar.fullCalendar("destroy");
+          }
+          $calendar.fullCalendar({
+            header: {
+              left: "title",
+              center: "agendaWeek,month",
+              right: "prev,next today"
+            },
+            defaultView: "agendaWeek",
+            year: defaultDate.getFullYear(),
+            month: defaultDate.getMonth(),
+            date: defaultDate.getDate(),
+            firstDay: 1,
+            editable: false,
+            selectable: false,
+            allDaySlot: false,
+            minTime: 7,
+            maxTime: 20,
+            slotMinutes: 30,
+            firstHour: 7,
+            slotEventOverlap: false,
+            timeFormat: "H:mm",
+            axisFormat: "H:mm",
+            columnFormat: {
+              month: "ddd",
+              week: "ddd d/M"
+            },
+            titleFormat: {
+              month: "MMMM yyyy",
+              week: "d MMM yyyy"
+            },
+            buttonText: {
+              today: "hoy",
+              month: "mes",
+              week: "semana"
+            },
+            monthNames: ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
+            monthNamesShort: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+            dayNames: ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"],
+            dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+            events: events,
+            viewRender: function (view) {
+              updateWeekControls(view);
+            },
+            eventRender: function (event, element) {
+              element.attr("title", [event.materia, event.grupo, event.aula, event.hora, event.tema, event.estado].filter(Boolean).join(" | "));
+              paintEvent(element, event);
+            },
+            eventAfterRender: function (event, element) {
+              paintEvent(element, event);
+            },
+            eventClick: function (event) {
+              if (event.url) {
+                window.location.href = event.url;
+              }
+              return false;
+            }
+          });
+        });
+      }
+    })();
+  </script>
+  <style>
+    .teacher-export-button {
+      align-items: center;
+      display: inline-flex;
+      gap: 8px;
+      justify-content: center;
+      min-height: 44px;
+    }
+
+    .teacher-calendar-shell {
+      display: grid;
+      gap: 16px;
+    }
+
+    .teacher-calendar-summary {
+      align-items: center;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(220px, 0.85fr) minmax(320px, 1.5fr) minmax(230px, 0.9fr);
+    }
+
+    .teacher-calendar-profile {
+      align-items: center;
+      display: flex;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .teacher-calendar-avatar {
+      align-items: center;
+      background: #ecfeff;
+      border: 1px solid #a5f3fc;
+      border-radius: 8px;
+      color: #155e75;
+      display: inline-flex;
+      flex: 0 0 auto;
+      font-size: 24px;
+      font-weight: 800;
+      height: 52px;
+      justify-content: center;
+      width: 52px;
+    }
+
+    .teacher-calendar-profile strong {
+      color: #111827;
+      display: block;
+      font-size: 17px;
+      line-height: 1.2;
+    }
+
+    .teacher-calendar-profile span:not(.teacher-calendar-avatar) {
+      color: #667085;
+      display: block;
+      font-size: 13px;
+      margin-top: 3px;
+    }
+
+    .teacher-calendar-metrics {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .teacher-calendar-metrics div {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      min-height: 70px;
+      padding: 10px 12px;
+    }
+
+    .teacher-calendar-metrics span,
+    .docente-calendar-header span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-calendar-metrics strong {
+      color: #111827;
+      display: block;
+      font-size: 20px;
+      line-height: 1.15;
+      margin-top: 6px;
+      word-break: break-word;
+    }
+
+    .teacher-week-form {
+      display: grid;
+      gap: 7px;
+    }
+
+    .teacher-week-form > div {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .teacher-week-form .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 44px;
+    }
+
+    .docente-calendar-full-panel {
+      overflow: hidden;
+    }
+
+    .docente-calendar-header {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .docente-calendar-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .docente-calendar-header > strong {
+      color: #475467;
+      font-size: 14px;
+    }
+
+    .docente-full-calendar {
+      min-height: 760px;
+    }
+
+    #docenteCalendar .fc-header {
+      margin-bottom: 12px;
+    }
+
+    #docenteCalendar .fc-header-title h2 {
+      color: #111827;
+      font-size: 21px;
+      font-weight: 800;
+    }
+
+    #docenteCalendar .fc-button {
+      border-radius: 8px;
+      min-height: 34px;
+    }
+
+    #docenteCalendar .fc-event {
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 800;
+      padding: 2px 4px;
+    }
+
+    #docenteCalendar .fc-event-title,
+    #docenteCalendar .fc-event-time {
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .academic-empty-state {
+      background: #ffffff;
+      color: #667085;
+      margin-top: 16px;
+      padding: 28px;
+      text-align: center;
+    }
+
+    @media (max-width: 1199.98px) {
+      .teacher-calendar-summary {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 767.98px) {
+      .teacher-calendar-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .docente-calendar-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .teacher-calendar-metrics,
+      .teacher-week-form > div {
+        grid-template-columns: 1fr;
+      }
+
+      .teacher-export-button,
+      .teacher-week-form .btn {
+        width: 100%;
+      }
+
+      #docenteCalendar .fc-header-left,
+      #docenteCalendar .fc-header-center,
+      #docenteCalendar .fc-header-right {
+        display: block;
+        float: none;
+        margin-bottom: 8px;
+        text-align: left;
+        width: 100%;
+      }
+    }
+  </style>
+{% endblock %}

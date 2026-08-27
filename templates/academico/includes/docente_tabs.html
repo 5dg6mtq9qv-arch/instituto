@@ -1,0 +1,10 @@
+<nav class="teacher-section-tabs" aria-label="Apartados del docente">
+  <a class="{% if active_tab == 'planificaciones' %}is-active{% endif %}" href="{% url 'academico:docente_horarios' %}">
+    <i class="ri-task-line"></i>
+    Planificaciones
+  </a>
+  <a class="{% if active_tab == 'calendario' %}is-active{% endif %}" href="{% url 'academico:docente_calendario' %}">
+    <i class="ri-calendar-schedule-line"></i>
+    Calendario
+  </a>
+</nav>

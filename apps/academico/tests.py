@@ -1,10 +1,15 @@
+import shutil
+import tempfile
 from datetime import timedelta, time
+from io import BytesIO
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from openpyxl import load_workbook
 
 from apps.academico.models import (
     Aula,
@@ -12,6 +17,7 @@ from apps.academico.models import (
     Clase,
     Competencia,
     Curso,
+    CursoPeriodo,
     Dia,
     Estrategia,
     Horario,
@@ -19,6 +25,7 @@ from apps.academico.models import (
     HorarioDia,
     Materia,
     MateriaCurso,
+    Periodo,
     PlanificacionDocente,
     ProfesorMateriaCurso,
     Recurso,
@@ -32,6 +39,9 @@ from apps.core.models import Partner, TipoIdentificacion
 class DocenteHorariosPanelTests(TestCase):
     def setUp(self):
         set_current_request(None)
+        self.media_root = tempfile.mkdtemp()
+        self.media_override = override_settings(MEDIA_ROOT=self.media_root)
+        self.media_override.enable()
         self.user = get_user_model().objects.create_user(username="docente", password="ClaveActual987!")
         tipo_identificacion = TipoIdentificacion.objects.create(nombre="Cedula", codigo="CED")
         self.docente = Partner.objects.create(
@@ -42,15 +52,15 @@ class DocenteHorariosPanelTests(TestCase):
             es_docente=True,
             activo=True,
         )
-        curso = Curso.objects.create(nombre="Grupo A", activo=True)
-        aula = Aula.objects.create(nombre="Aula 1")
-        aula_curso = AulaCurso.objects.create(aula=aula, curso=curso)
+        self.curso = Curso.objects.create(nombre="Grupo A", activo=True)
+        self.aula = Aula.objects.create(nombre="Aula 1")
+        aula_curso = AulaCurso.objects.create(aula=self.aula, curso=self.curso)
         dia, _ = Dia.objects.get_or_create(dia="Lunes")
-        horario = Horario.objects.create(hora_inicio=time(8, 0), hora_fin=time(9, 0))
-        horario_dia = HorarioDia.objects.create(dia=dia, horario=horario)
-        horario_aula_curso = HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
-        materia = Materia.objects.create(nombre="Matematicas", nombre_corto="MAT", color="#0f766e")
-        self.materia_curso = MateriaCurso.objects.create(materia=materia, grupo=curso)
+        self.horario = Horario.objects.create(hora_inicio=time(8, 0), hora_fin=time(9, 0))
+        horario_dia = HorarioDia.objects.create(dia=dia, horario=self.horario)
+        self.horario_aula_curso = HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
+        self.materia = Materia.objects.create(nombre="Matematicas", nombre_corto="MAT", color="#0f766e")
+        self.materia_curso = MateriaCurso.objects.create(materia=self.materia, grupo=self.curso)
         ProfesorMateriaCurso.objects.create(partner=self.docente, materia_curso=self.materia_curso)
         self.planificacion = PlanificacionDocente.objects.create(
             materia_curso=self.materia_curso,
@@ -63,20 +73,20 @@ class DocenteHorariosPanelTests(TestCase):
         self.recurso = Recurso.objects.create(nombre="Pizarra")
         today = timezone.localdate()
         self.pendiente = Clase.objects.create(
-            horario_aula_curso=horario_aula_curso,
+            horario_aula_curso=self.horario_aula_curso,
             materia_curso=self.materia_curso,
             fecha=today + timedelta(days=4),
             estado_planificacion="pendiente",
         )
         self.revision = Clase.objects.create(
-            horario_aula_curso=horario_aula_curso,
+            horario_aula_curso=self.horario_aula_curso,
             materia_curso=self.materia_curso,
             fecha=today + timedelta(days=11),
             estado_planificacion="revision",
             descripcion="Clase enviada a revision.",
         )
         self.rechazada = Clase.objects.create(
-            horario_aula_curso=horario_aula_curso,
+            horario_aula_curso=self.horario_aula_curso,
             materia_curso=self.materia_curso,
             fecha=today + timedelta(days=18),
             estado_planificacion="rechazada",
@@ -84,7 +94,7 @@ class DocenteHorariosPanelTests(TestCase):
             notas_revision="Completar recursos.",
         )
         self.atrasada = Clase.objects.create(
-            horario_aula_curso=horario_aula_curso,
+            horario_aula_curso=self.horario_aula_curso,
             materia_curso=self.materia_curso,
             fecha=today - timedelta(days=1),
             estado_planificacion="pendiente",
@@ -92,11 +102,28 @@ class DocenteHorariosPanelTests(TestCase):
 
     def tearDown(self):
         set_current_request(None)
+        self.media_override.disable()
+        shutil.rmtree(self.media_root, ignore_errors=True)
 
     def create_coordinator(self):
         user = get_user_model().objects.create_user(username="coordinador", password="ClaveActual987!")
         user.groups.add(Group.objects.get_or_create(name="Coordinacion")[0])
         return user
+
+    def create_periodo_for_course(self):
+        today = timezone.localdate()
+        periodo = Periodo.objects.create(
+            nombre="Periodo de prueba",
+            fecha_inicio=today,
+            fecha_fin=today + timedelta(days=35),
+        )
+        CursoPeriodo.objects.create(curso=self.curso, periodo=periodo)
+        return periodo
+
+    def make_superuser(self):
+        self.user.is_staff = True
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_staff", "is_superuser"])
 
     def test_docente_dashboard_renders_panel_cards(self):
         self.client.force_login(self.user)
@@ -109,6 +136,103 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "docente-planning-card")
         self.assertEqual(response.context["planificacion_stats"]["total"], 4)
         self.assertEqual(response.context["planificacion_stats"]["por_atender"], 3)
+
+    def test_docente_calendar_view_renders_week_calendar_and_export_link(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_calendario"),
+            {"fecha": self.revision.fecha.isoformat()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Mi calendario")
+        self.assertContains(response, "docente-calendar-full-panel")
+        self.assertContains(response, "Descargar Excel")
+        self.assertContains(response, "agendaWeek")
+        self.assertTrue(response.context["has_events"])
+        self.assertGreaterEqual(response.context["week_count"], 1)
+
+    def test_docente_calendar_export_returns_weekly_excel(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_calendario_exportar"),
+            {"fecha": self.revision.fecha.isoformat()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        workbook = load_workbook(BytesIO(response.content))
+        sheet = workbook.active
+        values = [cell.value for row in sheet.iter_rows() for cell in row if cell.value]
+
+        self.assertTrue(any("Matematicas" in str(value) for value in values))
+        self.assertTrue(any("Grupo A" in str(value) for value in values))
+
+    def test_academic_planning_updates_future_class_without_delete_error(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        self.pendiente.tema = self.tema
+        self.pendiente.subtema = self.subtema
+        self.pendiente.descripcion = "Planificacion previa."
+        self.pendiente.estado_planificacion = "revision"
+        self.pendiente.save(update_fields=["tema", "subtema", "descripcion", "estado_planificacion"])
+        self.pendiente.competencias.add(self.competencia)
+        self.pendiente.estrategias.add(self.estrategia)
+        self.pendiente.recursos.add(self.recurso)
+        nueva_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": nueva_materia.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.pendiente.materia_curso.materia, nueva_materia)
+        self.assertEqual(self.pendiente.estado_planificacion, "pendiente")
+        self.assertIsNone(self.pendiente.tema)
+        self.assertFalse(self.pendiente.recursos.exists())
+
+    def test_academic_planning_does_not_update_approved_class(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        nueva_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
+        self.revision.estado_planificacion = "aprobada"
+        self.revision.save(update_fields=["estado_planificacion"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.revision.fecha.isoformat(),
+                "materia": nueva_materia.pk,
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+        self.revision.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.revision.materia_curso, self.materia_curso)
+        self.assertFalse(MateriaCurso.objects.filter(materia=nueva_materia, grupo=self.curso).exists())
+        self.assertContains(response, "La clase no se puede modificar porque tiene una planificacion aprobada.")
+        self.assertContains(response, "approved-locked-event")
 
     def test_docente_status_filter_limits_cards(self):
         self.client.force_login(self.user)
@@ -150,6 +274,10 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "teacher-plan-hero")
         self.assertContains(response, "teacher-submit-panel")
         self.assertContains(response, "Guardar borrador")
+        self.assertContains(response, "Usar disponible")
+        self.assertContains(response, "Crear nuevo")
+        self.assertContains(response, "data-available-select")
+        self.assertContains(response, "data-selected-list")
         self.assertEqual(response.context["planning_total"], 5)
 
     def test_docente_class_planning_draft_keeps_planification_pending(self):
@@ -211,6 +339,47 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIn(self.competencia, self.pendiente.competencias.all())
         self.assertIn(self.estrategia, self.pendiente.estrategias.all())
         self.assertIn(self.recurso, self.pendiente.recursos.all())
+
+    def test_docente_class_planning_creates_new_resource_with_file(self):
+        self.client.force_login(self.user)
+        uploaded = SimpleUploadedFile(
+            "guia.pdf",
+            b"contenido",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            {
+                "plan_action": "send",
+                "tema": self.tema.pk,
+                "subtema": self.subtema.pk,
+                "descripcion": "Desarrollo completo de la clase.",
+                "competencias_existentes": [self.competencia.pk],
+                "estrategias_existentes": [self.estrategia.pk],
+                "recursos-TOTAL_FORMS": "1",
+                "recursos-0-nombre": "Guia de ejercicios",
+                "recursos-0-archivo": uploaded,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+        recurso = Recurso.objects.get(nombre="Guia de ejercicios")
+        clase_recurso = self.pendiente.clase_recursos.get(recurso=recurso)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.pendiente.estado_planificacion, "revision")
+        self.assertIn(recurso, self.pendiente.recursos.all())
+        self.assertTrue(clase_recurso.archivo.name.endswith(".pdf"))
+
+        response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertContains(response, "teacher-file-current")
+        self.assertContains(response, "file-kind-pdf")
+        self.assertContains(response, "ri-file-pdf-line")
 
     def test_docente_class_planning_approved_planification_is_locked(self):
         self.revision.estado_planificacion = "aprobada"

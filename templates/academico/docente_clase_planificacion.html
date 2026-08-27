@@ -148,44 +148,94 @@
                     <p><span data-group-count>{{ group.selected_count }}</span> {{ group.count_label }}</p>
                   </div>
                 </div>
-                <button class="btn btn-outline-primary btn-sm" type="button" data-add-tag{% if not can_edit %} disabled{% endif %}>
-                  <i class="ri-add-line"></i>
-                  {{ group.add_label }}
-                </button>
+                <div class="teacher-tag-switch" role="group" aria-label="{{ group.title }}">
+                  <button type="button" class="{% if not group.new_entries %}is-active{% endif %}" data-tag-view-trigger="available">
+                    <i class="ri-list-check-2"></i>
+                    Usar disponible
+                  </button>
+                  <button type="button" class="{% if group.new_entries %}is-active{% endif %}" data-tag-view-trigger="new">
+                    <i class="ri-add-line"></i>
+                    Crear nuevo
+                  </button>
+                </div>
               </header>
 
-              <div class="teacher-tag-list">
-                {% for item in group.items %}
-                  <div class="teacher-tag-option {% if item.selected %}is-selected{% endif %}" data-tag-option>
-                    <label>
-                      <input class="form-check-input" type="checkbox" name="{{ group.prefix }}_existentes" value="{{ item.obj.pk }}" data-tag-check{% if item.selected %} checked{% endif %}{% if not can_edit %} disabled{% endif %}>
-                      <span>{{ item.obj.nombre }}</span>
-                    </label>
-                    {% if group.prefix == "recursos" %}
-                      <div class="teacher-file-field">
-                        <input class="form-control form-control-sm" type="file" name="recurso_archivo_{{ item.obj.pk }}"{% if not can_edit %} disabled{% endif %}>
-                        {% if item.clase_recurso and item.clase_recurso.archivo %}
-                          <a href="{{ item.clase_recurso.archivo.url }}" target="_blank">Ver archivo actual</a>
+              <div class="teacher-tag-pane {% if not group.new_entries %}is-active{% endif %}" data-tag-pane="available">
+                <div class="teacher-picker-row">
+                  <select class="form-select" data-available-select{% if not can_edit %} disabled{% endif %}>
+                    <option value="">Buscar disponible...</option>
+                    {% for item in group.items %}
+                      <option value="{{ item.obj.pk }}"{% if item.selected %} disabled{% endif %}>{{ item.obj.nombre }}</option>
+                    {% endfor %}
+                  </select>
+                  <button class="btn btn-outline-primary btn-sm" type="button" data-add-existing{% if not can_edit %} disabled{% endif %}>
+                    <i class="ri-add-line"></i>
+                    Agregar
+                  </button>
+                </div>
+
+                <div class="teacher-selected-list" data-selected-list>
+                  {% for item in group.items %}
+                    {% if item.selected %}
+                      <div class="teacher-selected-tag" data-selected-tag data-tag-id="{{ item.obj.pk }}">
+                        <input type="checkbox" class="d-none" name="{{ group.prefix }}_existentes" value="{{ item.obj.pk }}" data-tag-check checked{% if not can_edit %} disabled{% endif %}>
+                        <div class="teacher-selected-main">
+                          <span>{{ item.obj.nombre }}</span>
+                          {% if group.prefix == "recursos" and item.clase_recurso and item.clase_recurso.archivo %}
+                            <a class="teacher-file-current" href="{{ item.clase_recurso.archivo.url }}" target="_blank">
+                              <span class="teacher-file-badge file-kind-{{ item.file_meta.kind }}">
+                                <i class="{{ item.file_meta.icon }}"></i>
+                                {{ item.file_meta.label }}
+                              </span>
+                              <span>{{ item.file_meta.filename }}</span>
+                            </a>
+                          {% endif %}
+                        </div>
+                        <button class="btn btn-outline-danger btn-sm" type="button" data-remove-existing aria-label="Quitar"{% if not can_edit %} disabled{% endif %}>
+                          <i class="ri-close-line"></i>
+                        </button>
+                        {% if group.prefix == "recursos" %}
+                          <div class="teacher-file-field is-inline">
+                            <input class="form-control form-control-sm" type="file" name="recurso_archivo_{{ item.obj.pk }}" data-file-input{% if not can_edit %} disabled{% endif %}>
+                            <span class="teacher-upload-preview" data-file-preview hidden>
+                              <i class="ri-file-line"></i>
+                              <span>Archivo seleccionado</span>
+                            </span>
+                          </div>
                         {% endif %}
                       </div>
                     {% endif %}
-                  </div>
-                {% empty %}
-                  <p class="teacher-empty-text">Sin registros creados.</p>
-                {% endfor %}
+                  {% endfor %}
+                  <p class="teacher-empty-text" data-selected-empty{% if group.selected_count %} hidden{% endif %}>Sin seleccionados.</p>
+                </div>
               </div>
 
-              <div class="teacher-new-stack" data-tag-body>
-                {% for entry in group.new_entries %}
-                  <div class="teacher-new-row" data-tag-row>
-                    <input class="form-control" type="text" name="{{ group.prefix }}-{{ forloop.counter0 }}-nombre" value="{{ entry.nombre }}" placeholder="{{ group.placeholder }}"{% if not can_edit %} disabled{% endif %}>
-                    <input type="checkbox" name="{{ group.prefix }}-{{ forloop.counter0 }}-DELETE" class="d-none" data-tag-delete>
-                    <button class="btn btn-outline-danger btn-sm" type="button" data-remove-tag aria-label="Eliminar"{% if not can_edit %} disabled{% endif %}>
-                      <i class="ri-delete-bin-line"></i>
-                    </button>
-                  </div>
-                {% endfor %}
-                <input type="hidden" name="{{ group.prefix }}-TOTAL_FORMS" value="{{ group.new_entries|length }}" data-tag-total>
+              <div class="teacher-tag-pane {% if group.new_entries %}is-active{% endif %}" data-tag-pane="new">
+                <button class="btn btn-outline-primary btn-sm teacher-add-new-button" type="button" data-add-tag{% if not can_edit %} disabled{% endif %}>
+                  <i class="ri-add-line"></i>
+                  {{ group.add_label }}
+                </button>
+                <div class="teacher-new-stack" data-tag-body>
+                  {% for entry in group.new_entries %}
+                    <div class="teacher-new-row" data-tag-row>
+                      <div class="teacher-new-fields">
+                        <input class="form-control" type="text" name="{{ group.prefix }}-{{ forloop.counter0 }}-nombre" value="{{ entry.nombre }}" placeholder="{{ group.placeholder }}"{% if not can_edit %} disabled{% endif %}>
+                        {% if group.prefix == "recursos" %}
+                          <input class="form-control form-control-sm" type="file" name="{{ group.prefix }}-{{ forloop.counter0 }}-archivo" data-file-input{% if not can_edit %} disabled{% endif %}>
+                          <span class="teacher-upload-preview" data-file-preview hidden>
+                            <i class="ri-file-line"></i>
+                            <span>Archivo seleccionado</span>
+                          </span>
+                        {% endif %}
+                      </div>
+                      <input type="checkbox" name="{{ group.prefix }}-{{ forloop.counter0 }}-DELETE" class="d-none" data-tag-delete>
+                      <button class="btn btn-outline-danger btn-sm" type="button" data-remove-tag aria-label="Eliminar"{% if not can_edit %} disabled{% endif %}>
+                        <i class="ri-delete-bin-line"></i>
+                      </button>
+                    </div>
+                  {% endfor %}
+                  <input type="hidden" name="{{ group.prefix }}-TOTAL_FORMS" value="{{ group.new_entries|length }}" data-tag-total>
+                </div>
               </div>
 
               {% if is_observed and group.revision_note %}
@@ -317,9 +367,96 @@
         };
       }
 
-      function syncTagOption(option) {
-        const input = option.querySelector("[data-tag-check]");
-        option.classList.toggle("is-selected", Boolean(input && input.checked));
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function findSelectedTag(group, id) {
+        return Array.from(group.querySelectorAll("[data-selected-tag]")).find(function (tag) {
+          return tag.dataset.tagId === String(id);
+        });
+      }
+
+      function updateSelectedEmpty(group) {
+        const empty = group.querySelector("[data-selected-empty]");
+        if (!empty) return;
+        const hasSelected = Array.from(group.querySelectorAll("[data-selected-tag]")).some(function (tag) {
+          const input = tag.querySelector("[data-tag-check]");
+          return input && input.checked;
+        });
+        empty.hidden = hasSelected;
+      }
+
+      function selectedTagTemplate(prefix, id, name) {
+        const fileControls = prefix === "recursos"
+          ? `<div class="teacher-file-field is-inline">
+               <input class="form-control form-control-sm" type="file" name="recurso_archivo_${escapeHtml(id)}" data-file-input>
+               <span class="teacher-upload-preview" data-file-preview hidden>
+                 <i class="ri-file-line"></i>
+                 <span>Archivo seleccionado</span>
+               </span>
+             </div>`
+          : "";
+        return `
+          <div class="teacher-selected-tag" data-selected-tag data-tag-id="${escapeHtml(id)}">
+            <input type="checkbox" class="d-none" name="${escapeHtml(prefix)}_existentes" value="${escapeHtml(id)}" data-tag-check checked>
+            <div class="teacher-selected-main">
+              <span>${escapeHtml(name)}</span>
+            </div>
+            <button class="btn btn-outline-danger btn-sm" type="button" data-remove-existing aria-label="Quitar">
+              <i class="ri-close-line"></i>
+            </button>
+            ${fileControls}
+          </div>
+        `;
+      }
+
+      function fileMeta(filename) {
+        const extension = String(filename || "").split(".").pop().toLowerCase();
+        const types = [
+          { kind: "pdf", icon: "ri-file-pdf-line", label: "PDF", extensions: ["pdf"] },
+          { kind: "word", icon: "ri-file-word-line", label: "Word", extensions: ["doc", "docx", "odt"] },
+          { kind: "excel", icon: "ri-file-excel-line", label: "Excel", extensions: ["csv", "ods", "xls", "xlsx"] },
+          { kind: "ppt", icon: "ri-file-ppt-line", label: "Presentacion", extensions: ["odp", "ppt", "pptx"] },
+          { kind: "image", icon: "ri-file-image-line", label: "Imagen", extensions: ["gif", "jpeg", "jpg", "png", "svg", "webp"] },
+          { kind: "zip", icon: "ri-file-zip-line", label: "Comprimido", extensions: ["7z", "gz", "rar", "tar", "zip"] },
+          { kind: "video", icon: "ri-file-video-line", label: "Video", extensions: ["avi", "mkv", "mov", "mp4", "webm"] },
+          { kind: "audio", icon: "ri-file-music-line", label: "Audio", extensions: ["m4a", "mp3", "ogg", "wav"] },
+          { kind: "text", icon: "ri-file-text-line", label: "Texto", extensions: ["md", "rtf", "txt"] },
+        ];
+        return types.find(function (type) {
+          return type.extensions.includes(extension);
+        }) || { kind: "file", icon: "ri-file-line", label: extension ? extension.toUpperCase() : "Archivo" };
+      }
+
+      function syncFilePreview(input) {
+        const wrapper = input.closest(".teacher-file-field, .teacher-new-fields");
+        const preview = wrapper?.querySelector("[data-file-preview]");
+        if (!preview) return;
+        const file = input.files && input.files[0];
+        if (!file) {
+          preview.hidden = true;
+          return;
+        }
+        const meta = fileMeta(file.name);
+        preview.className = "teacher-upload-preview file-kind-" + meta.kind;
+        preview.querySelector("i").className = meta.icon;
+        preview.querySelector("span").textContent = meta.label + " seleccionado";
+        preview.hidden = false;
+      }
+
+      function activateTagPane(group, paneName) {
+        group.querySelectorAll("[data-tag-view-trigger]").forEach(function (button) {
+          button.classList.toggle("is-active", button.dataset.tagViewTrigger === paneName);
+        });
+        group.querySelectorAll("[data-tag-pane]").forEach(function (pane) {
+          pane.classList.toggle("is-active", pane.dataset.tagPane === paneName);
+        });
       }
 
       function syncPlan() {
@@ -370,14 +507,19 @@
       subtemaSelect?.addEventListener("change", syncPlan);
       descripcion?.addEventListener("input", syncPlan);
 
-      form.querySelectorAll("[data-tag-option]").forEach(function (option) {
-        syncTagOption(option);
+      form.querySelectorAll("[data-tag-group]").forEach(function (group) {
+        updateSelectedEmpty(group);
       });
+      form.querySelectorAll("[data-file-input]").forEach(syncFilePreview);
 
       document.addEventListener("change", function (event) {
+        const fileInput = event.target.closest("[data-file-input]");
+        if (fileInput) {
+          syncFilePreview(fileInput);
+          return;
+        }
         const input = event.target.closest("[data-tag-check]");
         if (!input) return;
-        syncTagOption(input.closest("[data-tag-option]"));
         setAlert("");
         syncPlan();
       });
@@ -389,6 +531,56 @@
       });
 
       document.addEventListener("click", function (event) {
+        const viewButton = event.target.closest("[data-tag-view-trigger]");
+        if (viewButton) {
+          const group = viewButton.closest("[data-tag-group]");
+          activateTagPane(group, viewButton.dataset.tagViewTrigger);
+          return;
+        }
+
+        const addExistingButton = event.target.closest("[data-add-existing]");
+        if (addExistingButton) {
+          const group = addExistingButton.closest("[data-tag-group]");
+          const select = group.querySelector("[data-available-select]");
+          const selectedOption = select?.selectedOptions[0];
+          if (!selectedOption || !selectedOption.value) return;
+          const list = group.querySelector("[data-selected-list]");
+          const existingTag = findSelectedTag(group, selectedOption.value);
+          if (existingTag) {
+            existingTag.querySelector("[data-tag-check]").checked = true;
+            existingTag.hidden = false;
+          } else {
+            list.insertAdjacentHTML(
+              "beforeend",
+              selectedTagTemplate(group.dataset.tagGroup, selectedOption.value, selectedOption.textContent.trim())
+            );
+          }
+          selectedOption.disabled = true;
+          select.value = "";
+          updateSelectedEmpty(group);
+          setAlert("");
+          syncPlan();
+          return;
+        }
+
+        const removeExistingButton = event.target.closest("[data-remove-existing]");
+        if (removeExistingButton) {
+          const group = removeExistingButton.closest("[data-tag-group]");
+          const tag = removeExistingButton.closest("[data-selected-tag]");
+          const input = tag.querySelector("[data-tag-check]");
+          const select = group.querySelector("[data-available-select]");
+          const option = Array.from(select?.options || []).find(function (item) {
+            return item.value === tag.dataset.tagId;
+          });
+          if (input) input.checked = false;
+          if (option) option.disabled = false;
+          tag.hidden = true;
+          updateSelectedEmpty(group);
+          setAlert("");
+          syncPlan();
+          return;
+        }
+
         const addButton = event.target.closest("[data-add-tag]");
         if (addButton) {
           const group = addButton.closest("[data-tag-group]");
@@ -397,9 +589,19 @@
           const prefix = group.dataset.tagGroup;
           const placeholder = group.dataset.tagPlaceholder || "Nuevo";
           const index = Number(total.value);
+          const fileInput = prefix === "recursos"
+            ? `<input class="form-control form-control-sm" type="file" name="${prefix}-${index}-archivo" data-file-input>
+               <span class="teacher-upload-preview" data-file-preview hidden>
+                 <i class="ri-file-line"></i>
+                 <span>Archivo seleccionado</span>
+               </span>`
+            : "";
           body.insertAdjacentHTML("beforeend", `
             <div class="teacher-new-row" data-tag-row>
-              <input class="form-control" type="text" name="${prefix}-${index}-nombre" placeholder="${placeholder}">
+              <div class="teacher-new-fields">
+                <input class="form-control" type="text" name="${prefix}-${index}-nombre" placeholder="${placeholder}">
+                ${fileInput}
+              </div>
               <input type="checkbox" name="${prefix}-${index}-DELETE" class="d-none" data-tag-delete>
               <button class="btn btn-outline-danger btn-sm" type="button" data-remove-tag aria-label="Eliminar">
                 <i class="ri-delete-bin-line"></i>
@@ -408,6 +610,7 @@
           `);
           total.value = index + 1;
           body.querySelector("[data-tag-row]:last-of-type input[type='text']")?.focus();
+          updateSelectedEmpty(group);
           syncPlan();
           return;
         }
@@ -422,6 +625,7 @@
           } else {
             row.remove();
           }
+          updateSelectedEmpty(removeButton.closest("[data-tag-group]"));
           syncPlan();
         }
       });
@@ -685,39 +889,84 @@
       white-space: nowrap;
     }
 
-    .teacher-tag-list {
-      display: grid;
-      gap: 8px;
-      max-height: 280px;
-      overflow: auto;
-      padding-right: 2px;
+    .teacher-tag-switch {
+      background: #f1f5f9;
+      border-radius: 8px;
+      display: inline-flex;
+      gap: 3px;
+      padding: 3px;
     }
 
-    .teacher-tag-option {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
+    .teacher-tag-switch button {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      border-radius: 6px;
+      color: #475569;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 5px;
+      min-height: 32px;
+      padding: 6px 9px;
+      white-space: nowrap;
+    }
+
+    .teacher-tag-switch button.is-active {
+      background: #ffffff;
+      color: #0f766e;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+    }
+
+    .teacher-tag-pane {
+      display: none;
+    }
+
+    .teacher-tag-pane.is-active {
+      display: grid;
+      gap: 10px;
+    }
+
+    .teacher-add-new-button {
+      justify-self: start;
+    }
+
+    .teacher-picker-row {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .teacher-picker-row .btn {
+      justify-content: center;
+      min-width: 98px;
+    }
+
+    .teacher-selected-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .teacher-selected-tag {
+      align-items: center;
+      background: #ecfdf3;
+      border: 1px solid #86efac;
       border-radius: 8px;
       display: grid;
       gap: 8px;
+      grid-template-columns: minmax(0, 1fr) auto;
       padding: 10px;
     }
 
-    .teacher-tag-option.is-selected {
-      background: #ecfdf3;
-      border-color: #86efac;
-    }
-
-    .teacher-tag-option label {
-      align-items: center;
-      color: #1f2937;
-      display: flex;
-      font-weight: 800;
-      gap: 8px;
-      margin: 0;
+    .teacher-selected-main {
+      display: grid;
+      gap: 7px;
       min-width: 0;
     }
 
-    .teacher-tag-option label span {
+    .teacher-selected-main > span {
+      color: #1f2937;
+      font-weight: 900;
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -729,13 +978,104 @@
       gap: 6px;
     }
 
-    .teacher-tag-option.is-selected .teacher-file-field {
+    .teacher-file-field.is-inline {
       display: grid;
+      grid-column: 1 / -1;
     }
 
-    .teacher-file-field a {
+    .teacher-file-current,
+    .teacher-upload-preview {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      color: #334155;
+      display: flex;
+      gap: 8px;
+      min-width: 0;
+      padding: 7px 8px;
+    }
+
+    .teacher-file-current {
+      text-decoration: none;
+    }
+
+    .teacher-file-current > span:last-child {
       font-size: 12px;
       font-weight: 800;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .teacher-upload-preview {
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .teacher-file-badge {
+      align-items: center;
+      border-radius: 999px;
+      display: inline-flex;
+      flex: 0 0 auto;
+      font-size: 11px;
+      font-weight: 900;
+      gap: 4px;
+      line-height: 1;
+      padding: 6px 8px;
+      text-transform: uppercase;
+    }
+
+    .teacher-file-badge,
+    .teacher-upload-preview {
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    .file-kind-pdf {
+      background: #fef2f2;
+      color: #b91c1c;
+    }
+
+    .file-kind-word {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .file-kind-excel {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .file-kind-ppt {
+      background: #fff7ed;
+      color: #c2410c;
+    }
+
+    .file-kind-image {
+      background: #fdf4ff;
+      color: #a21caf;
+    }
+
+    .file-kind-zip {
+      background: #fffbeb;
+      color: #b45309;
+    }
+
+    .file-kind-video {
+      background: #eef2ff;
+      color: #4338ca;
+    }
+
+    .file-kind-audio {
+      background: #f0fdfa;
+      color: #0f766e;
+    }
+
+    .file-kind-text {
+      background: #f8fafc;
+      color: #334155;
     }
 
     .teacher-new-stack {
@@ -748,6 +1088,11 @@
       display: grid;
       gap: 8px;
       grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .teacher-new-fields {
+      display: grid;
+      gap: 8px;
     }
 
     .teacher-new-row.is-deleted {
@@ -899,6 +1244,15 @@
       .teacher-card-header {
         align-items: flex-start;
         flex-direction: column;
+      }
+
+      .teacher-tag-switch {
+        width: 100%;
+      }
+
+      .teacher-tag-switch button {
+        flex: 1;
+        justify-content: center;
       }
 
       .teacher-plan-status {

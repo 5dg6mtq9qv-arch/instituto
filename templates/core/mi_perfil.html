@@ -66,12 +66,18 @@
       <section class="panel profile-teacher-panel">
         <div>
           <span>Docente</span>
-          <strong>Mis planificaciones</strong>
+          <strong>Panel docente</strong>
         </div>
-        <a class="btn btn-primary-600" href="{% url 'academico:docente_horarios' %}">
-          <i class="ri-layout-grid-line"></i>
-          Abrir panel
-        </a>
+        <div class="profile-teacher-actions">
+          <a class="btn btn-primary-600" href="{% url 'academico:docente_horarios' %}">
+            <i class="ri-layout-grid-line"></i>
+            Planificaciones
+          </a>
+          <a class="btn btn-outline-primary" href="{% url 'academico:docente_calendario' %}">
+            <i class="ri-calendar-schedule-line"></i>
+            Calendario
+          </a>
+        </div>
       </section>
     {% endif %}
 
@@ -135,6 +141,13 @@
       gap: 6px;
     }
 
+    .profile-teacher-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
     .profile-edit-layout {
       display: grid;
       gap: 24px;
@@ -171,6 +184,11 @@
       .profile-teacher-panel {
         align-items: flex-start;
         flex-direction: column;
+      }
+
+      .profile-teacher-actions {
+        justify-content: flex-start;
+        width: 100%;
       }
     }
   </style>

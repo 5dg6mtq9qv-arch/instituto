@@ -75,6 +75,8 @@
       </div>
 
       {% if selected_curso_periodo %}
+        <div class="alert alert-warning planning-calendar-notice d-none" data-calendar-notice></div>
+
         <div class="edudash-calendar-wrap planning-calendar-wrap">
           <div id="calendar"></div>
         </div>
@@ -153,6 +155,7 @@
       const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
       const hasCalendar = document.getElementById("calendar");
       const canSave = {{ can_save|yesno:"true,false" }};
+      const calendarNotice = document.querySelector("[data-calendar-notice]");
       let periodSwitchery = null;
 
       if (window.Switchery) {
@@ -187,6 +190,11 @@
 
       function openMateriaPanel(event) {
         if (!canSave) return;
+        if (event.lockedReason) {
+          showCalendarNotice(event.lockedReason);
+          return;
+        }
+        hideCalendarNotice();
         document.querySelector("[data-planning-horario]").value = event.horarioId;
         document.querySelector("[data-planning-fecha]").value = event.fecha;
         document.querySelector("[data-planning-materia]").value = event.materiaId || "";
@@ -195,6 +203,19 @@
         document.querySelector("[data-planning-time]").textContent = event.hora || "";
         resetPeriodSwitch();
         bootstrap.Offcanvas.getOrCreateInstance(document.getElementById("planificacionMateriaOffcanvas")).show();
+      }
+
+      function showCalendarNotice(message) {
+        if (!calendarNotice || !message) return;
+        calendarNotice.textContent = message;
+        calendarNotice.classList.remove("d-none");
+        calendarNotice.scrollIntoView({ block: "nearest" });
+      }
+
+      function hideCalendarNotice() {
+        if (!calendarNotice) return;
+        calendarNotice.textContent = "";
+        calendarNotice.classList.add("d-none");
       }
 
       function paintEvent(element, event) {
@@ -255,7 +276,7 @@
             dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
             events: events,
             eventRender: function (event, element) {
-              element.attr("title", [event.aula, event.hora, event.materia || "Sin materia", event.docente].filter(Boolean).join(" - "));
+              element.attr("title", [event.aula, event.hora, event.materia || "Sin materia", event.docente, event.lockedReason].filter(Boolean).join(" - "));
               paintEvent(element, event);
             },
             eventAfterRender: function (event, element) {
@@ -326,6 +347,12 @@
 
     #calendar .fc-event {
       cursor: pointer;
+    }
+
+    #calendar .fc-event.fecha-pasada-event,
+    #calendar .fc-event.approved-locked-event {
+      cursor: not-allowed;
+      opacity: 0.72;
     }
 
     #calendar .fc-event.materia-event {

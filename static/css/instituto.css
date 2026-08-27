@@ -2377,3 +2377,33 @@ dd {
 .tag-new-stack .is-deleted {
   display: none;
 }
+
+.teacher-section-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 16px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.teacher-section-tabs a {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  color: #1f2937;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 14px;
+  text-decoration: none;
+}
+
+.teacher-section-tabs a:hover,
+.teacher-section-tabs a.is-active {
+  border-color: #0f766e;
+  color: #0f766e;
+  text-decoration: none;
+}

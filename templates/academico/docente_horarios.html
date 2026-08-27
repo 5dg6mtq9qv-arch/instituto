@@ -1,11 +1,6 @@
 {% extends "web/base.html" %}
-{% load static %}
 
 {% block title %}{{ title }} | Instituto{% endblock %}
-
-{% block extra_head %}
-  <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
-{% endblock %}
 
 {% block content %}
   <header class="page-header">
@@ -14,6 +9,8 @@
       <h1>{{ title }}</h1>
     </div>
   </header>
+
+  {% include "academico/includes/docente_tabs.html" with active_tab="planificaciones" %}
 
   {% if not docente %}
     <section class="panel">
@@ -143,112 +140,10 @@
         </div>
       {% endif %}
     </section>
-
-    <section class="panel edudash-calendar-panel docente-calendar-panel">
-      <header class="docente-panel-header">
-        <div>
-          <span>Calendario</span>
-          <h2>Horario de clases</h2>
-        </div>
-      </header>
-      <div class="edudash-calendar-wrap docente-calendar-wrap">
-        <div id="calendar"></div>
-      </div>
-      {% if not has_events %}
-        <div class="academic-empty-state">
-          No tienes clases asignadas en el calendario.
-        </div>
-      {% endif %}
-    </section>
   {% endif %}
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
-  <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
-  <script src="{% static 'assets/js/full-calendar.js' %}"></script>
-  <script>
-    (function () {
-      const events = {{ calendar_events_json|safe }};
-      const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
-      const hasCalendar = document.getElementById("calendar");
-
-      function paintEvent(element, event) {
-        if (!event.backgroundColor) return;
-        const node = element.get(0);
-        const innerNode = element.find(".fc-event-inner").get(0);
-        const textNodes = element.find(".fc-event-title, .fc-event-time").toArray();
-        const background = event.backgroundColor;
-        const border = event.borderColor || background;
-        const text = event.textColor || "#ffffff";
-
-        [node, innerNode].filter(Boolean).forEach(function (target) {
-          target.style.setProperty("background-color", background, "important");
-          target.style.setProperty("border-color", border, "important");
-          target.style.setProperty("color", text, "important");
-        });
-        textNodes.forEach(function (target) {
-          target.style.setProperty("color", text, "important");
-        });
-      }
-
-      if (hasCalendar) {
-        $(function () {
-          const $calendar = $("#calendar");
-          if ($calendar.data("fullCalendar")) {
-            $calendar.fullCalendar("destroy");
-          }
-          $calendar.fullCalendar({
-            header: {
-              left: "title",
-              center: "agendaDay,agendaWeek,month",
-              right: "prev,next today"
-            },
-            defaultView: "agendaWeek",
-            year: defaultDate.getFullYear(),
-            month: defaultDate.getMonth(),
-            date: defaultDate.getDate(),
-            firstDay: 1,
-            editable: false,
-            selectable: false,
-            allDaySlot: false,
-            minTime: 7,
-            maxTime: 18,
-            slotMinutes: 30,
-            firstHour: 7,
-            slotEventOverlap: false,
-            timeFormat: "H:mm",
-            axisFormat: "H:mm",
-            buttonText: {
-              today: "hoy",
-              month: "mes",
-              week: "semana",
-              day: "dia"
-            },
-            monthNames: ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"],
-            monthNamesShort: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
-            dayNames: ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"],
-            dayNamesShort: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
-            events: events,
-            eventClick: function (event) {
-              if (event.url) {
-                window.location.href = event.url;
-                return false;
-              }
-              return true;
-            },
-            eventRender: function (event, element) {
-              element.attr("title", [event.grupo, event.aula, event.hora, event.materia, event.estado].filter(Boolean).join(" - "));
-              paintEvent(element, event);
-            },
-            eventAfterRender: function (event, element) {
-              paintEvent(element, event);
-            }
-          });
-        });
-      }
-    })();
-  </script>
   <style>
     .docente-summary-panel {
       align-items: center;
@@ -607,20 +502,12 @@
       padding: 5px 10px;
     }
 
-    .docente-calendar-wrap {
-      min-height: 680px;
-    }
-
     .academic-empty-state {
       background: #ffffff;
       color: #667085;
       margin-top: 16px;
       padding: 28px;
       text-align: center;
-    }
-
-    #calendar .fc-event {
-      cursor: pointer;
     }
 
     @media (max-width: 991.98px) {

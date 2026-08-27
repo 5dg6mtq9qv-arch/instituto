@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 from django.http import HttpResponse
 from django.urls import reverse_lazy
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Prefetch
 from django.db.models import Count, Min, Q
 from django.contrib import messages
@@ -82,6 +82,76 @@ def user_can_access_coordinacion(user):
 
 
 UNASSIGNED_CLASS_ALERT_DAYS = 30
+APPROVED_CLASS_LOCK_MESSAGE = "La clase no se puede modificar porque tiene una planificacion aprobada."
+
+
+def file_attachment_meta(file_field):
+    if not file_field:
+        return None
+    name = str(file_field.name or "")
+    filename = name.rsplit("/", 1)[-1]
+    extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    file_types = {
+        "pdf": {
+            "extensions": {"pdf"},
+            "icon": "ri-file-pdf-line",
+            "label": "PDF",
+        },
+        "word": {
+            "extensions": {"doc", "docx", "odt"},
+            "icon": "ri-file-word-line",
+            "label": "Word",
+        },
+        "excel": {
+            "extensions": {"csv", "ods", "xls", "xlsx"},
+            "icon": "ri-file-excel-line",
+            "label": "Excel",
+        },
+        "ppt": {
+            "extensions": {"odp", "ppt", "pptx"},
+            "icon": "ri-file-ppt-line",
+            "label": "Presentacion",
+        },
+        "image": {
+            "extensions": {"gif", "jpeg", "jpg", "png", "svg", "webp"},
+            "icon": "ri-file-image-line",
+            "label": "Imagen",
+        },
+        "zip": {
+            "extensions": {"7z", "gz", "rar", "tar", "zip"},
+            "icon": "ri-file-zip-line",
+            "label": "Comprimido",
+        },
+        "video": {
+            "extensions": {"avi", "mkv", "mov", "mp4", "webm"},
+            "icon": "ri-file-video-line",
+            "label": "Video",
+        },
+        "audio": {
+            "extensions": {"m4a", "mp3", "ogg", "wav"},
+            "icon": "ri-file-music-line",
+            "label": "Audio",
+        },
+        "text": {
+            "extensions": {"md", "rtf", "txt"},
+            "icon": "ri-file-text-line",
+            "label": "Texto",
+        },
+    }
+    for kind, config in file_types.items():
+        if extension in config["extensions"]:
+            return {
+                "kind": kind,
+                "icon": config["icon"],
+                "label": config["label"],
+                "filename": filename,
+            }
+    return {
+        "kind": "file",
+        "icon": "ri-file-line",
+        "label": extension.upper() if extension else "Archivo",
+        "filename": filename or "Archivo",
+    }
 
 
 def can_assign_docente(user):
@@ -620,45 +690,138 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
 
             materia_id = request.POST.get("materia") or ""
             asignar_periodo = request.POST.get("asignar_periodo") == "on"
+            today = timezone.localdate()
+            if fecha_clase < today:
+                messages.error(request, "No se puede modificar una clase con fecha anterior a hoy.")
+                return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
+            selected_clase = Clase.objects.filter(horario_aula_curso=horario_aula_curso, fecha=fecha_clase).first()
+            if selected_clase and selected_clase.estado_planificacion == "aprobada" and not asignar_periodo:
+                messages.error(request, APPROVED_CLASS_LOCK_MESSAGE)
+                return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
+
+            materia_grupo = None
+            if materia_id:
+                materia = get_object_or_404(Materia, pk=materia_id)
+                materia_grupo, _ = MateriaCurso.objects.get_or_create(
+                    materia=materia,
+                    grupo=curso,
+                )
+
             with transaction.atomic():
-                Clase.objects.filter(horario_aula_curso=horario_aula_curso, fecha=fecha_clase).delete()
-                if materia_id:
-                    materia = get_object_or_404(Materia, pk=materia_id)
-                    materia_grupo, _ = MateriaCurso.objects.get_or_create(
-                        materia=materia,
-                        grupo=curso,
-                    )
-                    Clase.objects.create(
-                        horario_aula_curso=horario_aula_curso,
-                        materia_curso=materia_grupo,
-                        fecha=fecha_clase,
-                    )
-                    created_count = 1
-                    if asignar_periodo:
-                        current_date = curso_periodo.periodo.fecha_inicio
-                        while current_date <= curso_periodo.periodo.fecha_fin:
-                            if (
-                                current_date != fecha_clase
-                                and weekday_to_dia[current_date.weekday()] == horario_aula_curso.horario_dia.dia.dia
-                            ):
-                                _, created = Clase.objects.get_or_create(
-                                    horario_aula_curso=horario_aula_curso,
-                                    fecha=current_date,
-                                    defaults={"materia_curso": materia_grupo},
-                                )
-                                if created:
-                                    created_count += 1
-                            current_date += timedelta(days=1)
-                    if asignar_periodo:
-                        messages.success(request, f"Clase asignada correctamente en {created_count} fecha(s) libre(s).")
-                    else:
-                        messages.success(request, "Clase asignada correctamente.")
+                updated_count, locked_count = self.apply_clase_assignment(horario_aula_curso, fecha_clase, materia_grupo)
+                if asignar_periodo:
+                    current_date = max(curso_periodo.periodo.fecha_inicio, today)
+                    while current_date <= curso_periodo.periodo.fecha_fin:
+                        if (
+                            current_date != fecha_clase
+                            and weekday_to_dia[current_date.weekday()] == horario_aula_curso.horario_dia.dia.dia
+                        ):
+                            updated, locked = self.apply_clase_assignment(
+                                horario_aula_curso,
+                                current_date,
+                                materia_grupo,
+                            )
+                            updated_count += updated
+                            locked_count += locked
+                        current_date += timedelta(days=1)
+                    action = "asignada" if materia_grupo else "removida"
+                    if updated_count:
+                        messages.success(request, f"Clase {action} correctamente en {updated_count} fecha(s) editable(s).")
+                    if locked_count:
+                        messages.warning(
+                            request,
+                            f"{locked_count} clase(s) no se modificaron porque tienen una planificacion aprobada.",
+                        )
+                    if not updated_count and not locked_count:
+                        messages.info(request, "No habia clases editables para modificar en este horario.")
+                elif locked_count:
+                    messages.error(request, APPROVED_CLASS_LOCK_MESSAGE)
+                elif materia_grupo:
+                    messages.success(request, "Clase asignada correctamente.")
                 else:
                     messages.success(request, "Clase removida correctamente.")
             return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
         messages.error(request, "Selecciona un horario del calendario para asignar la clase.")
         return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
+
+    def apply_clase_assignment(self, horario_aula_curso, fecha_clase, materia_grupo):
+        clase = Clase.objects.filter(horario_aula_curso=horario_aula_curso, fecha=fecha_clase).first()
+        if clase and clase.estado_planificacion == "aprobada":
+            return 0, 1
+        if not materia_grupo:
+            if clase:
+                self.delete_clase_assignment(clase)
+                return 1, 0
+            return 0, 0
+        if not clase:
+            Clase.objects.create(
+                horario_aula_curso=horario_aula_curso,
+                materia_curso=materia_grupo,
+                fecha=fecha_clase,
+            )
+            return 1, 0
+        if clase.materia_curso_id != materia_grupo.pk:
+            reset_fields = self.reset_clase_planificacion(clase)
+            clase.materia_curso = materia_grupo
+            clase.save(update_fields=["materia_curso", *reset_fields])
+        return 1, 0
+
+    def delete_clase_assignment(self, clase):
+        self.clear_clase_relations(clase)
+        clase.delete()
+
+    def reset_clase_planificacion(self, clase):
+        self.clear_clase_relations(clase)
+        clase.tema = None
+        clase.subtema = None
+        clase.descripcion = ""
+        clase.estado_planificacion = "pendiente"
+        clase.notas_revision = ""
+        clase.observaciones_revision = {}
+        clase.revisado_por = None
+        clase.fecha_revision = None
+        clase.revision_tema_ok = False
+        clase.revision_detalle_ok = False
+        clase.revision_competencias_ok = False
+        clase.revision_estrategias_ok = False
+        clase.revision_recursos_ok = False
+        return [
+            "tema",
+            "subtema",
+            "descripcion",
+            "estado_planificacion",
+            "notas_revision",
+            "observaciones_revision",
+            "revisado_por",
+            "fecha_revision",
+            "revision_tema_ok",
+            "revision_detalle_ok",
+            "revision_competencias_ok",
+            "revision_estrategias_ok",
+            "revision_recursos_ok",
+        ]
+
+    def clear_clase_relations(self, clase):
+        clase.competencias.clear()
+        clase.estrategias.clear()
+        ClaseRecurso.objects.filter(clase=clase).delete()
+        self.delete_legacy_clase_recursos(clase.pk)
+
+    def delete_legacy_clase_recursos(self, clase_id):
+        if connection.vendor != "postgresql":
+            return
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'academico'
+                  AND table_name = 'clase_recursos'
+                """
+            )
+            if cursor.fetchone():
+                cursor.execute("DELETE FROM academico.clase_recursos WHERE clase_id = %s", [clase_id])
 
     def get_context(self):
         cursos = Curso.objects.filter(activo=True).order_by("nombre")
@@ -723,6 +886,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             if selected_curso_periodo:
                 current_date = selected_curso_periodo.periodo.fecha_inicio
                 end_date = selected_curso_periodo.periodo.fecha_fin
+                today = timezone.localdate()
                 calendar_default_date = current_date.isoformat()
                 while current_date <= end_date:
                     day_name = weekday_to_dia[current_date.weekday()]
@@ -761,6 +925,19 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                             title_parts.append(docente_label)
                         elif sin_docente:
                             title_parts.append("Sin docente asignado")
+                        approved_locked = bool(clase and clase.estado_planificacion == "aprobada")
+                        class_name = "materia-event sin-docente-event" if sin_docente else ("materia-event" if materia else "sin-materia-event")
+                        is_past_date = current_date < today
+                        editable_date = not is_past_date and not approved_locked
+                        if is_past_date:
+                            class_name = f"{class_name} fecha-pasada-event"
+                        if approved_locked:
+                            class_name = f"{class_name} approved-locked-event"
+                        locked_reason = ""
+                        if approved_locked:
+                            locked_reason = APPROVED_CLASS_LOCK_MESSAGE
+                        elif is_past_date:
+                            locked_reason = "No se puede modificar una clase con fecha anterior a hoy."
                         calendar_events.append(
                             {
                                 "id": f"{horario_aula_curso.pk}-{current_date.isoformat()}",
@@ -770,7 +947,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 "start": f"{current_date.isoformat()}T{horario.hora_inicio:%H:%M:%S}",
                                 "end": f"{current_date.isoformat()}T{horario.hora_fin:%H:%M:%S}",
                                 "allDay": False,
-                                "className": "materia-event sin-docente-event" if sin_docente else ("materia-event" if materia else "sin-materia-event"),
+                                "className": class_name,
                                 "color": event_color,
                                 "backgroundColor": event_color,
                                 "borderColor": "#f59e0b" if sin_docente else event_color,
@@ -780,6 +957,8 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 "materiaId": materia_id or "",
                                 "materia": getattr(materia, "nombre", "") if materia else "",
                                 "docente": docente_label or ("Sin docente asignado" if sin_docente else ""),
+                                "editableDate": editable_date,
+                                "lockedReason": locked_reason,
                             }
                         )
                     if blocks:
@@ -1682,6 +1861,249 @@ class DocenteHorariosView(LoginRequiredMixin, View):
         }
 
 
+class DocenteCalendarioMixin:
+    weekday_headers = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
+
+    def get_docente(self):
+        docente = getattr(self.request.user, "partner", None)
+        if docente and docente.es_docente:
+            return docente
+        return None
+
+    def get_selected_date(self):
+        selected = (self.request.GET.get("fecha") or "").strip()
+        if selected:
+            try:
+                return date.fromisoformat(selected)
+            except ValueError:
+                pass
+        return timezone.localdate()
+
+    def get_week_bounds(self, selected_date):
+        week_start = selected_date - timedelta(days=selected_date.weekday())
+        return week_start, week_start + timedelta(days=6)
+
+    def get_docente_clases_queryset(self, docente):
+        return (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "tema",
+                "subtema",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__dia",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .filter(materia_curso__profesor_materia_cursos__partner=docente)
+            .distinct()
+            .order_by(
+                "fecha",
+                "horario_aula_curso__horario_dia__horario__hora_inicio",
+                "materia_curso__grupo__nombre",
+                "materia_curso__materia__nombre",
+            )
+        )
+
+    def build_schedule_row(self, clase):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        materia = clase.materia_curso.materia
+        grupo = clase.materia_curso.grupo
+        aula = clase.horario_aula_curso.aula_curso.aula
+        return {
+            "clase": clase,
+            "fecha": clase.fecha,
+            "weekday": clase.fecha.weekday(),
+            "time_key": (horario.hora_inicio, horario.hora_fin),
+            "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
+            "materia": materia.nombre,
+            "materia_corta": materia.nombre_corto or materia.nombre,
+            "grupo": grupo.nombre,
+            "aula": str(aula),
+            "tema": str(clase.tema) if clase.tema else "",
+            "subtema": str(clase.subtema) if clase.subtema else "",
+            "estado": clase.get_estado_planificacion_display(),
+            "color": materia.color,
+            "url": str(reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk})),
+        }
+
+    def build_calendar_event(self, clase):
+        row = self.build_schedule_row(clase)
+        start_time, end_time = row["time_key"]
+        event_color = row["color"]
+        title = f"{row['materia_corta']} · {row['grupo']}"
+        return {
+            "id": clase.pk,
+            "title": title,
+            "start": f"{row['fecha'].isoformat()}T{start_time:%H:%M:%S}",
+            "end": f"{row['fecha'].isoformat()}T{end_time:%H:%M:%S}",
+            "allDay": False,
+            "className": f"materia-event docente-schedule-event estado-{clase.estado_planificacion}",
+            "backgroundColor": event_color,
+            "borderColor": event_color,
+            "textColor": readable_text_color(event_color),
+            "materia": row["materia"],
+            "grupo": row["grupo"],
+            "aula": row["aula"],
+            "hora": row["hora"],
+            "tema": row["tema"],
+            "subtema": row["subtema"],
+            "estado": row["estado"],
+            "url": row["url"],
+        }
+
+
+class DocenteCalendarioView(LoginRequiredMixin, DocenteCalendarioMixin, View):
+    template_name = "academico/docente_calendario.html"
+
+    def get(self, request):
+        docente = self.get_docente()
+        selected_date = self.get_selected_date()
+        week_start, week_end = self.get_week_bounds(selected_date)
+        export_base_url = reverse_lazy("academico:docente_calendario_exportar")
+        export_url = f"{export_base_url}?{urlencode({'fecha': selected_date.isoformat()})}"
+        context = {
+            "title": "Mi calendario",
+            "docente": docente,
+            "selected_date": selected_date,
+            "week_start": week_start,
+            "week_end": week_end,
+            "calendar_events_json": json.dumps([]),
+            "calendar_default_date": selected_date.isoformat(),
+            "has_events": False,
+            "week_count": 0,
+            "total_count": 0,
+            "materia_count": 0,
+            "grupo_count": 0,
+            "export_base_url": export_base_url,
+            "export_url": export_url,
+        }
+        if not docente:
+            return render(request, self.template_name, context)
+
+        clases = list(self.get_docente_clases_queryset(docente))
+        week_rows = [self.build_schedule_row(clase) for clase in clases if week_start <= clase.fecha <= week_end]
+        context.update(
+            {
+                "calendar_events_json": json.dumps([self.build_calendar_event(clase) for clase in clases]),
+                "has_events": bool(clases),
+                "week_count": len(week_rows),
+                "total_count": len(clases),
+                "materia_count": len({row["materia"] for row in week_rows}),
+                "grupo_count": len({row["grupo"] for row in week_rows}),
+            }
+        )
+        return render(request, self.template_name, context)
+
+
+class DocenteCalendarioExportView(LoginRequiredMixin, DocenteCalendarioMixin, View):
+    def get(self, request):
+        docente = self.get_docente()
+        if not docente:
+            return HttpResponse("Tu usuario no esta vinculado a un docente activo.", status=403)
+
+        selected_date = self.get_selected_date()
+        week_start, week_end = self.get_week_bounds(selected_date)
+        rows = [
+            self.build_schedule_row(clase)
+            for clase in self.get_docente_clases_queryset(docente).filter(fecha__range=(week_start, week_end))
+        ]
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = safe_sheet_title("Mi horario")
+        self.write_week_sheet(sheet, docente, week_start, week_end, rows)
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        filename = f"mi_horario_{week_start:%Y%m%d}.xlsx"
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    def write_week_sheet(self, sheet, docente, week_start, week_end, rows):
+        title_fill = PatternFill("solid", fgColor="DCEBFF")
+        header_fill = PatternFill("solid", fgColor="0F766E")
+        time_fill = PatternFill("solid", fgColor="134E4A")
+        empty_fill = PatternFill("solid", fgColor="FFFFFF")
+        thin = Side(style="thin", color="D7DEE8")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
+        title_cell = sheet.cell(row=1, column=1, value=f"Horario semanal - {docente.nombre}")
+        title_cell.font = Font(bold=True, size=14, color="111827")
+        title_cell.fill = title_fill
+        title_cell.alignment = center
+
+        sheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=8)
+        week_cell = sheet.cell(row=2, column=1, value=f"Semana {week_start:%d/%m/%Y} - {week_end:%d/%m/%Y}")
+        week_cell.font = Font(bold=True, color="111827")
+        week_cell.fill = title_fill
+        week_cell.alignment = center
+
+        sheet.cell(row=4, column=1, value="Hora")
+        for col, day in enumerate(self.weekday_headers, start=2):
+            day_date = week_start + timedelta(days=col - 2)
+            sheet.cell(row=4, column=col, value=f"{day}\n{day_date:%d/%m}")
+        for col in range(1, 9):
+            cell = sheet.cell(row=4, column=col)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = header_fill
+            cell.border = border
+            cell.alignment = center
+
+        time_slots = sorted({row["time_key"] for row in rows})
+        week_matrix = {}
+        for row in rows:
+            week_matrix.setdefault((row["time_key"], row["weekday"]), []).append(row)
+
+        current_row = 5
+        if not time_slots:
+            sheet.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=8)
+            cell = sheet.cell(row=current_row, column=1, value="Sin clases asignadas en esta semana.")
+            cell.alignment = center
+            cell.border = border
+        for time_slot in time_slots:
+            start_time, end_time = time_slot
+            time_cell = sheet.cell(row=current_row, column=1, value=f"{start_time:%H:%M} - {end_time:%H:%M}")
+            time_cell.font = Font(bold=True, color="FFFFFF")
+            time_cell.fill = time_fill
+            time_cell.border = border
+            time_cell.alignment = center
+            max_lines = 1
+            for weekday in range(7):
+                cell = sheet.cell(row=current_row, column=weekday + 2)
+                entries = week_matrix.get((time_slot, weekday), [])
+                if entries:
+                    cell.value = "\n\n".join(self.schedule_label(row) for row in entries)
+                    cell.fill = PatternFill("solid", fgColor=xlsx_color(entries[0]["color"]))
+                    cell.font = Font(color=xlsx_color(readable_text_color(entries[0]["color"])), bold=True)
+                    max_lines = max(max_lines, len(cell.value.splitlines()))
+                else:
+                    cell.value = ""
+                    cell.fill = empty_fill
+                cell.border = border
+                cell.alignment = center
+            sheet.row_dimensions[current_row].height = max(50, min(120, max_lines * 18))
+            current_row += 1
+
+        widths = [18, 26, 26, 26, 26, 26, 26, 26]
+        for col, width in enumerate(widths, start=1):
+            sheet.column_dimensions[get_column_letter(col)].width = width
+        sheet.freeze_panes = "B5"
+
+    def schedule_label(self, row):
+        parts = [row["materia"], row["grupo"], row["aula"]]
+        if row["tema"]:
+            parts.append(row["tema"])
+        if row["subtema"]:
+            parts.append(row["subtema"])
+        return "\n".join(parts)
+
+
 class DocenteClasePlanificacionView(LoginRequiredMixin, View):
     template_name = "academico/docente_clase_planificacion.html"
 
@@ -1732,8 +2154,8 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                 clase = form.save()
                 self.sync_tags(clase.competencias, Competencia, "competencias")
                 self.sync_tags(clase.estrategias, Estrategia, "estrategias")
-                recurso_ids = self.sync_tags(clase.recursos, Recurso, "recursos")
-                self.sync_resource_files(clase, recurso_ids)
+                recurso_ids, new_resources_by_index = self.sync_tags(clase.recursos, Recurso, "recursos")
+                self.sync_resource_files(clase, recurso_ids, new_resources_by_index)
                 if action == "send":
                     clase.estado_planificacion = "revision"
                     clase.notas_revision = ""
@@ -1798,18 +2220,26 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
 
     def sync_tags(self, relation, model, prefix):
         selected_ids = self.get_selected_tag_ids(prefix)
-        for nombre in self.get_new_tag_names(prefix):
-            obj, _ = model.objects.get_or_create(nombre=nombre)
+        new_items_by_index = {}
+        for item in self.get_posted_new_tags(prefix):
+            obj, _ = model.objects.get_or_create(nombre=item["nombre"])
             selected_ids.add(obj.pk)
+            new_items_by_index[item["index"]] = obj
         relation.set(selected_ids)
-        return selected_ids
+        return selected_ids, new_items_by_index
 
-    def sync_resource_files(self, clase, recurso_ids):
+    def sync_resource_files(self, clase, recurso_ids, new_resources_by_index):
         ClaseRecurso.objects.filter(clase=clase).exclude(recurso_id__in=recurso_ids).delete()
         for recurso_id in recurso_ids:
             clase_recurso, _ = ClaseRecurso.objects.get_or_create(clase=clase, recurso_id=recurso_id)
             uploaded = self.request.FILES.get(f"recurso_archivo_{recurso_id}")
             if uploaded:
+                clase_recurso.archivo = uploaded
+                clase_recurso.save(update_fields=["archivo"])
+        for index, recurso in new_resources_by_index.items():
+            uploaded = self.request.FILES.get(f"recursos-{index}-archivo")
+            if uploaded:
+                clase_recurso, _ = ClaseRecurso.objects.get_or_create(clase=clase, recurso=recurso)
                 clase_recurso.archivo = uploaded
                 clase_recurso.save(update_fields=["archivo"])
 
@@ -1947,14 +2377,18 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
     ):
         if self.request.method == "POST":
             selected_ids = self.get_selected_tag_ids(prefix)
-        items = [
-            {
-                "obj": obj,
-                "selected": obj.pk in selected_ids,
-                "clase_recurso": (clase_recursos_by_id or {}).get(obj.pk),
-            }
-            for obj in queryset
-        ]
+        items = []
+        for obj in queryset:
+            clase_recurso = (clase_recursos_by_id or {}).get(obj.pk)
+            file_meta = file_attachment_meta(clase_recurso.archivo) if clase_recurso else None
+            items.append(
+                {
+                    "obj": obj,
+                    "selected": obj.pk in selected_ids,
+                    "clase_recurso": clase_recurso,
+                    "file_meta": file_meta,
+                }
+            )
         return {
             "title": title,
             "prefix": prefix,
@@ -2329,7 +2763,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
             "horario": horario,
             "docentes": docentes,
             "tiene_docente": bool(docentes),
-            "resource_items": list(clase.clase_recursos.all()),
+            "resource_items": self.get_resource_items(clase),
             "review_items": review_items,
             "review_total": len(review_items),
             "review_checked": checked_review_items,
@@ -2342,6 +2776,17 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
             "list_url": reverse_lazy("academico:coordinacion_revision_planificaciones"),
             "planificacion_docente_url": reverse_lazy("academico:planificacion_docente"),
         }
+
+    def get_resource_items(self, clase):
+        return [
+            {
+                "clase_recurso": item,
+                "recurso": item.recurso,
+                "archivo": item.archivo,
+                "file_meta": file_attachment_meta(item.archivo),
+            }
+            for item in clase.clase_recursos.all()
+        ]
 
 
 class AsignaturaListView(InstitutoListView):

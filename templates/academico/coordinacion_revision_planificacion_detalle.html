@@ -165,10 +165,20 @@
             <div class="review-resource-list">
               {% for item in resource_items %}
                 <div class="review-resource-item">
-                  <i class="ri-attachment-2"></i>
+                  {% if item.file_meta %}
+                    <span class="review-file-badge file-kind-{{ item.file_meta.kind }}">
+                      <i class="{{ item.file_meta.icon }}"></i>
+                      {{ item.file_meta.label }}
+                    </span>
+                  {% else %}
+                    <span class="review-file-badge">
+                      <i class="ri-attachment-2"></i>
+                      Recurso
+                    </span>
+                  {% endif %}
                   <span>{{ item.recurso }}</span>
                   {% if item.archivo %}
-                    <a href="{{ item.archivo.url }}" target="_blank">Ver archivo</a>
+                    <a href="{{ item.archivo.url }}" target="_blank">{{ item.file_meta.filename|default:"Ver archivo" }}</a>
                   {% endif %}
                 </div>
               {% empty %}
@@ -606,6 +616,68 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .review-file-badge {
+      align-items: center;
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #475569;
+      display: inline-flex;
+      font-size: 11px;
+      font-weight: 900;
+      gap: 4px;
+      justify-content: center;
+      line-height: 1;
+      min-width: auto;
+      padding: 6px 8px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .file-kind-pdf {
+      background: #fef2f2;
+      color: #b91c1c;
+    }
+
+    .file-kind-word {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .file-kind-excel {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .file-kind-ppt {
+      background: #fff7ed;
+      color: #c2410c;
+    }
+
+    .file-kind-image {
+      background: #fdf4ff;
+      color: #a21caf;
+    }
+
+    .file-kind-zip {
+      background: #fffbeb;
+      color: #b45309;
+    }
+
+    .file-kind-video {
+      background: #eef2ff;
+      color: #4338ca;
+    }
+
+    .file-kind-audio {
+      background: #f0fdfa;
+      color: #0f766e;
+    }
+
+    .file-kind-text {
+      background: #f8fafc;
+      color: #334155;
     }
 
     .review-observation-panel {
