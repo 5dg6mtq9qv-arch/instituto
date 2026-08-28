@@ -6,6 +6,7 @@ from io import BytesIO
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -16,11 +17,14 @@ from apps.academico.models import (
     Aula,
     AulaCurso,
     Clase,
+    ClaseAsistencia,
+    ClaseEstudianteMovimiento,
     Competencia,
     Curso,
     CursoPeriodo,
     Dia,
     Estrategia,
+    GrupoEstudiante,
     Horario,
     HorarioAulaCurso,
     HorarioDia,
@@ -34,7 +38,8 @@ from apps.academico.models import (
     Tema,
 )
 from apps.core.current_user import set_current_request
-from apps.core.models import Partner, TipoIdentificacion
+from apps.core.models import Empresa, Partner, TipoIdentificacion
+from apps.matricula.models import FichaInscripcion
 
 
 class DocenteHorariosPanelTests(TestCase):
@@ -44,9 +49,10 @@ class DocenteHorariosPanelTests(TestCase):
         self.media_override = override_settings(MEDIA_ROOT=self.media_root)
         self.media_override.enable()
         self.user = get_user_model().objects.create_user(username="docente", password="ClaveActual987!")
-        tipo_identificacion = TipoIdentificacion.objects.create(nombre="Cedula", codigo="CED")
+        self.empresa = Empresa.objects.create(ruc="0999999999001", razon_social="Instituto Prueba")
+        self.tipo_identificacion = TipoIdentificacion.objects.create(nombre="Cedula", codigo="CED")
         self.docente = Partner.objects.create(
-            tipo_identificacion=tipo_identificacion,
+            tipo_identificacion=self.tipo_identificacion,
             identificacion="DOC-001",
             nombre="Docente Prueba",
             usuario=self.user,
@@ -133,6 +139,206 @@ class DocenteHorariosPanelTests(TestCase):
         self.user.is_staff = True
         self.user.is_superuser = True
         self.user.save(update_fields=["is_staff", "is_superuser"])
+
+    def create_student_ficha(self, nombre="Estudiante Prueba", identificacion="EST-001", numero="F-001"):
+        estudiante = Partner.objects.create(
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion=identificacion,
+            nombre=nombre,
+            es_estudiante=True,
+            activo=True,
+        )
+        representante = Partner.objects.create(
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion=f"REP-{identificacion}",
+            nombre=f"Representante {nombre}",
+            es_representante=True,
+            activo=True,
+        )
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero=numero,
+            fecha=timezone.localdate(),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            estado="activa",
+            activo=True,
+        )
+        return estudiante, ficha
+
+    def test_group_student_assignment_view_creates_academic_group_assignment(self):
+        self.make_superuser()
+        estudiante, ficha = self.create_student_ficha()
+        self.client.force_login(self.user)
+
+        page_response = self.client.get(reverse("academico:grupo_estudiantes"), HTTP_HOST="localhost")
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "student-transfer-board")
+        self.assertContains(page_response, "data-transfer-action=\"assign\"")
+
+        response = self.client.post(
+            reverse("academico:grupo_estudiantes"),
+            {
+                "assignment_action": "sync_students",
+                "grupo": self.curso.pk,
+                "fecha_asignacion": timezone.localdate().isoformat(),
+                "fichas": [ficha.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        asignacion = GrupoEstudiante.objects.get(ficha_inscripcion=ficha)
+        self.assertEqual(asignacion.estudiante, estudiante)
+        self.assertEqual(asignacion.grupo, self.curso)
+        self.assertEqual(asignacion.estado, "activo")
+
+    def test_group_student_assignment_view_can_return_student_to_unassigned(self):
+        self.make_superuser()
+        estudiante, ficha = self.create_student_ficha()
+        asignacion = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:grupo_estudiantes"),
+            {
+                "assignment_action": "sync_students",
+                "grupo": self.curso.pk,
+                "fecha_asignacion": timezone.localdate().isoformat(),
+                "asignaciones_remover": [asignacion.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(GrupoEstudiante.objects.filter(pk=asignacion.pk).exists())
+
+    def test_group_assignment_is_default_roster_for_all_group_classes(self):
+        estudiante, ficha = self.create_student_ficha()
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+        )
+        self.client.force_login(self.user)
+
+        first_response = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+        second_response = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[self.revision.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual([row["estudiante"] for row in first_response.context["rows"]], [estudiante])
+        self.assertEqual([row["estudiante"] for row in second_response.context["rows"]], [estudiante])
+        self.assertFalse(ClaseAsistencia.objects.filter(estudiante=estudiante).exists())
+
+    def test_class_student_movement_requires_same_materia_and_group(self):
+        estudiante, ficha = self.create_student_ficha()
+        asignacion = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+        )
+        valid_movement = ClaseEstudianteMovimiento(
+            asignacion=asignacion,
+            clase_origen=self.pendiente,
+            clase_destino=self.revision,
+        )
+
+        valid_movement.full_clean()
+
+        otra_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
+        otra_materia_curso = MateriaCurso.objects.create(materia=otra_materia, grupo=self.curso)
+        wrong_class = Clase.objects.create(
+            horario_aula_curso=self.horario_aula_curso,
+            materia_curso=otra_materia_curso,
+            fecha=timezone.localdate() + timedelta(days=25),
+        )
+        invalid_movement = ClaseEstudianteMovimiento(
+            asignacion=asignacion,
+            clase_origen=self.pendiente,
+            clase_destino=wrong_class,
+        )
+
+        with self.assertRaises(ValidationError) as error:
+            invalid_movement.full_clean()
+
+        self.assertIn("Solo puedes mover entre clases de la misma materia y grupo.", error.exception.message_dict["clase_destino"])
+
+    def test_docente_attendance_uses_group_roster_and_movement_exceptions(self):
+        estudiante_uno, ficha_uno = self.create_student_ficha(
+            nombre="Ana Estudiante",
+            identificacion="EST-101",
+            numero="F-101",
+        )
+        estudiante_dos, ficha_dos = self.create_student_ficha(
+            nombre="Luis Estudiante",
+            identificacion="EST-102",
+            numero="F-102",
+        )
+        asignacion_uno = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha_uno,
+            estudiante=estudiante_uno,
+            grupo=self.curso,
+        )
+        asignacion_dos = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha_dos,
+            estudiante=estudiante_dos,
+            grupo=self.curso,
+        )
+        ClaseEstudianteMovimiento.objects.create(
+            asignacion=asignacion_dos,
+            clase_origen=self.pendiente,
+            clase_destino=self.revision,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "attendance-status-group")
+        self.assertEqual([row["estudiante"] for row in response.context["rows"]], [estudiante_uno])
+        self.assertEqual(response.context["moved_out_rows"][0]["estudiante"], estudiante_dos)
+
+        response = self.client.post(
+            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+            {
+                f"estado_{asignacion_uno.pk}": "ausente",
+                f"observacion_{asignacion_uno.pk}": "No asistio.",
+                f"estado_{asignacion_dos.pk}": "presente",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        asistencia = ClaseAsistencia.objects.get(clase=self.pendiente, estudiante=estudiante_uno)
+        self.assertEqual(asistencia.estado, "ausente")
+        self.assertEqual(asistencia.observacion, "No asistio.")
+        self.assertFalse(ClaseAsistencia.objects.filter(clase=self.pendiente, estudiante=estudiante_dos).exists())
+
+        destination_response = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[self.revision.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(destination_response.status_code, 200)
+        self.assertEqual(len(destination_response.context["rows"]), 2)
+        incoming_rows = [row for row in destination_response.context["rows"] if row["incoming"]]
+        self.assertEqual(incoming_rows[0]["estudiante"], estudiante_dos)
 
     def test_docente_dashboard_renders_panel_cards(self):
         self.client.force_login(self.user)

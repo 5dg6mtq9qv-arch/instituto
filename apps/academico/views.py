@@ -21,12 +21,15 @@ from openpyxl.utils import get_column_letter
 
 from apps.core.models import Empresa, Partner
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
+from apps.matricula.models import FichaInscripcion
 
 from .forms import (
     AsignaturaForm,
     AulaForm,
     BancoPreguntaForm,
+    ClaseEstudianteMovimientoForm,
     CursoForm,
+    GrupoEstudianteBulkForm,
     HorarioDistribucionBaseForm,
     HorarioDistribucionItemForm,
     HorarioDistribucionFormSet,
@@ -51,12 +54,15 @@ from .models import (
     AulaCurso,
     BancoPregunta,
     Clase,
+    ClaseAsistencia,
+    ClaseEstudianteMovimiento,
     Curso,
     CursoPeriodo,
     Dia,
     Horario,
     HorarioAulaCurso,
     HorarioClase,
+    GrupoEstudiante,
     HorarioDia,
     Materia,
     MateriaCurso,
@@ -1651,6 +1657,266 @@ class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, 
         }
 
 
+class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.view_grupoestudiante"
+    template_name = "academico/grupo_estudiantes.html"
+
+    def get(self, request):
+        selected_group = self.get_selected_group()
+        return render(request, self.template_name, self.get_context(selected_group=selected_group))
+
+    def post(self, request):
+        if not self.can_manage(request.user):
+            return self.handle_no_permission()
+
+        selected_group = self.get_selected_group()
+        action = request.POST.get("assignment_action") or "assign_students"
+        if action == "sync_students":
+            return self.handle_sync_students(request, selected_group)
+        if action == "assign_students":
+            return self.handle_assign_students(request, selected_group)
+        if action == "move_student":
+            return self.handle_move_student(request, selected_group)
+        if action == "cancel_move":
+            return self.handle_cancel_move(request, selected_group)
+        messages.error(request, "Accion no valida.")
+        return self.redirect_to_group(selected_group)
+
+    def can_manage(self, user):
+        return (
+            user.is_superuser
+            or user.has_perm("academico.add_grupoestudiante")
+            or user.has_perm("academico.change_grupoestudiante")
+        )
+
+    def get_selected_group(self):
+        grupo_id = self.request.POST.get("grupo") or self.request.GET.get("grupo") or ""
+        if grupo_id:
+            try:
+                return Curso.objects.filter(pk=grupo_id, activo=True).first()
+            except (TypeError, ValueError):
+                return None
+        return Curso.objects.filter(activo=True).order_by("nombre").first()
+
+    def redirect_to_group(self, group=None):
+        url = reverse_lazy("academico:grupo_estudiantes")
+        if group:
+            url = f"{url}?{urlencode({'grupo': group.pk})}"
+        return redirect(url)
+
+    def handle_assign_students(self, request, selected_group):
+        form = GrupoEstudianteBulkForm(request.POST, selected_group=selected_group)
+        if form.is_valid():
+            grupo = form.cleaned_data["grupo"]
+            saved = 0
+            with transaction.atomic():
+                for ficha in form.cleaned_data["fichas"]:
+                    asignacion = GrupoEstudiante(
+                        ficha_inscripcion=ficha,
+                        estudiante=ficha.estudiante,
+                        grupo=grupo,
+                        fecha_asignacion=form.cleaned_data["fecha_asignacion"],
+                        estado="activo",
+                        usuario_updated=request.user,
+                    )
+                    asignacion.full_clean()
+                    asignacion.save()
+                    saved += 1
+            if saved:
+                messages.success(request, f"{saved} estudiante(s) asignado(s) al grupo.")
+            else:
+                messages.info(request, "Selecciona al menos un estudiante sin grupo.")
+            return self.redirect_to_group(grupo)
+        return render(request, self.template_name, self.get_context(selected_group=selected_group, bulk_form=form))
+
+    def handle_sync_students(self, request, selected_group):
+        form = GrupoEstudianteBulkForm(request.POST, selected_group=selected_group)
+        if form.is_valid():
+            grupo = form.cleaned_data["grupo"]
+            assignments_to_remove = GrupoEstudiante.objects.filter(
+                pk__in=request.POST.getlist("asignaciones_remover"),
+                grupo=grupo,
+            )
+            removed = assignments_to_remove.count()
+            saved = 0
+            with transaction.atomic():
+                assignments_to_remove.delete()
+                for ficha in form.cleaned_data["fichas"]:
+                    if GrupoEstudiante.objects.filter(ficha_inscripcion=ficha).exists():
+                        continue
+                    asignacion = GrupoEstudiante(
+                        ficha_inscripcion=ficha,
+                        estudiante=ficha.estudiante,
+                        grupo=grupo,
+                        fecha_asignacion=form.cleaned_data["fecha_asignacion"],
+                        estado="activo",
+                        usuario_updated=request.user,
+                    )
+                    asignacion.full_clean()
+                    asignacion.save()
+                    saved += 1
+            if saved or removed:
+                messages.success(
+                    request,
+                    f"Grupo actualizado: {saved} asignado(s) a todas sus clases, {removed} removido(s).",
+                )
+            else:
+                messages.info(request, "No hubo cambios para guardar.")
+            return self.redirect_to_group(grupo)
+        return render(request, self.template_name, self.get_context(selected_group=selected_group, bulk_form=form))
+
+    def handle_move_student(self, request, selected_group):
+        form = ClaseEstudianteMovimientoForm(request.POST, grupo=selected_group)
+        if form.is_valid():
+            asignacion = form.cleaned_data["asignacion"]
+            clase_origen = form.cleaned_data["clase_origen"]
+            movimiento = ClaseEstudianteMovimiento.objects.filter(
+                asignacion=asignacion,
+                clase_origen=clase_origen,
+            ).first()
+            if not movimiento:
+                movimiento = ClaseEstudianteMovimiento(
+                    asignacion=asignacion,
+                    clase_origen=clase_origen,
+                )
+            movimiento.clase_destino = form.cleaned_data["clase_destino"]
+            movimiento.motivo = form.cleaned_data.get("motivo") or ""
+            movimiento.usuario_updated = request.user
+            movimiento.activo = True
+            movimiento.full_clean()
+            movimiento.save()
+            messages.success(request, "Movimiento guardado. El estudiante queda fuera de la clase origen y disponible en la clase destino.")
+            return self.redirect_to_group(movimiento.asignacion.grupo)
+        return render(request, self.template_name, self.get_context(selected_group=selected_group, movement_form=form))
+
+    def handle_cancel_move(self, request, selected_group):
+        movimiento_id = request.POST.get("movimiento_id")
+        movimiento = get_object_or_404(
+            ClaseEstudianteMovimiento,
+            pk=movimiento_id,
+            clase_origen__materia_curso__grupo=selected_group,
+        )
+        movimiento.activo = False
+        movimiento.usuario_updated = request.user
+        movimiento.save(update_fields=["activo", "usuario_updated", "updated_at"])
+        messages.success(request, "Movimiento anulado correctamente.")
+        return self.redirect_to_group(selected_group)
+
+    def get_context(self, selected_group=None, bulk_form=None, movement_form=None):
+        cursos = list(
+            Curso.objects.filter(activo=True)
+            .annotate(total_estudiantes=Count(
+                "estudiantes_asignados",
+                filter=Q(estudiantes_asignados__estado="activo"),
+                distinct=True,
+            ))
+            .order_by("nombre")
+        )
+        if selected_group is None and cursos:
+            selected_group = cursos[0]
+        selected_group_id = selected_group.pk if selected_group else None
+        q = ""
+        asignaciones = GrupoEstudiante.objects.select_related(
+            "ficha_inscripcion",
+            "estudiante",
+            "grupo",
+        ).filter(grupo=selected_group) if selected_group else GrupoEstudiante.objects.none()
+        asignaciones = asignaciones.order_by("estudiante__nombre")
+        bulk_form = bulk_form or GrupoEstudianteBulkForm(selected_group=selected_group)
+        clases = list(self.get_group_classes(selected_group))
+        movimientos = self.get_group_movements(selected_group)
+        return {
+            "title": "Estudiantes por grupo",
+            "group_tabs": self.get_group_tabs(cursos, selected_group, q),
+            "selected_group": selected_group,
+            "selected_group_id": selected_group_id,
+            "asignaciones": asignaciones,
+            "available_fichas": list(bulk_form.fields["fichas"].queryset),
+            "clases": clases,
+            "movimientos": movimientos,
+            "bulk_form": bulk_form,
+            "movement_form": movement_form or ClaseEstudianteMovimientoForm(grupo=selected_group),
+            "movement_class_map_json": json.dumps(self.get_movement_class_map(clases)),
+            "can_manage": self.can_manage(self.request.user),
+            "q": q,
+            "stats": self.get_stats(selected_group),
+        }
+
+    def get_group_tabs(self, cursos, selected_group, q=""):
+        base_url = reverse_lazy("academico:grupo_estudiantes")
+        tabs = []
+        for curso in cursos:
+            params = {"grupo": curso.pk}
+            if q:
+                params["q"] = q
+            tabs.append(
+                {
+                    "grupo": curso,
+                    "url": f"{base_url}?{urlencode(params)}",
+                    "is_active": bool(selected_group and curso.pk == selected_group.pk),
+                    "total_estudiantes": curso.total_estudiantes,
+                }
+            )
+        return tabs
+
+    def get_group_classes(self, selected_group):
+        if not selected_group:
+            return Clase.objects.none()
+        return (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .filter(materia_curso__grupo=selected_group)
+            .order_by("fecha", "materia_curso__materia__nombre", "horario_aula_curso__horario_dia__horario__hora_inicio")
+        )
+
+    def get_movement_class_map(self, clases):
+        return {
+            str(clase.pk): {
+                "materiaCursoId": clase.materia_curso_id,
+            }
+            for clase in clases
+        }
+
+    def get_group_movements(self, selected_group):
+        if not selected_group:
+            return ClaseEstudianteMovimiento.objects.none()
+        return (
+            ClaseEstudianteMovimiento.objects.select_related(
+                "asignacion__estudiante",
+                "clase_origen__materia_curso__materia",
+                "clase_origen__horario_aula_curso__aula_curso__aula",
+                "clase_origen__horario_aula_curso__horario_dia__horario",
+                "clase_destino__horario_aula_curso__aula_curso__aula",
+                "clase_destino__horario_aula_curso__horario_dia__horario",
+            )
+            .filter(clase_origen__materia_curso__grupo=selected_group)
+            .order_by("-created_at")[:20]
+        )
+
+    def get_stats(self, selected_group):
+        if not selected_group:
+            return {"asignados": 0, "sin_grupo": 0, "clases": 0, "movimientos": 0}
+        sin_grupo = (
+            FichaInscripcion.objects.filter(estudiante__es_estudiante=True, activo=True)
+            .exclude(estado="anulada")
+            .filter(asignacion_grupo__isnull=True)
+            .count()
+        )
+        return {
+            "asignados": GrupoEstudiante.objects.filter(grupo=selected_group, estado="activo").count(),
+            "sin_grupo": sin_grupo,
+            "clases": Clase.objects.filter(materia_curso__grupo=selected_group).count(),
+            "movimientos": ClaseEstudianteMovimiento.objects.filter(
+                clase_origen__materia_curso__grupo=selected_group,
+                activo=True,
+            ).count(),
+        }
+
+
 class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMixin, View):
     permission_required = "academico.view_profesormateriacurso"
     template_name = "academico/planificacion_docente.html"
@@ -2160,6 +2426,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             "is_late": clase.fecha < timezone.localdate() and clase.estado_planificacion in {"pendiente", "rechazada"},
             "action_label": action_labels.get(clase.estado_planificacion, "Abrir"),
             "url": reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}),
+            "attendance_url": reverse_lazy("academico:docente_clase_asistencia", kwargs={"pk": clase.pk}),
         }
 
 
@@ -2406,11 +2673,166 @@ class DocenteCalendarioExportView(LoginRequiredMixin, DocenteCalendarioMixin, Vi
         return "\n".join(parts)
 
 
+class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
+    template_name = "academico/docente_clase_asistencia.html"
+
+    def get_docente(self):
+        docente = getattr(self.request.user, "partner", None)
+        if docente and docente.es_docente:
+            return docente
+        return None
+
+    def get_clase(self):
+        docente = self.get_docente()
+        if not docente:
+            return get_object_or_404(Clase.objects.none(), pk=self.kwargs["pk"])
+        return get_object_or_404(
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .filter(materia_curso__profesor_materia_cursos__partner=docente)
+            .distinct(),
+            pk=self.kwargs["pk"],
+        )
+
+    def get(self, request, pk):
+        clase = self.get_clase()
+        return render(request, self.template_name, self.get_context(clase))
+
+    def post(self, request, pk):
+        clase = self.get_clase()
+        rows, moved_out_rows = self.get_roster_rows(clase)
+        valid_states = {choice[0] for choice in ClaseAsistencia.ESTADO_CHOICES}
+        registrado_por = self.get_docente()
+        with transaction.atomic():
+            if moved_out_rows:
+                ClaseAsistencia.objects.filter(
+                    clase=clase,
+                    estudiante_id__in=[row["asignacion"].estudiante_id for row in moved_out_rows],
+                ).delete()
+            for row in rows:
+                asignacion = row["asignacion"]
+                estado = request.POST.get(f"estado_{asignacion.pk}", "presente")
+                if estado not in valid_states:
+                    estado = "presente"
+                observacion = (request.POST.get(f"observacion_{asignacion.pk}") or "").strip()
+                ClaseAsistencia.objects.update_or_create(
+                    clase=clase,
+                    estudiante=asignacion.estudiante,
+                    defaults={
+                        "estado": estado,
+                        "observacion": observacion,
+                        "registrado_por": registrado_por,
+                        "usuario_updated": request.user,
+                    },
+                )
+        messages.success(request, f"Asistencia guardada para {len(rows)} estudiante(s).")
+        return redirect("academico:docente_clase_asistencia", pk=clase.pk)
+
+    def get_context(self, clase):
+        rows, moved_out_rows = self.get_roster_rows(clase)
+        horario = clase.horario_aula_curso.horario_dia.horario
+        return {
+            "title": "Asistencia",
+            "clase": clase,
+            "horario": horario,
+            "rows": rows,
+            "moved_out_rows": moved_out_rows,
+            "estado_choices": ClaseAsistencia.ESTADO_CHOICES,
+            "total_estudiantes": len(rows),
+            "planificacion_url": reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}),
+            "cancel_url": reverse_lazy("academico:docente_horarios"),
+        }
+
+    def get_roster_rows(self, clase):
+        asignaciones = list(
+            GrupoEstudiante.objects.select_related("estudiante", "ficha_inscripcion", "grupo")
+            .filter(grupo=clase.materia_curso.grupo, estado="activo")
+            .order_by("estudiante__nombre", "ficha_inscripcion__numero")
+        )
+        movimientos = list(
+            ClaseEstudianteMovimiento.objects.select_related(
+                "asignacion__estudiante",
+                "asignacion__ficha_inscripcion",
+                "clase_origen__materia_curso__materia",
+                "clase_origen__horario_aula_curso__aula_curso__aula",
+                "clase_origen__horario_aula_curso__horario_dia__horario",
+                "clase_destino__materia_curso__materia",
+                "clase_destino__horario_aula_curso__aula_curso__aula",
+                "clase_destino__horario_aula_curso__horario_dia__horario",
+            )
+            .filter(
+                Q(clase_origen=clase) | Q(clase_destino=clase),
+                activo=True,
+            )
+        )
+        moved_out_by_assignment = {
+            movimiento.asignacion_id: movimiento
+            for movimiento in movimientos
+            if movimiento.clase_origen_id == clase.pk
+        }
+        incoming_by_assignment = {
+            movimiento.asignacion_id: movimiento
+            for movimiento in movimientos
+            if movimiento.clase_destino_id == clase.pk
+        }
+        visible_assignments = [
+            asignacion
+            for asignacion in asignaciones
+            if asignacion.pk not in moved_out_by_assignment
+        ]
+        attendance_by_student = {
+            attendance.estudiante_id: attendance
+            for attendance in ClaseAsistencia.objects.filter(
+                clase=clase,
+                estudiante_id__in=[asignacion.estudiante_id for asignacion in visible_assignments],
+            )
+        }
+        rows = []
+        for asignacion in visible_assignments:
+            attendance = attendance_by_student.get(asignacion.estudiante_id)
+            rows.append(
+                {
+                    "asignacion": asignacion,
+                    "estudiante": asignacion.estudiante,
+                    "ficha": asignacion.ficha_inscripcion,
+                    "attendance": attendance,
+                    "estado": attendance.estado if attendance else "presente",
+                    "observacion": attendance.observacion if attendance else "",
+                    "incoming": incoming_by_assignment.get(asignacion.pk),
+                }
+            )
+        moved_out_rows = [
+            {
+                "movimiento": movimiento,
+                "asignacion": movimiento.asignacion,
+                "estudiante": movimiento.asignacion.estudiante,
+                "destino_label": self.clase_label(movimiento.clase_destino),
+            }
+            for movimiento in moved_out_by_assignment.values()
+        ]
+        return rows, sorted(moved_out_rows, key=lambda row: row["estudiante"].nombre)
+
+    @staticmethod
+    def clase_label(clase):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        return (
+            f"{clase.fecha:%d/%m/%Y} - "
+            f"{clase.horario_aula_curso.aula_curso.aula} - "
+            f"{horario.hora_inicio:%H:%M}-{horario.hora_fin:%H:%M}"
+        )
+
+
 class DocenteClasePlanificacionView(LoginRequiredMixin, View):
     template_name = "academico/docente_clase_planificacion.html"
 
     def get_clase(self):
         docente = getattr(self.request.user, "partner", None)
+        if not docente or not docente.es_docente:
+            return get_object_or_404(Clase.objects.none(), pk=self.kwargs["pk"])
         return get_object_or_404(
             Clase.objects.select_related(
                 "materia_curso__materia",
@@ -2640,6 +3062,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             "is_submitted": clase.estado_planificacion == "revision",
             "can_edit": can_edit,
             "cancel_url": reverse_lazy("academico:docente_horarios"),
+            "attendance_url": reverse_lazy("academico:docente_clase_asistencia", kwargs={"pk": clase.pk}),
         }
 
     def get_planning_items(self, clase, form):

@@ -1,0 +1,786 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Academico</p>
+      <h1>{{ title }}</h1>
+    </div>
+  </header>
+
+  {% if group_tabs %}
+    <nav class="teacher-group-tabs" aria-label="Grupos">
+      {% for tab in group_tabs %}
+        <a class="teacher-group-tab{% if tab.is_active %} is-active{% endif %}" href="{{ tab.url }}">
+          <span>{{ tab.grupo }}</span>
+          <small>{{ tab.total_estudiantes }} estudiante(s)</small>
+        </a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
+  <section class="teacher-active-group">
+    {% if selected_group %}
+      <div>
+        <span>Grupo activo</span>
+        <h2>{{ selected_group }}</h2>
+      </div>
+      <p>{{ stats.asignados }} estudiante(s) asignado(s)</p>
+    {% else %}
+      <div>
+        <span>Grupo activo</span>
+        <h2>Sin grupos activos</h2>
+      </div>
+      <p>Crea o activa un grupo academico.</p>
+    {% endif %}
+  </section>
+
+  <section class="teacher-board-summary">
+    <div class="teacher-stat">
+      <span>Asignados</span>
+      <strong>{{ stats.asignados }}</strong>
+    </div>
+    <div class="teacher-stat teacher-stat-warning">
+      <span>Sin grupo</span>
+      <strong>{{ stats.sin_grupo }}</strong>
+    </div>
+    <div class="teacher-stat">
+      <span>Clases</span>
+      <strong>{{ stats.clases }}</strong>
+    </div>
+    <div class="teacher-stat">
+      <span>Movimientos</span>
+      <strong>{{ stats.movimientos }}</strong>
+    </div>
+  </section>
+
+  {% if can_manage %}
+    <section class="panel student-transfer-panel">
+      <header class="section-header">
+        <div>
+          <span>Asignacion</span>
+          <h2>Lista base del grupo</h2>
+        </div>
+        <strong class="group-scope-badge">Todas las clases</strong>
+      </header>
+      <form method="post" data-transfer-form data-base-url="{% url 'academico:grupo_estudiantes' %}" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="assignment_action" value="sync_students">
+        <div data-transfer-hidden></div>
+        <div class="student-transfer-filters">
+          <div>
+            <label class="form-label" for="{{ bulk_form.grupo.id_for_label }}">{{ bulk_form.grupo.label }}</label>
+            {{ bulk_form.grupo }}
+            {% for error in bulk_form.grupo.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+          <div>
+            <label class="form-label" for="{{ bulk_form.fecha_asignacion.id_for_label }}">{{ bulk_form.fecha_asignacion.label }}</label>
+            {{ bulk_form.fecha_asignacion }}
+            {% for error in bulk_form.fecha_asignacion.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+        </div>
+        {% if bulk_form.non_field_errors %}
+          <div class="alert alert-danger mt-3">{{ bulk_form.non_field_errors }}</div>
+        {% endif %}
+        {% for error in bulk_form.fichas.errors %}
+          <div class="invalid-feedback d-block">{{ error }}</div>
+        {% endfor %}
+
+        <div class="student-transfer-board">
+          <section class="transfer-column" data-transfer-column="available">
+            <header>
+              <div>
+                <span>Sin grupo</span>
+                <strong data-transfer-count="available">{{ available_fichas|length }}</strong>
+              </div>
+              <div class="transfer-search">
+                <i class="ri-search-line"></i>
+                <input type="search" placeholder="Buscar" data-transfer-search="available">
+              </div>
+            </header>
+            <div class="transfer-list" data-transfer-list="available">
+              {% for ficha in available_fichas %}
+                <button class="transfer-item" type="button" data-transfer-item data-kind="ficha" data-id="{{ ficha.pk }}" data-origin="available" data-target="available">
+                  <span>{{ ficha.estudiante.nombre }}</span>
+                  <small>Ficha {{ ficha.numero }}{% if ficha.estudiante.identificacion %} - {{ ficha.estudiante.identificacion }}{% endif %}</small>
+                </button>
+              {% endfor %}
+              <div class="transfer-empty" data-transfer-empty="available"{% if available_fichas %} hidden{% endif %}>Sin estudiantes disponibles.</div>
+            </div>
+          </section>
+
+          <div class="transfer-controls" aria-label="Transferir estudiantes">
+            <button class="btn btn-primary-600" type="button" data-transfer-action="assign" title="Pasar seleccionados">
+              <i class="ri-arrow-right-line"></i>
+            </button>
+            <button class="btn btn-outline-primary" type="button" data-transfer-action="assign-all" title="Pasar todos">
+              <i class="ri-arrow-right-double-line"></i>
+            </button>
+            <button class="btn btn-outline-secondary" type="button" data-transfer-action="unassign" title="Quitar seleccionados">
+              <i class="ri-arrow-left-line"></i>
+            </button>
+            <button class="btn btn-outline-secondary" type="button" data-transfer-action="unassign-all" title="Quitar todos">
+              <i class="ri-arrow-left-double-line"></i>
+            </button>
+          </div>
+
+          <section class="transfer-column" data-transfer-column="assigned">
+            <header>
+              <div>
+                <span>Asignados</span>
+                <strong data-transfer-count="assigned">{{ asignaciones|length }}</strong>
+              </div>
+              <div class="transfer-search">
+                <i class="ri-search-line"></i>
+                <input type="search" placeholder="Buscar" data-transfer-search="assigned">
+              </div>
+            </header>
+            <div class="transfer-list" data-transfer-list="assigned">
+              {% for asignacion in asignaciones %}
+                <button class="transfer-item" type="button" data-transfer-item data-kind="assignment" data-id="{{ asignacion.pk }}" data-origin="assigned" data-target="assigned">
+                  <span>{{ asignacion.estudiante.nombre }}</span>
+                  <small>Ficha {{ asignacion.ficha_inscripcion.numero }}{% if asignacion.estudiante.identificacion %} - {{ asignacion.estudiante.identificacion }}{% endif %}</small>
+                </button>
+              {% endfor %}
+              <div class="transfer-empty" data-transfer-empty="assigned"{% if asignaciones %} hidden{% endif %}>Sin estudiantes asignados.</div>
+            </div>
+          </section>
+        </div>
+
+        <div class="form-actions transfer-save-actions">
+          <button class="btn btn-primary-600" type="submit"{% if not selected_group %} disabled{% endif %}>
+            <i class="ri-save-3-line"></i>
+            Guardar grupo
+          </button>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+
+  <section class="panel student-movement-panel">
+    <header class="section-header">
+      <div>
+        <span>Movimiento</span>
+        <h2>Cambio de clase</h2>
+      </div>
+    </header>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="assignment_action" value="move_student">
+      {% if selected_group %}
+        <input type="hidden" name="grupo" value="{{ selected_group.pk }}">
+      {% endif %}
+      {% if movement_form.non_field_errors %}
+        <div class="alert alert-danger">{{ movement_form.non_field_errors }}</div>
+      {% endif %}
+      <div class="movement-form-grid">
+        {% for field in movement_form %}
+          <div class="{% if field.name == 'motivo' %}span-2{% endif %}">
+            <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+      <div class="form-actions compact">
+        <button class="btn btn-outline-primary" type="submit"{% if not selected_group or not can_manage %} disabled{% endif %}>
+          <i class="ri-arrow-left-right-line"></i>
+          Guardar movimiento
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel student-movements-list">
+    <header class="section-header">
+      <div>
+        <span>Historial</span>
+        <h2>Movimientos recientes</h2>
+      </div>
+    </header>
+    {% if movimientos %}
+      <div class="movement-stack">
+        {% for movimiento in movimientos %}
+          <div class="movement-row{% if not movimiento.activo %} is-cancelled{% endif %}">
+            <div>
+              <strong>{{ movimiento.asignacion.estudiante.nombre }}</strong>
+              <span>{{ movimiento.clase_origen.fecha|date:"d/m/Y" }} - {{ movimiento.clase_origen.materia_curso.materia }}</span>
+            </div>
+            <div>
+              <span>{{ movimiento.clase_origen.horario_aula_curso.aula_curso.aula }}</span>
+              <i class="ri-arrow-right-line"></i>
+              <span>{{ movimiento.clase_destino.horario_aula_curso.aula_curso.aula }}</span>
+            </div>
+            <div class="movement-actions">
+              {% if movimiento.activo %}
+                <span class="status-badge status-activo">Activo</span>
+                {% if can_manage %}
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="assignment_action" value="cancel_move">
+                    <input type="hidden" name="grupo" value="{{ selected_group.pk }}">
+                    <input type="hidden" name="movimiento_id" value="{{ movimiento.pk }}">
+                    <button class="btn btn-outline-danger btn-sm" type="submit" title="Anular movimiento">
+                      <i class="ri-close-line"></i>
+                    </button>
+                  </form>
+                {% endif %}
+              {% else %}
+                <span class="status-badge status-retirado">Anulado</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="academic-empty-state compact">Sin movimientos registrados.</div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const classMap = {{ movement_class_map_json|safe }};
+      const origin = document.getElementById("id_clase_origen");
+      const destination = document.getElementById("id_clase_destino");
+      if (origin && destination) {
+        function syncDestinations() {
+          const originInfo = classMap[origin.value];
+          Array.prototype.forEach.call(destination.options, function (option) {
+            if (!option.value) return;
+            const optionInfo = classMap[option.value];
+            const canUse = !originInfo || (
+              optionInfo &&
+              optionInfo.materiaCursoId === originInfo.materiaCursoId &&
+              option.value !== origin.value
+            );
+            option.hidden = !canUse;
+            option.disabled = !canUse;
+          });
+          if (destination.value && destination.options[destination.selectedIndex].disabled) {
+            destination.value = "";
+          }
+        }
+
+        origin.addEventListener("change", syncDestinations);
+        syncDestinations();
+      }
+
+      const transferForm = document.querySelector("[data-transfer-form]");
+      if (!transferForm) return;
+      const lists = {
+        available: transferForm.querySelector('[data-transfer-list="available"]'),
+        assigned: transferForm.querySelector('[data-transfer-list="assigned"]')
+      };
+      const hidden = transferForm.querySelector("[data-transfer-hidden]");
+
+      function itemsIn(listName) {
+        return Array.prototype.slice.call(lists[listName].querySelectorAll("[data-transfer-item]"));
+      }
+
+      function updateCounts() {
+        ["available", "assigned"].forEach(function (listName) {
+          const count = itemsIn(listName).length;
+          const counter = transferForm.querySelector('[data-transfer-count="' + listName + '"]');
+          const empty = transferForm.querySelector('[data-transfer-empty="' + listName + '"]');
+          if (counter) counter.textContent = count;
+          if (empty) empty.hidden = count > 0;
+        });
+      }
+
+      function moveItem(item, targetName) {
+        if (!item || item.dataset.target === targetName) return;
+        item.classList.remove("is-selected");
+        item.dataset.target = targetName;
+        lists[targetName].appendChild(item);
+      }
+
+      function selectedItems(listName) {
+        return itemsIn(listName).filter(function (item) {
+          return item.classList.contains("is-selected");
+        });
+      }
+
+      function visibleItems(listName) {
+        return itemsIn(listName).filter(function (item) {
+          return !item.hidden;
+        });
+      }
+
+      function moveSelected(fromName, toName) {
+        selectedItems(fromName).forEach(function (item) {
+          moveItem(item, toName);
+        });
+        updateCounts();
+      }
+
+      function moveAll(fromName, toName) {
+        visibleItems(fromName).forEach(function (item) {
+          moveItem(item, toName);
+        });
+        updateCounts();
+      }
+
+      function applySearch(input) {
+        const listName = input.dataset.transferSearch;
+        const query = input.value.trim().toLowerCase();
+        itemsIn(listName).forEach(function (item) {
+          item.hidden = query && item.textContent.toLowerCase().indexOf(query) === -1;
+        });
+      }
+
+      transferForm.querySelectorAll("[data-transfer-item]").forEach(function (item) {
+        item.addEventListener("click", function () {
+          item.classList.toggle("is-selected");
+        });
+        item.addEventListener("dblclick", function () {
+          moveItem(item, item.dataset.target === "available" ? "assigned" : "available");
+          updateCounts();
+        });
+      });
+
+      transferForm.querySelectorAll("[data-transfer-action]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          const action = button.dataset.transferAction;
+          if (action === "assign") moveSelected("available", "assigned");
+          if (action === "assign-all") moveAll("available", "assigned");
+          if (action === "unassign") moveSelected("assigned", "available");
+          if (action === "unassign-all") moveAll("assigned", "available");
+        });
+      });
+
+      transferForm.querySelectorAll("[data-transfer-search]").forEach(function (input) {
+        input.addEventListener("input", function () {
+          applySearch(input);
+        });
+      });
+
+      transferForm.addEventListener("submit", function () {
+        hidden.innerHTML = "";
+        itemsIn("assigned").forEach(function (item) {
+          if (item.dataset.kind !== "ficha") return;
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "fichas";
+          input.value = item.dataset.id;
+          hidden.appendChild(input);
+        });
+        itemsIn("available").forEach(function (item) {
+          if (item.dataset.kind !== "assignment") return;
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "asignaciones_remover";
+          input.value = item.dataset.id;
+          hidden.appendChild(input);
+        });
+      });
+
+      const groupSelect = transferForm.querySelector('[name="grupo"]');
+      if (groupSelect) {
+        groupSelect.addEventListener("change", function () {
+          if (!groupSelect.value) return;
+          window.location.href = transferForm.dataset.baseUrl + "?grupo=" + encodeURIComponent(groupSelect.value);
+        });
+      }
+
+      updateCounts();
+    });
+  </script>
+  <style>
+    .teacher-group-tabs {
+      display: flex;
+      gap: 10px;
+      margin: 0 0 14px;
+      overflow-x: auto;
+      padding: 2px 2px 8px;
+    }
+
+    .teacher-group-tab {
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      color: #1f2937;
+      display: grid;
+      flex: 0 0 220px;
+      gap: 4px;
+      min-height: 64px;
+      padding: 12px 14px;
+      text-decoration: none;
+    }
+
+    .teacher-group-tab:hover,
+    .teacher-group-tab.is-active {
+      border-color: #0f766e;
+      color: #0f766e;
+      text-decoration: none;
+    }
+
+    .teacher-group-tab.is-active {
+      box-shadow: inset 0 -3px 0 #0f766e;
+    }
+
+    .teacher-group-tab span {
+      font-size: 14px;
+      font-weight: 800;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .teacher-group-tab small {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .teacher-active-group {
+      align-items: center;
+      border-left: 4px solid #0f766e;
+      display: flex;
+      gap: 14px;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding: 4px 0 4px 14px;
+    }
+
+    .teacher-active-group span,
+    .section-header span,
+    .transfer-column header span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-active-group h2,
+    .section-header h2 {
+      color: #111827;
+      font-size: 22px;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .teacher-active-group p {
+      color: #667085;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .teacher-board-summary {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .teacher-stat {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-height: 86px;
+      padding: 14px;
+    }
+
+    .teacher-stat span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-stat strong {
+      color: #111827;
+      display: block;
+      font-size: 30px;
+      line-height: 1;
+      margin-top: 10px;
+    }
+
+    .teacher-stat-warning strong {
+      color: #b45309;
+    }
+
+    .student-transfer-panel,
+    .student-movement-panel {
+      margin-bottom: 16px;
+    }
+
+    .section-header {
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .group-scope-badge {
+      background: #ecfeff;
+      border: 1px solid #99f6e4;
+      border-radius: 999px;
+      color: #0f766e;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 6px 10px;
+      text-transform: uppercase;
+    }
+
+    .student-transfer-filters,
+    .movement-form-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .student-transfer-board {
+      align-items: stretch;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr);
+      margin-top: 16px;
+    }
+
+    .transfer-column {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .transfer-column header {
+      align-items: center;
+      background: #f8fafc;
+      border-bottom: 1px solid #e5e7eb;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) minmax(160px, 240px);
+      min-height: 70px;
+      padding: 12px;
+    }
+
+    .transfer-column header strong {
+      color: #111827;
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      margin-top: 4px;
+    }
+
+    .transfer-search {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: flex;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 10px;
+    }
+
+    .transfer-search i {
+      color: #667085;
+    }
+
+    .transfer-search input {
+      border: 0;
+      color: #111827;
+      min-width: 0;
+      outline: 0;
+      width: 100%;
+    }
+
+    .transfer-list {
+      display: grid;
+      gap: 8px;
+      max-height: 430px;
+      min-height: 320px;
+      overflow: auto;
+      padding: 10px;
+    }
+
+    .transfer-item {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      color: #111827;
+      cursor: pointer;
+      display: block;
+      min-height: 58px;
+      padding: 10px 12px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .transfer-item:hover {
+      background: #f0fdfa;
+      border-color: #99f6e4;
+    }
+
+    .transfer-item.is-selected {
+      background: #ccfbf1;
+      border-color: #14b8a6;
+      box-shadow: inset 3px 0 0 #0f766e;
+    }
+
+    .transfer-item span,
+    .transfer-item small {
+      display: block;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .transfer-item span {
+      font-weight: 800;
+    }
+
+    .transfer-item small {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+      margin-top: 3px;
+    }
+
+    .transfer-empty {
+      align-items: center;
+      color: #667085;
+      display: flex;
+      font-weight: 700;
+      justify-content: center;
+      min-height: 120px;
+      text-align: center;
+    }
+
+    .transfer-controls {
+      align-content: center;
+      display: grid;
+      gap: 8px;
+      justify-items: center;
+    }
+
+    .transfer-controls .btn {
+      align-items: center;
+      display: inline-flex;
+      height: 42px;
+      justify-content: center;
+      padding: 0;
+      width: 42px;
+    }
+
+    .transfer-save-actions {
+      margin-top: 16px;
+    }
+
+    .movement-form-grid .span-2 {
+      grid-column: 1 / -1;
+    }
+
+    .form-actions.compact {
+      border-top: 0;
+      margin-top: 14px;
+      padding-top: 0;
+    }
+
+    .movement-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .movement-row {
+      align-items: center;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      min-height: 62px;
+      padding: 12px;
+    }
+
+    .movement-row strong,
+    .movement-row span {
+      display: block;
+    }
+
+    .movement-row strong {
+      color: #111827;
+    }
+
+    .movement-row span {
+      color: #667085;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .movement-row > div:nth-child(2) {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+    }
+
+    .movement-actions {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .movement-row.is-cancelled {
+      opacity: .65;
+    }
+
+    .academic-empty-state.compact {
+      padding: 18px;
+    }
+
+    @media (max-width: 1199px) {
+      .student-transfer-board {
+        grid-template-columns: 1fr;
+      }
+
+      .transfer-controls {
+        display: flex;
+        justify-content: center;
+      }
+    }
+
+    @media (max-width: 767px) {
+      .teacher-active-group,
+      .section-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .teacher-board-summary,
+      .student-transfer-filters,
+      .movement-form-grid,
+      .movement-row,
+      .transfer-column header {
+        grid-template-columns: 1fr;
+      }
+
+      .movement-row > div:nth-child(2),
+      .movement-actions {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+{% endblock %}

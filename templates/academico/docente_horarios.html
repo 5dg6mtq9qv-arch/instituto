@@ -122,6 +122,10 @@
                 {% if card.is_late %}
                   <span class="docente-late-label">Atrasada</span>
                 {% endif %}
+                <a class="btn btn-outline-primary" href="{{ card.attendance_url }}">
+                  <i class="ri-list-check-3"></i>
+                  Asistencia
+                </a>
                 <a class="btn btn-primary-600" href="{{ card.url }}">
                   <i class="ri-edit-2-line"></i>
                   {{ card.action_label }}

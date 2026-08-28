@@ -7,7 +7,7 @@ from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.academico.models import Aula as AulaAcademica, Clase
+from apps.academico.models import Aula as AulaAcademica, Clase, GrupoEstudiante
 from apps.cartera.models import Cuota, Pago
 from apps.core.models import Empresa, Partner
 from apps.matricula.models import Aula, Curso, FichaInscripcion, PeriodoAcademico
@@ -354,6 +354,7 @@ def home(request):
             "cards": visible_cards(
                 [
                     card("Aulas", "Crear y editar aulas academicas.", AulaAcademica.objects.count(), "academico:aula_list", "ri-door-open-line", "primary", "academico.view_aula", "academico:aula_nueva"),
+                    card("Estudiantes por grupo", "Asignacion academica y movimientos por clase.", GrupoEstudiante.objects.filter(estado="activo").count(), "academico:grupo_estudiantes", "ri-team-line", "success", "academico.view_grupoestudiante"),
                 ]
             ),
         },

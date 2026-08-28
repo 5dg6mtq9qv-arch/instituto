@@ -4,6 +4,8 @@ from .models import (
     Asignatura,
     Asistencia,
     BancoPregunta,
+    ClaseAsistencia,
+    ClaseEstudianteMovimiento,
     ClaseEstrategia,
     ClasePlanificacion,
     Competencia,
@@ -13,6 +15,7 @@ from .models import (
     Evaluacion,
     EvaluacionResultado,
     HorarioClase,
+    GrupoEstudiante,
     PlanificacionClase,
     PlanificacionCompetencia,
     PlanificacionDocente,
@@ -199,6 +202,27 @@ class AsistenciaAdmin(admin.ModelAdmin):
     list_display = ("planificacion_clase", "estudiante", "estado", "registrado_por")
     list_filter = ("estado", "planificacion_clase__fecha_planificada")
     search_fields = ("estudiante__nombre", "planificacion_clase__tema__nombre")
+
+
+@admin.register(GrupoEstudiante)
+class GrupoEstudianteAdmin(admin.ModelAdmin):
+    list_display = ("estudiante", "grupo", "ficha_inscripcion", "fecha_asignacion", "estado")
+    list_filter = ("grupo", "estado", "fecha_asignacion")
+    search_fields = ("estudiante__nombre", "estudiante__identificacion", "ficha_inscripcion__numero")
+
+
+@admin.register(ClaseEstudianteMovimiento)
+class ClaseEstudianteMovimientoAdmin(admin.ModelAdmin):
+    list_display = ("asignacion", "clase_origen", "clase_destino", "activo", "created_at")
+    list_filter = ("activo", "clase_origen__materia_curso__grupo", "clase_origen__materia_curso__materia")
+    search_fields = ("asignacion__estudiante__nombre", "motivo")
+
+
+@admin.register(ClaseAsistencia)
+class ClaseAsistenciaAdmin(admin.ModelAdmin):
+    list_display = ("clase", "estudiante", "estado", "registrado_por", "updated_at")
+    list_filter = ("estado", "clase__fecha", "clase__materia_curso__grupo", "clase__materia_curso__materia")
+    search_fields = ("estudiante__nombre", "estudiante__identificacion", "clase__materia_curso__materia__nombre")
 
 
 @admin.register(Evaluacion)

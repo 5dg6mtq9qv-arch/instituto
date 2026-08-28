@@ -6,18 +6,20 @@ from apps.core.forms import BootstrapFormMixin
 
 from apps.core.models import Partner
 
-from apps.matricula.models import Aula as MatriculaAula, PeriodoAcademico
+from apps.matricula.models import Aula as MatriculaAula, FichaInscripcion, PeriodoAcademico
 
 from .models import (
     Asignatura,
     Aula,
     BancoPregunta,
     Clase,
+    ClaseEstudianteMovimiento,
     Competencia,
     Curso,
     CursoPeriodo,
     Dia,
     Estrategia,
+    GrupoEstudiante,
     HorarioClase,
     Materia,
     MateriaCurso,
@@ -327,6 +329,88 @@ PlanificacionDocenteFormSet = formset_factory(
     extra=0,
     can_delete=True,
 )
+
+
+class GrupoEstudianteBulkForm(BootstrapFormMixin, forms.Form):
+    grupo = forms.ModelChoiceField(label="Grupo", queryset=Curso.objects.none())
+    fichas = forms.ModelMultipleChoiceField(
+        label="Estudiantes sin grupo",
+        queryset=FichaInscripcion.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    fecha_asignacion = forms.DateField(
+        label="Fecha de asignacion",
+        widget=forms.DateInput(attrs={"type": "date"}),
+        initial=timezone.localdate,
+    )
+
+    def __init__(self, *args, **kwargs):
+        selected_group = kwargs.pop("selected_group", None)
+        super().__init__(*args, **kwargs)
+        self.fields["grupo"].queryset = Curso.objects.filter(activo=True).order_by("nombre")
+        self.fields["fichas"].queryset = (
+            FichaInscripcion.objects.select_related("estudiante")
+            .filter(estudiante__es_estudiante=True, activo=True)
+            .exclude(estado="anulada")
+            .filter(asignacion_grupo__isnull=True)
+            .order_by("estudiante__nombre", "numero")
+        )
+        self.fields["fichas"].label_from_instance = (
+            lambda ficha: f"{ficha.estudiante.nombre} - ficha {ficha.numero}"
+        )
+        if selected_group:
+            self.fields["grupo"].initial = selected_group
+
+
+class ClaseEstudianteMovimientoForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = ClaseEstudianteMovimiento
+        fields = ["asignacion", "clase_origen", "clase_destino", "motivo"]
+        labels = {
+            "asignacion": "Estudiante",
+            "clase_origen": "Clase origen",
+            "clase_destino": "Clase destino",
+            "motivo": "Motivo",
+        }
+        widgets = {
+            "motivo": forms.Textarea(attrs={"rows": 2}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        grupo = kwargs.pop("grupo", None)
+        super().__init__(*args, **kwargs)
+        asignaciones = GrupoEstudiante.objects.select_related("estudiante", "grupo").filter(estado="activo")
+        clases = Clase.objects.select_related(
+            "materia_curso__materia",
+            "materia_curso__grupo",
+            "horario_aula_curso__aula_curso__aula",
+            "horario_aula_curso__horario_dia__horario",
+        ).order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
+        if grupo:
+            asignaciones = asignaciones.filter(grupo=grupo)
+            clases = clases.filter(materia_curso__grupo=grupo)
+        self.fields["asignacion"].queryset = asignaciones.order_by("estudiante__nombre")
+        self.fields["clase_origen"].queryset = clases
+        self.fields["clase_destino"].queryset = clases
+        self.fields["asignacion"].label_from_instance = lambda obj: obj.estudiante.nombre
+        self.fields["clase_origen"].label_from_instance = self.clase_label
+        self.fields["clase_destino"].label_from_instance = self.clase_label
+
+    @staticmethod
+    def clase_label(clase):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        aula = clase.horario_aula_curso.aula_curso.aula
+        materia = clase.materia_curso.materia
+        return f"{clase.fecha:%d/%m/%Y} - {materia} - {aula} - {horario.hora_inicio:%H:%M}-{horario.hora_fin:%H:%M}"
+
+    def clean(self):
+        cleaned_data = super().clean()
+        instance = self.instance
+        for field, value in cleaned_data.items():
+            setattr(instance, field, value)
+        instance.clean()
+        return cleaned_data
 
 
 class CoordinacionPlanificacionForm(BootstrapFormMixin, forms.Form):

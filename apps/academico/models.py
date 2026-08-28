@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 
 class Asignatura(models.Model):
@@ -1021,6 +1022,170 @@ class ProfesorMateriaCurso(models.Model):
 
     def __str__(self):
         return f"{self.partner} - {self.materia_curso}"
+
+
+class GrupoEstudiante(models.Model):
+    ESTADO_CHOICES = (
+        ("activo", "Activo"),
+        ("retirado", "Retirado"),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    ficha_inscripcion = models.OneToOneField(
+        "matricula.FichaInscripcion",
+        db_column="id_ficha_inscripcion",
+        on_delete=models.CASCADE,
+        related_name="asignacion_grupo",
+    )
+    estudiante = models.ForeignKey(
+        "core.Partner",
+        db_column="id_estudiante",
+        on_delete=models.RESTRICT,
+        related_name="grupo_asignaciones",
+    )
+    grupo = models.ForeignKey(
+        Curso,
+        db_column="id_grupo",
+        on_delete=models.CASCADE,
+        related_name="estudiantes_asignados",
+    )
+    fecha_asignacion = models.DateField(default=timezone.localdate)
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="activo")
+    observacion = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    usuario_updated = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario_updated",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="grupo_estudiantes_actualizados",
+    )
+
+    class Meta:
+        db_table = '"academico"."grupo_estudiante"'
+        ordering = ["grupo", "estudiante__nombre"]
+
+    def clean(self):
+        super().clean()
+        if self.estudiante_id and not self.estudiante.es_estudiante:
+            raise ValidationError({"estudiante": "Solo se pueden asignar estudiantes."})
+        if (
+            self.ficha_inscripcion_id
+            and self.estudiante_id
+            and self.ficha_inscripcion.estudiante_id != self.estudiante_id
+        ):
+            raise ValidationError({"estudiante": "El estudiante debe coincidir con la ficha seleccionada."})
+
+    def save(self, *args, **kwargs):
+        if self.ficha_inscripcion_id and not self.estudiante_id:
+            self.estudiante = self.ficha_inscripcion.estudiante
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.estudiante} - {self.grupo}"
+
+
+class ClaseEstudianteMovimiento(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    asignacion = models.ForeignKey(
+        GrupoEstudiante,
+        db_column="id_grupo_estudiante",
+        on_delete=models.CASCADE,
+        related_name="movimientos_clase",
+    )
+    clase_origen = models.ForeignKey(
+        Clase,
+        db_column="id_clase_origen",
+        on_delete=models.CASCADE,
+        related_name="movimientos_salida",
+    )
+    clase_destino = models.ForeignKey(
+        Clase,
+        db_column="id_clase_destino",
+        on_delete=models.CASCADE,
+        related_name="movimientos_entrada",
+    )
+    motivo = models.TextField(blank=True, null=True)
+    activo = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    usuario_updated = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario_updated",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="movimientos_clase_actualizados",
+    )
+
+    class Meta:
+        db_table = '"academico"."clase_estudiante_movimiento"'
+        unique_together = (("asignacion", "clase_origen"),)
+        ordering = ["-created_at"]
+
+    def clean(self):
+        super().clean()
+        if self.clase_origen_id and self.clase_destino_id and self.clase_origen_id == self.clase_destino_id:
+            raise ValidationError({"clase_destino": "La clase destino debe ser distinta a la clase origen."})
+        if not self.asignacion_id or not self.clase_origen_id or not self.clase_destino_id:
+            return
+        if self.clase_origen.materia_curso_id != self.clase_destino.materia_curso_id:
+            raise ValidationError({"clase_destino": "Solo puedes mover entre clases de la misma materia y grupo."})
+        if self.clase_origen.materia_curso.grupo_id != self.asignacion.grupo_id:
+            raise ValidationError({"clase_origen": "La clase origen no pertenece al grupo del estudiante."})
+        if self.clase_destino.materia_curso.grupo_id != self.asignacion.grupo_id:
+            raise ValidationError({"clase_destino": "La clase destino no pertenece al grupo del estudiante."})
+
+    def __str__(self):
+        return f"{self.asignacion.estudiante} - {self.clase_origen} -> {self.clase_destino}"
+
+
+class ClaseAsistencia(models.Model):
+    ESTADO_CHOICES = Asistencia.ESTADO_CHOICES
+
+    id = models.BigAutoField(primary_key=True)
+    clase = models.ForeignKey(
+        Clase,
+        db_column="id_clase",
+        on_delete=models.CASCADE,
+        related_name="asistencias_clase",
+    )
+    estudiante = models.ForeignKey(
+        "core.Partner",
+        db_column="id_estudiante",
+        on_delete=models.RESTRICT,
+        related_name="asistencias_clase",
+    )
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="presente")
+    observacion = models.TextField(blank=True, null=True)
+    registrado_por = models.ForeignKey(
+        "core.Partner",
+        db_column="id_registrado_por",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="asistencias_clase_registradas",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    usuario_updated = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario_updated",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="asistencias_clase_actualizadas",
+    )
+
+    class Meta:
+        db_table = '"academico"."clase_asistencia"'
+        unique_together = (("clase", "estudiante"),)
+        ordering = ["clase", "estudiante__nombre"]
+
+    def __str__(self):
+        return f"{self.clase} - {self.estudiante} - {self.estado}"
 
 
 class PlanificacionDocente(models.Model):

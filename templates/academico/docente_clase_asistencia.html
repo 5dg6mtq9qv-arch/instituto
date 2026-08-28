@@ -1,0 +1,306 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Docente</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-primary" href="{{ planificacion_url }}">
+        <i class="ri-edit-2-line"></i>
+        Planificacion
+      </a>
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+    </div>
+  </header>
+
+  <section class="panel attendance-hero">
+    <div class="teacher-plan-title">
+      <span class="teacher-subject-color" style="background: {{ clase.materia_curso.materia.color }}"></span>
+      <div>
+        <span class="teacher-plan-kicker">{{ clase.materia_curso.grupo }}</span>
+        <h2>{{ clase.materia_curso.materia }}</h2>
+        <p>{{ clase.horario_aula_curso.aula_curso.aula }} - {{ clase.fecha|date:"d M Y" }} - {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</p>
+      </div>
+    </div>
+    <div class="attendance-count">
+      <span>Lista</span>
+      <strong>{{ total_estudiantes }}</strong>
+    </div>
+  </section>
+
+  {% if moved_out_rows %}
+    <section class="attendance-moved-panel">
+      {% for row in moved_out_rows %}
+        <div>
+          <i class="ri-arrow-right-up-line"></i>
+          <span>{{ row.estudiante.nombre }} - {{ row.destino_label }}</span>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <form class="panel attendance-panel" method="post" novalidate>
+    {% csrf_token %}
+    {% if rows %}
+      <div class="table-responsive list-table-responsive">
+        <table class="table align-middle app-table attendance-table">
+          <thead>
+            <tr>
+              <th>S.L</th>
+              <th>Estudiante</th>
+              <th>Ficha</th>
+              <th>Estado</th>
+              <th>Observacion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td>{{ forloop.counter|stringformat:"02d" }}</td>
+                <td>
+                  <strong>{{ row.estudiante.nombre }}</strong>
+                  {% if row.incoming %}
+                    <span class="incoming-label">Movimiento activo</span>
+                  {% endif %}
+                </td>
+                <td>{{ row.ficha.numero }}</td>
+                <td>
+                  <div class="attendance-status-group" role="group" aria-label="Estado de {{ row.estudiante.nombre }}">
+                    {% for choice in estado_choices %}
+                      <label class="attendance-choice state-{{ choice.0 }}" for="estado_{{ row.asignacion.pk }}_{{ choice.0 }}">
+                        <input id="estado_{{ row.asignacion.pk }}_{{ choice.0 }}" type="radio" name="estado_{{ row.asignacion.pk }}" value="{{ choice.0 }}"{% if row.estado == choice.0 %} checked{% endif %}>
+                        <span>{{ choice.1 }}</span>
+                      </label>
+                    {% endfor %}
+                  </div>
+                </td>
+                <td>
+                  <input class="form-control" type="text" name="observacion_{{ row.asignacion.pk }}" value="{{ row.observacion|default_if_none:'' }}" maxlength="255">
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary-600" type="submit">
+          <i class="ri-save-3-line"></i>
+          Guardar asistencia
+        </button>
+      </div>
+    {% else %}
+      <div class="academic-empty-state">Sin estudiantes asignados a este grupo.</div>
+    {% endif %}
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .attendance-hero {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .teacher-plan-title {
+      align-items: center;
+      display: flex;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .teacher-subject-color {
+      border-radius: 8px;
+      flex: 0 0 auto;
+      height: 54px;
+      width: 10px;
+    }
+
+    .teacher-plan-kicker,
+    .attendance-count span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-plan-title h2 {
+      color: #111827;
+      font-size: 26px;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .teacher-plan-title p {
+      color: #667085;
+      font-weight: 700;
+      margin: 2px 0 0;
+    }
+
+    .attendance-count {
+      background: #ecfeff;
+      border: 1px solid #99f6e4;
+      border-radius: 8px;
+      min-width: 110px;
+      padding: 12px 14px;
+      text-align: right;
+    }
+
+    .attendance-count strong {
+      color: #0f766e;
+      display: block;
+      font-size: 30px;
+      line-height: 1;
+      margin-top: 4px;
+    }
+
+    .attendance-moved-panel {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .attendance-moved-panel div {
+      align-items: center;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #9a3412;
+      display: flex;
+      font-weight: 800;
+      gap: 8px;
+      min-height: 44px;
+      padding: 10px 12px;
+    }
+
+    .attendance-table td {
+      vertical-align: middle;
+    }
+
+    .attendance-table td:first-child,
+    .attendance-table th:first-child {
+      width: 70px;
+    }
+
+    .attendance-table td:nth-child(4),
+    .attendance-table th:nth-child(4) {
+      min-width: 380px;
+    }
+
+    .attendance-table td:nth-child(5),
+    .attendance-table th:nth-child(5) {
+      min-width: 220px;
+    }
+
+    .attendance-table strong {
+      color: #111827;
+      display: block;
+    }
+
+    .incoming-label {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      color: #1d4ed8;
+      display: inline-flex;
+      font-size: 11px;
+      font-weight: 800;
+      margin-top: 5px;
+      padding: 3px 8px;
+      text-transform: uppercase;
+    }
+
+    .attendance-status-group {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      display: grid;
+      gap: 4px;
+      grid-template-columns: repeat(4, minmax(80px, 1fr));
+      padding: 4px;
+    }
+
+    .attendance-choice {
+      margin: 0;
+      min-width: 0;
+    }
+
+    .attendance-choice input {
+      clip: rect(0 0 0 0);
+      height: 1px;
+      overflow: hidden;
+      position: absolute;
+      white-space: nowrap;
+      width: 1px;
+    }
+
+    .attendance-choice span {
+      align-items: center;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: #475467;
+      cursor: pointer;
+      display: flex;
+      font-size: 12px;
+      font-weight: 800;
+      justify-content: center;
+      min-height: 34px;
+      padding: 8px 10px;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .attendance-choice input:checked + span {
+      background: #ffffff;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .08);
+    }
+
+    .attendance-choice.state-presente input:checked + span {
+      border-color: #86efac;
+      color: #15803d;
+    }
+
+    .attendance-choice.state-ausente input:checked + span {
+      border-color: #fecaca;
+      color: #b42318;
+    }
+
+    .attendance-choice.state-atraso input:checked + span {
+      border-color: #fed7aa;
+      color: #b45309;
+    }
+
+    .attendance-choice.state-justificado input:checked + span {
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+
+    @media (max-width: 991px) {
+      .attendance-hero {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .attendance-count {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 767px) {
+      .attendance-status-group {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .teacher-plan-title h2 {
+        font-size: 22px;
+      }
+    }
+  </style>
+{% endblock %}
