@@ -32,6 +32,24 @@
     </div>
   </section>
 
+  {% if clase.asistencia_cerrada %}
+    <section class="attendance-lock-banner is-closed">
+      <i class="ri-lock-2-line"></i>
+      <div>
+        <strong>Asistencia cerrada</strong>
+        <span>{% if clase.fecha_cierre_asistencia %}{{ clase.fecha_cierre_asistencia|date:"d/m/Y H:i" }}{% else %}Sin fecha de cierre{% endif %}</span>
+      </div>
+    </section>
+  {% elif has_saved_attendance %}
+    <section class="attendance-lock-banner">
+      <i class="ri-checkbox-circle-line"></i>
+      <div>
+        <strong>Asistencia guardada</strong>
+        <span>Disponible para cierre.</span>
+      </div>
+    </section>
+  {% endif %}
+
   {% if moved_out_rows %}
     <section class="attendance-moved-panel">
       {% for row in moved_out_rows %}
@@ -72,14 +90,14 @@
                   <div class="attendance-status-group" role="group" aria-label="Estado de {{ row.estudiante.nombre }}">
                     {% for choice in estado_choices %}
                       <label class="attendance-choice state-{{ choice.0 }}" for="estado_{{ row.asignacion.pk }}_{{ choice.0 }}">
-                        <input id="estado_{{ row.asignacion.pk }}_{{ choice.0 }}" type="radio" name="estado_{{ row.asignacion.pk }}" value="{{ choice.0 }}"{% if row.estado == choice.0 %} checked{% endif %}>
+                        <input id="estado_{{ row.asignacion.pk }}_{{ choice.0 }}" type="radio" name="estado_{{ row.asignacion.pk }}" value="{{ choice.0 }}"{% if row.estado == choice.0 %} checked{% endif %}{% if not can_edit_attendance %} disabled{% endif %}>
                         <span>{{ choice.1 }}</span>
                       </label>
                     {% endfor %}
                   </div>
                 </td>
                 <td>
-                  <input class="form-control" type="text" name="observacion_{{ row.asignacion.pk }}" value="{{ row.observacion|default_if_none:'' }}" maxlength="255">
+                  <input class="form-control" type="text" name="observacion_{{ row.asignacion.pk }}" value="{{ row.observacion|default_if_none:'' }}" maxlength="255"{% if not can_edit_attendance %} disabled{% endif %}>
                 </td>
               </tr>
             {% endfor %}
@@ -87,10 +105,23 @@
         </table>
       </div>
       <div class="form-actions">
-        <button class="btn btn-primary-600" type="submit">
-          <i class="ri-save-3-line"></i>
-          Guardar asistencia
-        </button>
+        {% if can_edit_attendance %}
+          <button class="btn btn-primary-600" type="submit" name="attendance_action" value="save">
+            <i class="ri-save-3-line"></i>
+            Guardar asistencia
+          </button>
+          {% if can_close_attendance %}
+            <button class="btn btn-outline-danger" type="submit" name="attendance_action" value="close" formnovalidate>
+              <i class="ri-lock-2-line"></i>
+              Cerrar asistencia
+            </button>
+          {% endif %}
+        {% else %}
+          <span class="attendance-readonly-note">
+            <i class="ri-lock-line"></i>
+            Registro bloqueado
+          </span>
+        {% endif %}
       </div>
     {% else %}
       <div class="academic-empty-state">Sin estudiantes asignados a este grupo.</div>
@@ -165,6 +196,44 @@
       display: grid;
       gap: 8px;
       margin-bottom: 14px;
+    }
+
+    .attendance-lock-banner {
+      align-items: center;
+      background: #ecfeff;
+      border: 1px solid #99f6e4;
+      border-radius: 8px;
+      color: #0f766e;
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+      min-height: 52px;
+      padding: 10px 12px;
+    }
+
+    .attendance-lock-banner.is-closed {
+      background: #f8fafc;
+      border-color: #d7dee8;
+      color: #344054;
+    }
+
+    .attendance-lock-banner i {
+      font-size: 22px;
+    }
+
+    .attendance-lock-banner strong,
+    .attendance-lock-banner span {
+      display: block;
+    }
+
+    .attendance-lock-banner strong {
+      font-weight: 800;
+    }
+
+    .attendance-lock-banner span {
+      color: #667085;
+      font-size: 13px;
+      font-weight: 700;
     }
 
     .attendance-moved-panel div {
@@ -262,6 +331,11 @@
       box-shadow: 0 1px 2px rgba(15, 23, 42, .08);
     }
 
+    .attendance-choice input:disabled + span {
+      cursor: default;
+      opacity: .72;
+    }
+
     .attendance-choice.state-presente input:checked + span {
       border-color: #86efac;
       color: #15803d;
@@ -280,6 +354,14 @@
     .attendance-choice.state-justificado input:checked + span {
       border-color: #bfdbfe;
       color: #1d4ed8;
+    }
+
+    .attendance-readonly-note {
+      align-items: center;
+      color: #667085;
+      display: inline-flex;
+      font-weight: 800;
+      gap: 8px;
     }
 
     @media (max-width: 991px) {

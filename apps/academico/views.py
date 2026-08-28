@@ -1054,6 +1054,9 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         clase.observaciones_revision = {}
         clase.revisado_por = None
         clase.fecha_revision = None
+        clase.asistencia_cerrada = False
+        clase.asistencia_cerrada_por = None
+        clase.fecha_cierre_asistencia = None
         clase.revision_tema_ok = False
         clase.revision_detalle_ok = False
         clase.revision_competencias_ok = False
@@ -1068,6 +1071,9 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "observaciones_revision",
             "revisado_por",
             "fecha_revision",
+            "asistencia_cerrada",
+            "asistencia_cerrada_por",
+            "fecha_cierre_asistencia",
             "revision_tema_ok",
             "revision_detalle_ok",
             "revision_competencias_ok",
@@ -1079,6 +1085,8 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         clase.competencias.clear()
         clase.estrategias.clear()
         ClaseRecurso.objects.filter(clase=clase).delete()
+        ClaseAsistencia.objects.filter(clase=clase).delete()
+        ClaseEstudianteMovimiento.objects.filter(Q(clase_origen=clase) | Q(clase_destino=clase)).delete()
         self.delete_legacy_clase_recursos(clase.pk)
 
     def delete_legacy_clase_recursos(self, clase_id):
@@ -2426,6 +2434,8 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             "is_late": clase.fecha < timezone.localdate() and clase.estado_planificacion in {"pendiente", "rechazada"},
             "action_label": action_labels.get(clase.estado_planificacion, "Abrir"),
             "url": reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}),
+            "can_take_attendance": clase.fecha == timezone.localdate() and not clase.asistencia_cerrada,
+            "attendance_closed": clase.asistencia_cerrada,
             "attendance_url": reverse_lazy("academico:docente_clase_asistencia", kwargs={"pk": clase.pk}),
         }
 
@@ -2700,10 +2710,25 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         clase = self.get_clase()
+        date_response = self.ensure_attendance_date(request, clase)
+        if date_response:
+            return date_response
         return render(request, self.template_name, self.get_context(clase))
 
     def post(self, request, pk):
         clase = self.get_clase()
+        date_response = self.ensure_attendance_date(request, clase)
+        if date_response:
+            return date_response
+        action = request.POST.get("attendance_action") or "save"
+        if action == "close":
+            return self.handle_close(request, clase)
+        if action != "save":
+            messages.error(request, "Accion no valida.")
+            return redirect("academico:docente_clase_asistencia", pk=clase.pk)
+        if clase.asistencia_cerrada:
+            messages.error(request, "La asistencia ya esta cerrada y no se puede modificar.")
+            return redirect("academico:docente_clase_asistencia", pk=clase.pk)
         rows, moved_out_rows = self.get_roster_rows(clase)
         valid_states = {choice[0] for choice in ClaseAsistencia.ESTADO_CHOICES}
         registrado_por = self.get_docente()
@@ -2732,9 +2757,37 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
         messages.success(request, f"Asistencia guardada para {len(rows)} estudiante(s).")
         return redirect("academico:docente_clase_asistencia", pk=clase.pk)
 
+    def ensure_attendance_date(self, request, clase):
+        if clase.fecha == timezone.localdate():
+            return None
+        messages.error(request, "La asistencia solo se habilita el dia de la clase.")
+        return redirect("academico:docente_horarios")
+
+    def handle_close(self, request, clase):
+        if clase.asistencia_cerrada:
+            messages.info(request, "La asistencia ya estaba cerrada.")
+            return redirect("academico:docente_clase_asistencia", pk=clase.pk)
+        rows, _ = self.get_roster_rows(clase)
+        if not rows:
+            messages.error(request, "No hay estudiantes para cerrar la asistencia.")
+            return redirect("academico:docente_clase_asistencia", pk=clase.pk)
+        saved_student_ids = set(ClaseAsistencia.objects.filter(clase=clase).values_list("estudiante_id", flat=True))
+        pending_rows = [row for row in rows if row["asignacion"].estudiante_id not in saved_student_ids]
+        if pending_rows:
+            messages.error(request, "Guarda la asistencia antes de cerrarla.")
+            return redirect("academico:docente_clase_asistencia", pk=clase.pk)
+        clase.asistencia_cerrada = True
+        clase.asistencia_cerrada_por = self.get_docente()
+        clase.fecha_cierre_asistencia = timezone.now()
+        clase.save(update_fields=["asistencia_cerrada", "asistencia_cerrada_por", "fecha_cierre_asistencia"])
+        messages.success(request, "Asistencia cerrada correctamente.")
+        return redirect("academico:docente_clase_asistencia", pk=clase.pk)
+
     def get_context(self, clase):
         rows, moved_out_rows = self.get_roster_rows(clase)
         horario = clase.horario_aula_curso.horario_dia.horario
+        has_saved_attendance = ClaseAsistencia.objects.filter(clase=clase).exists()
+        can_edit_attendance = clase.fecha == timezone.localdate() and not clase.asistencia_cerrada
         return {
             "title": "Asistencia",
             "clase": clase,
@@ -2743,6 +2796,9 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
             "moved_out_rows": moved_out_rows,
             "estado_choices": ClaseAsistencia.ESTADO_CHOICES,
             "total_estudiantes": len(rows),
+            "can_edit_attendance": can_edit_attendance,
+            "can_close_attendance": can_edit_attendance and bool(rows) and has_saved_attendance,
+            "has_saved_attendance": has_saved_attendance,
             "planificacion_url": reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}),
             "cancel_url": reverse_lazy("academico:docente_horarios"),
         }

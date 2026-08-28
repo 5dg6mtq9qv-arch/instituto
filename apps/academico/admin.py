@@ -6,6 +6,7 @@ from .models import (
     BancoPregunta,
     ClaseAsistencia,
     ClaseEstudianteMovimiento,
+    Clase,
     ClaseEstrategia,
     ClasePlanificacion,
     Competencia,
@@ -223,6 +224,14 @@ class ClaseAsistenciaAdmin(admin.ModelAdmin):
     list_display = ("clase", "estudiante", "estado", "registrado_por", "updated_at")
     list_filter = ("estado", "clase__fecha", "clase__materia_curso__grupo", "clase__materia_curso__materia")
     search_fields = ("estudiante__nombre", "estudiante__identificacion", "clase__materia_curso__materia__nombre")
+
+
+@admin.register(Clase)
+class ClaseAdmin(admin.ModelAdmin):
+    list_display = ("fecha", "materia_curso", "horario_aula_curso", "estado_planificacion", "asistencia_cerrada")
+    list_filter = ("estado_planificacion", "asistencia_cerrada", "materia_curso__grupo", "materia_curso__materia")
+    search_fields = ("materia_curso__materia__nombre", "materia_curso__grupo__nombre")
+    date_hierarchy = "fecha"
 
 
 @admin.register(Evaluacion)

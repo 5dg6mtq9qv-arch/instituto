@@ -79,23 +79,24 @@ class DocenteHorariosPanelTests(TestCase):
         self.estrategia = Estrategia.objects.create(nombre="Aprendizaje guiado")
         self.recurso = Recurso.objects.create(nombre="Pizarra")
         today = timezone.localdate()
+        next_monday = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
         self.pendiente = Clase.objects.create(
             horario_aula_curso=self.horario_aula_curso,
             materia_curso=self.materia_curso,
-            fecha=today + timedelta(days=4),
+            fecha=next_monday,
             estado_planificacion="pendiente",
         )
         self.revision = Clase.objects.create(
             horario_aula_curso=self.horario_aula_curso,
             materia_curso=self.materia_curso,
-            fecha=today + timedelta(days=11),
+            fecha=next_monday + timedelta(days=7),
             estado_planificacion="revision",
             descripcion="Clase enviada a revision.",
         )
         self.rechazada = Clase.objects.create(
             horario_aula_curso=self.horario_aula_curso,
             materia_curso=self.materia_curso,
-            fecha=today + timedelta(days=18),
+            fecha=next_monday + timedelta(days=14),
             estado_planificacion="rechazada",
             descripcion="Clase con observaciones.",
             notas_revision="Completar recursos.",
@@ -139,6 +140,20 @@ class DocenteHorariosPanelTests(TestCase):
         self.user.is_staff = True
         self.user.is_superuser = True
         self.user.save(update_fields=["is_staff", "is_superuser"])
+
+    def create_class_for_date(self, fecha, hora_inicio, hora_fin, aula_nombre="Aula extra", materia_curso=None):
+        aula = Aula.objects.create(nombre=aula_nombre)
+        aula_curso = AulaCurso.objects.create(aula=aula, curso=self.curso)
+        weekday_names = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
+        dia, _ = Dia.objects.get_or_create(dia=weekday_names[fecha.weekday()])
+        horario, _ = Horario.objects.get_or_create(hora_inicio=hora_inicio, hora_fin=hora_fin)
+        horario_dia, _ = HorarioDia.objects.get_or_create(dia=dia, horario=horario)
+        horario_aula_curso = HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
+        return Clase.objects.create(
+            horario_aula_curso=horario_aula_curso,
+            materia_curso=materia_curso or self.materia_curso,
+            fecha=fecha,
+        )
 
     def create_student_ficha(self, nombre="Estudiante Prueba", identificacion="EST-001", numero="F-001"):
         estudiante = Partner.objects.create(
@@ -220,6 +235,9 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertFalse(GrupoEstudiante.objects.filter(pk=asignacion.pk).exists())
 
     def test_group_assignment_is_default_roster_for_all_group_classes(self):
+        today = timezone.localdate()
+        first_class = self.create_class_for_date(today, time(10, 0), time(11, 0), "Aula asistencia 1")
+        second_class = self.create_class_for_date(today, time(11, 0), time(12, 0), "Aula asistencia 2")
         estudiante, ficha = self.create_student_ficha()
         GrupoEstudiante.objects.create(
             ficha_inscripcion=ficha,
@@ -229,11 +247,11 @@ class DocenteHorariosPanelTests(TestCase):
         self.client.force_login(self.user)
 
         first_response = self.client.get(
-            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+            reverse("academico:docente_clase_asistencia", args=[first_class.pk]),
             HTTP_HOST="localhost",
         )
         second_response = self.client.get(
-            reverse("academico:docente_clase_asistencia", args=[self.revision.pk]),
+            reverse("academico:docente_clase_asistencia", args=[second_class.pk]),
             HTTP_HOST="localhost",
         )
 
@@ -242,6 +260,17 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual([row["estudiante"] for row in first_response.context["rows"]], [estudiante])
         self.assertEqual([row["estudiante"] for row in second_response.context["rows"]], [estudiante])
         self.assertFalse(ClaseAsistencia.objects.filter(estudiante=estudiante).exists())
+
+    def test_docente_attendance_only_opens_on_class_date(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("academico:docente_horarios"))
 
     def test_class_student_movement_requires_same_materia_and_group(self):
         estudiante, ficha = self.create_student_ficha()
@@ -277,6 +306,9 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIn("Solo puedes mover entre clases de la misma materia y grupo.", error.exception.message_dict["clase_destino"])
 
     def test_docente_attendance_uses_group_roster_and_movement_exceptions(self):
+        today = timezone.localdate()
+        origin_class = self.create_class_for_date(today, time(10, 0), time(11, 0), "Aula origen")
+        destination_class = self.create_class_for_date(today, time(11, 0), time(12, 0), "Aula destino")
         estudiante_uno, ficha_uno = self.create_student_ficha(
             nombre="Ana Estudiante",
             identificacion="EST-101",
@@ -299,13 +331,13 @@ class DocenteHorariosPanelTests(TestCase):
         )
         ClaseEstudianteMovimiento.objects.create(
             asignacion=asignacion_dos,
-            clase_origen=self.pendiente,
-            clase_destino=self.revision,
+            clase_origen=origin_class,
+            clase_destino=destination_class,
         )
         self.client.force_login(self.user)
 
         response = self.client.get(
-            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+            reverse("academico:docente_clase_asistencia", args=[origin_class.pk]),
             HTTP_HOST="localhost",
         )
 
@@ -315,7 +347,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(response.context["moved_out_rows"][0]["estudiante"], estudiante_dos)
 
         response = self.client.post(
-            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+            reverse("academico:docente_clase_asistencia", args=[origin_class.pk]),
             {
                 f"estado_{asignacion_uno.pk}": "ausente",
                 f"observacion_{asignacion_uno.pk}": "No asistio.",
@@ -325,13 +357,13 @@ class DocenteHorariosPanelTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        asistencia = ClaseAsistencia.objects.get(clase=self.pendiente, estudiante=estudiante_uno)
+        asistencia = ClaseAsistencia.objects.get(clase=origin_class, estudiante=estudiante_uno)
         self.assertEqual(asistencia.estado, "ausente")
         self.assertEqual(asistencia.observacion, "No asistio.")
-        self.assertFalse(ClaseAsistencia.objects.filter(clase=self.pendiente, estudiante=estudiante_dos).exists())
+        self.assertFalse(ClaseAsistencia.objects.filter(clase=origin_class, estudiante=estudiante_dos).exists())
 
         destination_response = self.client.get(
-            reverse("academico:docente_clase_asistencia", args=[self.revision.pk]),
+            reverse("academico:docente_clase_asistencia", args=[destination_class.pk]),
             HTTP_HOST="localhost",
         )
 
@@ -339,6 +371,63 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(len(destination_response.context["rows"]), 2)
         incoming_rows = [row for row in destination_response.context["rows"] if row["incoming"]]
         self.assertEqual(incoming_rows[0]["estudiante"], estudiante_dos)
+
+    def test_docente_can_close_attendance_after_save_and_lock_changes(self):
+        today_class = self.create_class_for_date(timezone.localdate(), time(10, 0), time(11, 0), "Aula cierre")
+        estudiante, ficha = self.create_student_ficha()
+        asignacion = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_clase_asistencia", args=[today_class.pk]),
+            {
+                "attendance_action": "save",
+                f"estado_{asignacion.pk}": "presente",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        page_response = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[today_class.pk]),
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(page_response, "Cerrar asistencia")
+
+        response = self.client.post(
+            reverse("academico:docente_clase_asistencia", args=[today_class.pk]),
+            {"attendance_action": "close"},
+            HTTP_HOST="localhost",
+        )
+        today_class.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(today_class.asistencia_cerrada)
+        self.assertEqual(today_class.asistencia_cerrada_por, self.docente)
+        self.assertIsNotNone(today_class.fecha_cierre_asistencia)
+
+        response = self.client.post(
+            reverse("academico:docente_clase_asistencia", args=[today_class.pk]),
+            {
+                "attendance_action": "save",
+                f"estado_{asignacion.pk}": "ausente",
+            },
+            HTTP_HOST="localhost",
+        )
+        asistencia = ClaseAsistencia.objects.get(clase=today_class, estudiante=estudiante)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(asistencia.estado, "presente")
+        locked_response = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[today_class.pk]),
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(locked_response, "Asistencia cerrada")
+        self.assertContains(locked_response, "Registro bloqueado")
 
     def test_docente_dashboard_renders_panel_cards(self):
         self.client.force_login(self.user)

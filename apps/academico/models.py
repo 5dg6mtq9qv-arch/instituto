@@ -965,6 +965,16 @@ class Clase(models.Model):
         related_name="clases_revisadas",
     )
     fecha_revision = models.DateTimeField(blank=True, null=True)
+    asistencia_cerrada = models.BooleanField(default=False)
+    asistencia_cerrada_por = models.ForeignKey(
+        "core.Partner",
+        db_column="id_asistencia_cerrada_por",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="clases_asistencia_cerradas",
+    )
+    fecha_cierre_asistencia = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         db_table = '"academico"."clase"'

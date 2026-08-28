@@ -119,17 +119,46 @@ def home(request):
 
     def build_docente_dashboard(docente):
         clases = base_clases_queryset().filter(materia_curso__profesor_materia_cursos__partner=docente).distinct()
-        week_start = today - timedelta(days=today.weekday())
-        week_end = week_start + timedelta(days=6)
         por_atender = clases.filter(estado_planificacion__in=["pendiente", "rechazada"])
         atrasadas = por_atender.filter(fecha__lt=today)
-        semana = clases.filter(fecha__range=(week_start, week_end))
+        current_time = timezone.localtime().time()
+        siguiente = clases.filter(
+            Q(fecha__gt=today)
+            | Q(fecha=today, horario_aula_curso__horario_dia__horario__hora_fin__gte=current_time)
+        ).first()
+
+        def next_class_item(clase):
+            is_today = clase.fecha == today
+            if is_today and not clase.asistencia_cerrada:
+                return clase_item(
+                    clase,
+                    "academico:docente_clase_asistencia",
+                    "ri-list-check-3",
+                    "primary",
+                    "Asistencia",
+                )
+            if clase.asistencia_cerrada:
+                return clase_item(
+                    clase,
+                    "academico:docente_clase_planificar",
+                    "ri-lock-2-line",
+                    "success",
+                    "Asistencia cerrada",
+                )
+            return clase_item(
+                clase,
+                "academico:docente_clase_planificar",
+                "ri-calendar-event-line",
+                "primary",
+                "Proxima",
+            )
+
         return {
             "profile": {
                 "role": "docente",
                 "eyebrow": "Panel docente",
                 "title": docente.nombre,
-                "subtitle": "Resumen de tus clases, planificaciones enviadas y pendientes por corregir.",
+                "subtitle": "Tu siguiente clase y accesos principales de trabajo.",
             },
             "metrics": [
                 metric("Mis clases", clases.count(), "ri-calendar-check-line", "primary", "Total de clases asignadas", "academico:docente_calendario"),
@@ -143,31 +172,12 @@ def home(request):
             ],
             "priority_sections": [
                 priority_section(
-                    "Por atender",
-                    "Clases pendientes o devueltas para corregir.",
-                    [clase_item(clase, "academico:docente_clase_planificar", "ri-edit-2-line", "warning") for clase in por_atender[:5]],
-                    "No tienes planificaciones pendientes.",
-                    "ri-inbox-unarchive-line",
-                    "warning",
-                ),
-                priority_section(
-                    "Esta semana",
-                    f"Clases del {week_start:%d/%m} al {week_end:%d/%m}.",
-                    [clase_item(clase, "academico:docente_clase_planificar", "ri-calendar-line", "primary") for clase in semana[:5]],
-                    "No tienes clases esta semana.",
-                    "ri-calendar-week-line",
+                    "Siguiente clase",
+                    "Acceso directo a la proxima clase asignada.",
+                    [next_class_item(siguiente)] if siguiente else [],
+                    "No tienes clases proximas.",
+                    "ri-calendar-check-line",
                     "primary",
-                ),
-                priority_section(
-                    "Observadas",
-                    "Planificaciones rechazadas que necesitan ajuste.",
-                    [
-                        clase_item(clase, "academico:docente_clase_planificar", "ri-error-warning-line", "danger")
-                        for clase in clases.filter(estado_planificacion="rechazada")[:5]
-                    ],
-                    "No tienes observaciones pendientes.",
-                    "ri-error-warning-line",
-                    "danger",
                 ),
             ],
         }
