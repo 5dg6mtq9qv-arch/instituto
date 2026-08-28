@@ -173,7 +173,7 @@
     <header class="section-header">
       <div>
         <span>Movimiento</span>
-        <h2>Cambio de clase</h2>
+        <h2>Cambio de materia a otro horario</h2>
       </div>
     </header>
     <form method="post" novalidate>
@@ -199,7 +199,7 @@
       <div class="form-actions compact">
         <button class="btn btn-outline-primary" type="submit"{% if not selected_group or not can_manage %} disabled{% endif %}>
           <i class="ri-arrow-left-right-line"></i>
-          Guardar movimiento
+          Guardar cambio
         </button>
       </div>
     </form>
@@ -209,7 +209,7 @@
     <header class="section-header">
       <div>
         <span>Historial</span>
-        <h2>Movimientos recientes</h2>
+        <h2>Cambios permanentes</h2>
       </div>
     </header>
     {% if movimientos %}
@@ -218,12 +218,12 @@
           <div class="movement-row{% if not movimiento.activo %} is-cancelled{% endif %}">
             <div>
               <strong>{{ movimiento.asignacion.estudiante.nombre }}</strong>
-              <span>{{ movimiento.clase_origen.fecha|date:"d/m/Y" }} - {{ movimiento.clase_origen.materia_curso.materia }}</span>
+              <span>Desde {{ movimiento.fecha_inicio|date:"d/m/Y" }} - {{ movimiento.clase_origen.materia_curso.materia }}</span>
             </div>
             <div>
-              <span>{{ movimiento.clase_origen.horario_aula_curso.aula_curso.aula }}</span>
+              <span>{{ movimiento.clase_origen.materia_curso.grupo }} - {{ movimiento.clase_origen.horario_aula_curso.aula_curso.aula }}</span>
               <i class="ri-arrow-right-line"></i>
-              <span>{{ movimiento.clase_destino.horario_aula_curso.aula_curso.aula }}</span>
+              <span>{{ movimiento.clase_destino.materia_curso.grupo }} - {{ movimiento.clase_destino.horario_aula_curso.aula_curso.aula }}</span>
             </div>
             <div class="movement-actions">
               {% if movimiento.activo %}
@@ -256,19 +256,22 @@
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
-      const classMap = {{ movement_class_map_json|safe }};
-      const origin = document.getElementById("id_clase_origen");
-      const destination = document.getElementById("id_clase_destino");
+      if (window.InstitutoDatePicker) {
+        window.InstitutoDatePicker.init(document);
+      }
+      const materiaMap = {{ movement_materia_map_json|safe }};
+      const origin = document.getElementById("id_materia_origen");
+      const destination = document.getElementById("id_materia_destino");
       if (origin && destination) {
         function syncDestinations() {
-          const originInfo = classMap[origin.value];
+          const originInfo = materiaMap[origin.value];
           Array.prototype.forEach.call(destination.options, function (option) {
             if (!option.value) return;
-            const optionInfo = classMap[option.value];
-            const canUse = !originInfo || (
+            const optionInfo = materiaMap[option.value];
+            const canUse = originInfo && (
               optionInfo &&
-              optionInfo.materiaCursoId === originInfo.materiaCursoId &&
-              option.value !== origin.value
+              optionInfo.materiaId === originInfo.materiaId &&
+              optionInfo.grupoId !== originInfo.grupoId
             );
             option.hidden = !canUse;
             option.disabled = !canUse;

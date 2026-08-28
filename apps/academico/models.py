@@ -1117,6 +1117,7 @@ class ClaseEstudianteMovimiento(models.Model):
         on_delete=models.CASCADE,
         related_name="movimientos_entrada",
     )
+    fecha_inicio = models.DateField(default=timezone.localdate)
     motivo = models.TextField(blank=True, null=True)
     activo = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1141,12 +1142,20 @@ class ClaseEstudianteMovimiento(models.Model):
             raise ValidationError({"clase_destino": "La clase destino debe ser distinta a la clase origen."})
         if not self.asignacion_id or not self.clase_origen_id or not self.clase_destino_id:
             return
-        if self.clase_origen.materia_curso_id != self.clase_destino.materia_curso_id:
-            raise ValidationError({"clase_destino": "Solo puedes mover entre clases de la misma materia y grupo."})
+        if self.clase_origen.materia_curso.materia_id != self.clase_destino.materia_curso.materia_id:
+            raise ValidationError({"clase_destino": "Solo puedes mover entre grupos que tengan la misma materia."})
+        if self.clase_origen.materia_curso_id == self.clase_destino.materia_curso_id:
+            raise ValidationError({"clase_destino": "Selecciona una clase destino de otro grupo."})
         if self.clase_origen.materia_curso.grupo_id != self.asignacion.grupo_id:
             raise ValidationError({"clase_origen": "La clase origen no pertenece al grupo del estudiante."})
-        if self.clase_destino.materia_curso.grupo_id != self.asignacion.grupo_id:
-            raise ValidationError({"clase_destino": "La clase destino no pertenece al grupo del estudiante."})
+        if self.activo:
+            active_duplicates = ClaseEstudianteMovimiento.objects.filter(
+                asignacion=self.asignacion,
+                clase_origen__materia_curso=self.clase_origen.materia_curso,
+                activo=True,
+            ).exclude(pk=self.pk)
+            if active_duplicates.exists():
+                raise ValidationError({"clase_origen": "El estudiante ya tiene un cambio activo para esta materia."})
 
     def __str__(self):
         return f"{self.asignacion.estudiante} - {self.clase_origen} -> {self.clase_destino}"

@@ -1777,23 +1777,36 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         form = ClaseEstudianteMovimientoForm(request.POST, grupo=selected_group)
         if form.is_valid():
             asignacion = form.cleaned_data["asignacion"]
+            materia_origen = form.cleaned_data["materia_origen"]
             clase_origen = form.cleaned_data["clase_origen"]
-            movimiento = ClaseEstudianteMovimiento.objects.filter(
-                asignacion=asignacion,
-                clase_origen=clase_origen,
-            ).first()
-            if not movimiento:
-                movimiento = ClaseEstudianteMovimiento(
+            with transaction.atomic():
+                active_movement = ClaseEstudianteMovimiento.objects.filter(
+                    asignacion=asignacion,
+                    clase_origen__materia_curso=materia_origen,
+                    activo=True,
+                ).first()
+                exact_movement = ClaseEstudianteMovimiento.objects.filter(
                     asignacion=asignacion,
                     clase_origen=clase_origen,
-                )
-            movimiento.clase_destino = form.cleaned_data["clase_destino"]
-            movimiento.motivo = form.cleaned_data.get("motivo") or ""
-            movimiento.usuario_updated = request.user
-            movimiento.activo = True
-            movimiento.full_clean()
-            movimiento.save()
-            messages.success(request, "Movimiento guardado. El estudiante queda fuera de la clase origen y disponible en la clase destino.")
+                ).first()
+                if active_movement and exact_movement and active_movement.pk != exact_movement.pk:
+                    active_movement.activo = False
+                    active_movement.usuario_updated = request.user
+                    active_movement.save(update_fields=["activo", "usuario_updated", "updated_at"])
+                movimiento = exact_movement or active_movement or ClaseEstudianteMovimiento(asignacion=asignacion)
+                movimiento.asignacion = asignacion
+                movimiento.clase_origen = clase_origen
+                movimiento.clase_destino = form.cleaned_data["clase_destino"]
+                movimiento.fecha_inicio = form.cleaned_data["fecha_inicio"]
+                movimiento.motivo = form.cleaned_data.get("motivo") or ""
+                movimiento.usuario_updated = request.user
+                movimiento.activo = True
+                movimiento.full_clean()
+                movimiento.save()
+            messages.success(
+                request,
+                "Cambio guardado. El estudiante conserva su grupo base y cursara solo esta materia en el horario destino.",
+            )
             return self.redirect_to_group(movimiento.asignacion.grupo)
         return render(request, self.template_name, self.get_context(selected_group=selected_group, movement_form=form))
 
@@ -1832,6 +1845,7 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         asignaciones = asignaciones.order_by("estudiante__nombre")
         bulk_form = bulk_form or GrupoEstudianteBulkForm(selected_group=selected_group)
         clases = list(self.get_group_classes(selected_group))
+        movement_materia_cursos = list(self.get_movement_materia_cursos(selected_group))
         movimientos = self.get_group_movements(selected_group)
         return {
             "title": "Estudiantes por grupo",
@@ -1841,10 +1855,11 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             "asignaciones": asignaciones,
             "available_fichas": list(bulk_form.fields["fichas"].queryset),
             "clases": clases,
+            "movement_materia_cursos": movement_materia_cursos,
             "movimientos": movimientos,
             "bulk_form": bulk_form,
             "movement_form": movement_form or ClaseEstudianteMovimientoForm(grupo=selected_group),
-            "movement_class_map_json": json.dumps(self.get_movement_class_map(clases)),
+            "movement_materia_map_json": json.dumps(self.get_movement_materia_map(movement_materia_cursos)),
             "can_manage": self.can_manage(self.request.user),
             "q": q,
             "stats": self.get_stats(selected_group),
@@ -1881,12 +1896,27 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             .order_by("fecha", "materia_curso__materia__nombre", "horario_aula_curso__horario_dia__horario__hora_inicio")
         )
 
-    def get_movement_class_map(self, clases):
+    def get_movement_materia_cursos(self, selected_group):
+        if not selected_group:
+            return []
+        materias = MateriaCurso.objects.filter(grupo=selected_group).values_list("materia_id", flat=True)
+        return (
+            MateriaCurso.objects.select_related("materia", "grupo")
+            .filter(
+                Q(grupo=selected_group) | Q(materia_id__in=materias),
+            )
+            .filter(clases__isnull=False)
+            .distinct()
+            .order_by("materia__nombre", "grupo__nombre")
+        )
+
+    def get_movement_materia_map(self, materias_curso):
         return {
-            str(clase.pk): {
-                "materiaCursoId": clase.materia_curso_id,
+            str(materia_curso.pk): {
+                "materiaId": materia_curso.materia_id,
+                "grupoId": materia_curso.grupo_id,
             }
-            for clase in clases
+            for materia_curso in materias_curso
         }
 
     def get_group_movements(self, selected_group):
@@ -1896,13 +1926,16 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             ClaseEstudianteMovimiento.objects.select_related(
                 "asignacion__estudiante",
                 "clase_origen__materia_curso__materia",
+                "clase_origen__materia_curso__grupo",
                 "clase_origen__horario_aula_curso__aula_curso__aula",
                 "clase_origen__horario_aula_curso__horario_dia__horario",
+                "clase_destino__materia_curso__grupo",
+                "clase_destino__materia_curso__materia",
                 "clase_destino__horario_aula_curso__aula_curso__aula",
                 "clase_destino__horario_aula_curso__horario_dia__horario",
             )
             .filter(clase_origen__materia_curso__grupo=selected_group)
-            .order_by("-created_at")[:20]
+            .order_by("-fecha_inicio", "-created_at")[:20]
         )
 
     def get_stats(self, selected_group):
@@ -2804,7 +2837,7 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
         }
 
     def get_roster_rows(self, clase):
-        asignaciones = list(
+        base_asignaciones = list(
             GrupoEstudiante.objects.select_related("estudiante", "ficha_inscripcion", "grupo")
             .filter(grupo=clase.materia_curso.grupo, estado="activo")
             .order_by("estudiante__nombre", "ficha_inscripcion__numero")
@@ -2813,33 +2846,53 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
             ClaseEstudianteMovimiento.objects.select_related(
                 "asignacion__estudiante",
                 "asignacion__ficha_inscripcion",
+                "asignacion__grupo",
                 "clase_origen__materia_curso__materia",
+                "clase_origen__materia_curso__grupo",
                 "clase_origen__horario_aula_curso__aula_curso__aula",
                 "clase_origen__horario_aula_curso__horario_dia__horario",
                 "clase_destino__materia_curso__materia",
+                "clase_destino__materia_curso__grupo",
                 "clase_destino__horario_aula_curso__aula_curso__aula",
                 "clase_destino__horario_aula_curso__horario_dia__horario",
             )
             .filter(
-                Q(clase_origen=clase) | Q(clase_destino=clase),
                 activo=True,
+                fecha_inicio__lte=clase.fecha,
+            )
+            .filter(
+                Q(clase_origen__materia_curso=clase.materia_curso)
+                | Q(clase_destino__materia_curso=clase.materia_curso)
             )
         )
         moved_out_by_assignment = {
             movimiento.asignacion_id: movimiento
             for movimiento in movimientos
-            if movimiento.clase_origen_id == clase.pk
+            if movimiento.clase_origen.materia_curso_id == clase.materia_curso_id
         }
         incoming_by_assignment = {
             movimiento.asignacion_id: movimiento
             for movimiento in movimientos
-            if movimiento.clase_destino_id == clase.pk
+            if movimiento.clase_destino.materia_curso_id == clase.materia_curso_id
         }
-        visible_assignments = [
-            asignacion
-            for asignacion in asignaciones
+        visible_assignments_by_id = {
+            asignacion.pk: asignacion
+            for asignacion in base_asignaciones
             if asignacion.pk not in moved_out_by_assignment
-        ]
+        }
+        visible_assignments_by_id.update(
+            {
+                movimiento.asignacion_id: movimiento.asignacion
+                for movimiento in incoming_by_assignment.values()
+            }
+        )
+        visible_assignments = sorted(
+            visible_assignments_by_id.values(),
+            key=lambda asignacion: (
+                asignacion.estudiante.nombre or "",
+                asignacion.ficha_inscripcion.numero or "",
+            ),
+        )
         attendance_by_student = {
             attendance.estudiante_id: attendance
             for attendance in ClaseAsistencia.objects.filter(

@@ -13,7 +13,6 @@ from .models import (
     Aula,
     BancoPregunta,
     Clase,
-    ClaseEstudianteMovimiento,
     Competencia,
     Curso,
     CursoPeriodo,
@@ -363,54 +362,96 @@ class GrupoEstudianteBulkForm(BootstrapFormMixin, forms.Form):
             self.fields["grupo"].initial = selected_group
 
 
-class ClaseEstudianteMovimientoForm(BootstrapFormMixin, forms.ModelForm):
-    class Meta:
-        model = ClaseEstudianteMovimiento
-        fields = ["asignacion", "clase_origen", "clase_destino", "motivo"]
-        labels = {
-            "asignacion": "Estudiante",
-            "clase_origen": "Clase origen",
-            "clase_destino": "Clase destino",
-            "motivo": "Motivo",
-        }
-        widgets = {
-            "motivo": forms.Textarea(attrs={"rows": 2}),
-        }
+class ClaseEstudianteMovimientoForm(BootstrapFormMixin, forms.Form):
+    asignacion = forms.ModelChoiceField(label="Estudiante", queryset=GrupoEstudiante.objects.none())
+    materia_origen = forms.ModelChoiceField(label="Materia en grupo base", queryset=MateriaCurso.objects.none())
+    materia_destino = forms.ModelChoiceField(label="Tomar esa materia en", queryset=MateriaCurso.objects.none())
+    fecha_inicio = forms.DateField(
+        label="Desde fecha",
+        initial=timezone.localdate,
+        input_formats=["%Y-%m-%d", "%d/%m/%Y"],
+        widget=forms.DateInput(format="%Y-%m-%d", attrs={"type": "text"}),
+    )
+    motivo = forms.CharField(label="Motivo", required=False, widget=forms.Textarea(attrs={"rows": 2}))
 
     def __init__(self, *args, **kwargs):
-        grupo = kwargs.pop("grupo", None)
+        self.grupo = kwargs.pop("grupo", None)
         super().__init__(*args, **kwargs)
         asignaciones = GrupoEstudiante.objects.select_related("estudiante", "grupo").filter(estado="activo")
-        clases = Clase.objects.select_related(
-            "materia_curso__materia",
-            "materia_curso__grupo",
-            "horario_aula_curso__aula_curso__aula",
-            "horario_aula_curso__horario_dia__horario",
-        ).order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
-        if grupo:
-            asignaciones = asignaciones.filter(grupo=grupo)
-            clases = clases.filter(materia_curso__grupo=grupo)
+        materias_origen = MateriaCurso.objects.select_related("materia", "grupo").filter(
+            clases__isnull=False,
+        )
+        materias_destino = MateriaCurso.objects.select_related("materia", "grupo").filter(
+            clases__isnull=False,
+        )
+        if self.grupo:
+            asignaciones = asignaciones.filter(grupo=self.grupo)
+            materias_origen = materias_origen.filter(grupo=self.grupo)
+            materias_destino = materias_destino.exclude(grupo=self.grupo).filter(
+                materia_id__in=materias_origen.values_list("materia_id", flat=True),
+            )
+        else:
+            materias_destino = materias_destino.none()
+
+        origin_id = self.data.get(self.add_prefix("materia_origen")) if self.is_bound else None
+        origin = MateriaCurso.objects.filter(pk=origin_id).first() if origin_id else None
+        if origin:
+            materias_destino = materias_destino.filter(materia=origin.materia).exclude(pk=origin.pk)
+
         self.fields["asignacion"].queryset = asignaciones.order_by("estudiante__nombre")
-        self.fields["clase_origen"].queryset = clases
-        self.fields["clase_destino"].queryset = clases
+        self.fields["materia_origen"].queryset = materias_origen.distinct().order_by("materia__nombre", "grupo__nombre")
+        self.fields["materia_destino"].queryset = materias_destino.distinct().order_by("grupo__nombre", "materia__nombre")
         self.fields["asignacion"].label_from_instance = lambda obj: obj.estudiante.nombre
-        self.fields["clase_origen"].label_from_instance = self.clase_label
-        self.fields["clase_destino"].label_from_instance = self.clase_label
+        self.fields["materia_origen"].label_from_instance = self.materia_curso_label
+        self.fields["materia_destino"].label_from_instance = self.materia_curso_label
 
     @staticmethod
-    def clase_label(clase):
-        horario = clase.horario_aula_curso.horario_dia.horario
-        aula = clase.horario_aula_curso.aula_curso.aula
-        materia = clase.materia_curso.materia
-        return f"{clase.fecha:%d/%m/%Y} - {materia} - {aula} - {horario.hora_inicio:%H:%M}-{horario.hora_fin:%H:%M}"
+    def materia_curso_label(materia_curso):
+        return f"{materia_curso.materia} - {materia_curso.grupo}"
 
     def clean(self):
         cleaned_data = super().clean()
-        instance = self.instance
-        for field, value in cleaned_data.items():
-            setattr(instance, field, value)
-        instance.clean()
+        asignacion = cleaned_data.get("asignacion")
+        materia_origen = cleaned_data.get("materia_origen")
+        materia_destino = cleaned_data.get("materia_destino")
+        fecha_inicio = cleaned_data.get("fecha_inicio")
+        if not asignacion or not materia_origen or not materia_destino or not fecha_inicio:
+            return cleaned_data
+
+        if asignacion.grupo_id != materia_origen.grupo_id:
+            self.add_error("materia_origen", "La materia origen debe pertenecer al grupo base del estudiante.")
+            return cleaned_data
+        if materia_origen.materia_id != materia_destino.materia_id:
+            self.add_error("materia_destino", "Selecciona la misma materia en otro grupo.")
+            return cleaned_data
+        if materia_origen.pk == materia_destino.pk:
+            self.add_error("materia_destino", "Selecciona otro grupo para esta materia.")
+            return cleaned_data
+
+        clase_origen = self.get_first_class(materia_origen, fecha_inicio)
+        clase_destino = self.get_first_class(materia_destino, fecha_inicio)
+        if not clase_origen:
+            self.add_error("materia_origen", "No hay clases de esta materia desde la fecha indicada.")
+        if not clase_destino:
+            self.add_error("materia_destino", "El grupo destino no tiene clases de esta materia desde la fecha indicada.")
+        if clase_origen and clase_destino:
+            cleaned_data["clase_origen"] = clase_origen
+            cleaned_data["clase_destino"] = clase_destino
         return cleaned_data
+
+    @staticmethod
+    def get_first_class(materia_curso, fecha_inicio):
+        return (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .filter(materia_curso=materia_curso, fecha__gte=fecha_inicio)
+            .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
+            .first()
+        )
 
 
 class CoordinacionPlanificacionForm(BootstrapFormMixin, forms.Form):

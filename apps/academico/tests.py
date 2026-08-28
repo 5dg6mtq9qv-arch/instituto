@@ -37,6 +37,7 @@ from apps.academico.models import (
     Subtema,
     Tema,
 )
+from apps.academico.views import DocenteClaseAsistenciaView
 from apps.core.current_user import set_current_request
 from apps.core.models import Empresa, Partner, TipoIdentificacion
 from apps.matricula.models import FichaInscripcion
@@ -141,9 +142,18 @@ class DocenteHorariosPanelTests(TestCase):
         self.user.is_superuser = True
         self.user.save(update_fields=["is_staff", "is_superuser"])
 
-    def create_class_for_date(self, fecha, hora_inicio, hora_fin, aula_nombre="Aula extra", materia_curso=None):
+    def create_class_for_date(
+        self,
+        fecha,
+        hora_inicio,
+        hora_fin,
+        aula_nombre="Aula extra",
+        materia_curso=None,
+        curso=None,
+    ):
+        curso = curso or self.curso
         aula = Aula.objects.create(nombre=aula_nombre)
-        aula_curso = AulaCurso.objects.create(aula=aula, curso=self.curso)
+        aula_curso = AulaCurso.objects.create(aula=aula, curso=curso)
         weekday_names = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
         dia, _ = Dia.objects.get_or_create(dia=weekday_names[fecha.weekday()])
         horario, _ = Horario.objects.get_or_create(hora_inicio=hora_inicio, hora_fin=hora_fin)
@@ -272,27 +282,53 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("academico:docente_horarios"))
 
-    def test_class_student_movement_requires_same_materia_and_group(self):
+    def test_class_student_movement_requires_same_materia_in_another_group(self):
         estudiante, ficha = self.create_student_ficha()
         asignacion = GrupoEstudiante.objects.create(
             ficha_inscripcion=ficha,
             estudiante=estudiante,
             grupo=self.curso,
         )
+        grupo_destino = Curso.objects.create(nombre="Grupo B", activo=True)
+        materia_curso_destino = MateriaCurso.objects.create(materia=self.materia, grupo=grupo_destino)
+        target_class = self.create_class_for_date(
+            self.pendiente.fecha,
+            time(10, 0),
+            time(11, 0),
+            "Aula destino",
+            materia_curso=materia_curso_destino,
+            curso=grupo_destino,
+        )
         valid_movement = ClaseEstudianteMovimiento(
             asignacion=asignacion,
             clase_origen=self.pendiente,
-            clase_destino=self.revision,
+            clase_destino=target_class,
         )
 
         valid_movement.full_clean()
 
+        same_group_movement = ClaseEstudianteMovimiento(
+            asignacion=asignacion,
+            clase_origen=self.pendiente,
+            clase_destino=self.revision,
+        )
+        with self.assertRaises(ValidationError) as same_group_error:
+            same_group_movement.full_clean()
+
+        self.assertIn(
+            "Selecciona una clase destino de otro grupo.",
+            same_group_error.exception.message_dict["clase_destino"],
+        )
+
         otra_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
-        otra_materia_curso = MateriaCurso.objects.create(materia=otra_materia, grupo=self.curso)
-        wrong_class = Clase.objects.create(
-            horario_aula_curso=self.horario_aula_curso,
+        otra_materia_curso = MateriaCurso.objects.create(materia=otra_materia, grupo=grupo_destino)
+        wrong_class = self.create_class_for_date(
+            self.pendiente.fecha + timedelta(days=1),
+            time(11, 0),
+            time(12, 0),
+            "Aula materia distinta",
             materia_curso=otra_materia_curso,
-            fecha=timezone.localdate() + timedelta(days=25),
+            curso=grupo_destino,
         )
         invalid_movement = ClaseEstudianteMovimiento(
             asignacion=asignacion,
@@ -303,12 +339,94 @@ class DocenteHorariosPanelTests(TestCase):
         with self.assertRaises(ValidationError) as error:
             invalid_movement.full_clean()
 
-        self.assertIn("Solo puedes mover entre clases de la misma materia y grupo.", error.exception.message_dict["clase_destino"])
+        self.assertIn(
+            "Solo puedes mover entre grupos que tengan la misma materia.",
+            error.exception.message_dict["clase_destino"],
+        )
+
+    def test_group_student_movement_view_changes_subject_to_equivalent_group(self):
+        self.make_superuser()
+        today = timezone.localdate()
+        estudiante, ficha = self.create_student_ficha()
+        asignacion = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+        )
+        grupo_destino = Curso.objects.create(nombre="Grupo B", activo=True)
+        materia_curso_destino = MateriaCurso.objects.create(materia=self.materia, grupo=grupo_destino)
+        origin_class = self.create_class_for_date(today, time(10, 0), time(11, 0), "Aula origen movimiento")
+        destination_class = self.create_class_for_date(
+            today,
+            time(12, 0),
+            time(13, 0),
+            "Aula destino movimiento",
+            materia_curso=materia_curso_destino,
+            curso=grupo_destino,
+        )
+        self.client.force_login(self.user)
+
+        page_response = self.client.get(
+            reverse("academico:grupo_estudiantes"),
+            {"grupo": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "id_materia_origen")
+        self.assertContains(page_response, "id_materia_destino")
+        self.assertNotContains(page_response, "id_clase_origen")
+
+        response = self.client.post(
+            reverse("academico:grupo_estudiantes"),
+            {
+                "assignment_action": "move_student",
+                "grupo": self.curso.pk,
+                "asignacion": asignacion.pk,
+                "materia_origen": self.materia_curso.pk,
+                "materia_destino": materia_curso_destino.pk,
+                "fecha_inicio": today.isoformat(),
+                "motivo": "Cambio de horario.",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        movimiento = ClaseEstudianteMovimiento.objects.get(asignacion=asignacion)
+        self.assertEqual(movimiento.clase_origen, origin_class)
+        self.assertEqual(movimiento.clase_destino, destination_class)
+        self.assertEqual(movimiento.fecha_inicio, today)
+        self.assertEqual(movimiento.motivo, "Cambio de horario.")
+        self.assertEqual(asignacion.grupo, self.curso)
 
     def test_docente_attendance_uses_group_roster_and_movement_exceptions(self):
         today = timezone.localdate()
         origin_class = self.create_class_for_date(today, time(10, 0), time(11, 0), "Aula origen")
-        destination_class = self.create_class_for_date(today, time(11, 0), time(12, 0), "Aula destino")
+        grupo_destino = Curso.objects.create(nombre="Grupo B", activo=True)
+        materia_curso_destino = MateriaCurso.objects.create(materia=self.materia, grupo=grupo_destino)
+        ProfesorMateriaCurso.objects.create(partner=self.docente, materia_curso=materia_curso_destino)
+        destination_class = self.create_class_for_date(
+            today,
+            time(11, 0),
+            time(12, 0),
+            "Aula destino",
+            materia_curso=materia_curso_destino,
+            curso=grupo_destino,
+        )
+        future_origin_class = self.create_class_for_date(
+            today + timedelta(days=7),
+            time(10, 0),
+            time(11, 0),
+            "Aula origen futura",
+        )
+        future_destination_class = self.create_class_for_date(
+            today + timedelta(days=7),
+            time(11, 0),
+            time(12, 0),
+            "Aula destino futura",
+            materia_curso=materia_curso_destino,
+            curso=grupo_destino,
+        )
         estudiante_uno, ficha_uno = self.create_student_ficha(
             nombre="Ana Estudiante",
             identificacion="EST-101",
@@ -368,9 +486,18 @@ class DocenteHorariosPanelTests(TestCase):
         )
 
         self.assertEqual(destination_response.status_code, 200)
-        self.assertEqual(len(destination_response.context["rows"]), 2)
+        self.assertEqual(len(destination_response.context["rows"]), 1)
         incoming_rows = [row for row in destination_response.context["rows"] if row["incoming"]]
         self.assertEqual(incoming_rows[0]["estudiante"], estudiante_dos)
+
+        roster_view = DocenteClaseAsistenciaView()
+        future_origin_rows, future_origin_moved_out = roster_view.get_roster_rows(future_origin_class)
+        future_destination_rows, _ = roster_view.get_roster_rows(future_destination_class)
+
+        self.assertEqual([row["estudiante"] for row in future_origin_rows], [estudiante_uno])
+        self.assertEqual(future_origin_moved_out[0]["estudiante"], estudiante_dos)
+        self.assertEqual([row["estudiante"] for row in future_destination_rows], [estudiante_dos])
+        self.assertTrue(future_destination_rows[0]["incoming"])
 
     def test_docente_can_close_attendance_after_save_and_lock_changes(self):
         today_class = self.create_class_for_date(timezone.localdate(), time(10, 0), time(11, 0), "Aula cierre")
