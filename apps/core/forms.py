@@ -13,9 +13,7 @@ class BootstrapFormMixin:
             widget = field.widget
             if isinstance(widget, forms.CheckboxInput):
                 if field_name in {"activo", "activa", "is_active"}:
-                    current_class = widget.attrs.get("class", "")
-                    if "js-switch" not in current_class.split():
-                        widget.attrs["class"] = f"{current_class} js-switch".strip()
+                    add_widget_class(widget, "js-switch")
                 else:
                     widget.attrs.setdefault("class", "form-check-input")
             elif isinstance(widget, forms.CheckboxSelectMultiple):
@@ -24,6 +22,18 @@ class BootstrapFormMixin:
                 widget.attrs.setdefault("class", "form-select")
             else:
                 widget.attrs.setdefault("class", "form-control")
+                if isinstance(widget, forms.DateInput) and not isinstance(widget, forms.DateTimeInput):
+                    add_widget_class(widget, "js-date-picker")
+                    widget.attrs.setdefault("autocomplete", "off")
+                    widget.attrs.setdefault("placeholder", "dd/mm/aaaa")
+
+
+def add_widget_class(widget, class_name):
+    current_class = widget.attrs.get("class", "")
+    classes = current_class.split()
+    if class_name not in classes:
+        classes.append(class_name)
+        widget.attrs["class"] = " ".join(classes).strip()
 
 
 class EmpresaForm(BootstrapFormMixin, forms.ModelForm):

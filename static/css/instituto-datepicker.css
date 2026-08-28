@@ -1,0 +1,172 @@
+.flatpickr-display-input {
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2v4'/%3E%3Cpath d='M16 2v4'/%3E%3Crect width='18' height='18' x='3' y='4' rx='2'/%3E%3Cpath d='M3 10h18'/%3E%3C/svg%3E");
+  background-position: right 14px center;
+  background-repeat: no-repeat;
+  background-size: 18px 18px;
+  cursor: pointer;
+  padding-right: 44px;
+}
+
+.flatpickr-display-input:focus {
+  border-color: var(--primary-600);
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+}
+
+.flatpickr-calendar.instituto-date-calendar {
+  background: #ffffff !important;
+  border: 1px solid #d7dee8 !important;
+  border-radius: 8px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.16);
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.flatpickr-calendar.instituto-date-calendar::before,
+.flatpickr-calendar.instituto-date-calendar::after {
+  display: none;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-months {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e4e9f1;
+  border-radius: 8px;
+  height: 44px;
+  margin-bottom: 10px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-month {
+  height: 42px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-current-month {
+  align-items: center;
+  display: flex;
+  font-size: 15px;
+  font-weight: 800;
+  height: 42px;
+  justify-content: center;
+  left: 40px;
+  line-height: 1;
+  padding: 0;
+  width: calc(100% - 80px);
+}
+
+.flatpickr-calendar.instituto-date-calendar .cur-month,
+.flatpickr-calendar.instituto-date-calendar .cur-year {
+  color: var(--instituto-ink) !important;
+  font-size: 15px !important;
+  font-weight: 800 !important;
+}
+
+.flatpickr-calendar.instituto-date-calendar .numInputWrapper {
+  width: 68px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .numInputWrapper:hover {
+  background: transparent;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-prev-month,
+.flatpickr-calendar.instituto-date-calendar .flatpickr-next-month {
+  align-items: center;
+  border-radius: 8px;
+  color: var(--instituto-muted) !important;
+  display: flex;
+  fill: var(--instituto-muted) !important;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  top: 5px;
+  width: 34px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-prev-month {
+  left: 5px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-next-month {
+  right: 5px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-prev-month:hover,
+.flatpickr-calendar.instituto-date-calendar .flatpickr-next-month:hover {
+  background: #e7f5f3;
+  color: var(--primary-700) !important;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-prev-month i,
+.flatpickr-calendar.instituto-date-calendar .flatpickr-next-month i {
+  color: inherit !important;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-weekdays {
+  height: 30px;
+  margin-bottom: 4px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-weekday {
+  color: #64748b !important;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-days,
+.flatpickr-calendar.instituto-date-calendar .dayContainer {
+  width: 308px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day {
+  border-radius: 8px;
+  color: #1f2937 !important;
+  font-size: 14px;
+  font-weight: 700;
+  height: 38px;
+  line-height: 38px;
+  margin: 2px;
+  max-width: 40px;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day:hover,
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day:focus {
+  background: #e7f5f3;
+  border-color: #b8e3dc;
+  color: var(--primary-700) !important;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day.today {
+  border-color: var(--primary-600);
+  color: var(--primary-700) !important;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day.selected,
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day.startRange,
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day.endRange {
+  background: var(--primary-600) !important;
+  border-color: var(--primary-600) !important;
+  color: #ffffff !important;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day.prevMonthDay,
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day.nextMonthDay,
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day.flatpickr-disabled {
+  color: #b6c0ce !important;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-day.flatpickr-disabled:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
+.flatpickr-calendar.instituto-date-calendar.hasTime {
+  padding-bottom: 0;
+}
+
+.flatpickr-calendar.instituto-date-calendar .flatpickr-time {
+  border-top: 1px solid #e4e9f1;
+  margin: 8px -10px 0;
+}

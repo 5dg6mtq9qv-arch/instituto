@@ -67,6 +67,8 @@ class FormaPagoFormTests(TestCase):
         self.assertContains(response, "switchery.min.css")
         self.assertContains(response, "switch-field")
         self.assertContains(response, "js-switch")
+        self.assertContains(response, "instituto-datepicker.css")
+        self.assertContains(response, "js-date-picker")
 
     def test_duplicate_name_is_rejected_per_company(self):
         FormaPago.objects.create(

@@ -94,6 +94,17 @@ class MatriculaProcesoTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
 
+    def test_process_uses_custom_datepicker_assets(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("matricula:matricula_proceso"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "flatpickr.min.css")
+        self.assertContains(response, "instituto-datepicker.css")
+        self.assertContains(response, "assets/js/flatpickr.js")
+        self.assertContains(response, "js-date-picker")
+
     def test_process_creates_ficha_without_academic_assignment_and_fixed_installments(self):
         self.client.force_login(self.user)
         url = reverse("matricula:matricula_proceso")

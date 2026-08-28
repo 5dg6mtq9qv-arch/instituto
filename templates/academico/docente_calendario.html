@@ -5,6 +5,8 @@
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -65,7 +67,7 @@
         <form class="teacher-week-form" method="get">
           <label class="form-label" for="teacherWeekDate">Fecha</label>
           <div>
-            <input class="form-control" id="teacherWeekDate" type="date" name="fecha" value="{{ selected_date|date:'Y-m-d' }}">
+            <input class="form-control js-date-picker" id="teacherWeekDate" type="date" name="fecha" value="{{ selected_date|date:'Y-m-d' }}" autocomplete="off" placeholder="dd/mm/aaaa">
             <button class="btn btn-outline-primary" type="submit">
               <i class="ri-calendar-line"></i>
               Semana
@@ -101,8 +103,13 @@
   <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
   <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
   <script src="{% static 'assets/js/full-calendar.js' %}"></script>
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script>
     (function () {
+      if (window.InstitutoDatePicker) {
+        window.InstitutoDatePicker.init(document);
+      }
+
       const events = {{ calendar_events_json|safe }};
       const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
       const calendarNode = document.getElementById("docenteCalendar");
@@ -164,7 +171,11 @@
           exportLink.href = exportBaseUrl + "?fecha=" + isoDay(start);
         }
         if (weekInput) {
-          weekInput.value = isoDay(start);
+          if (weekInput._flatpickr) {
+            weekInput._flatpickr.setDate(isoDay(start), false, "Y-m-d");
+          } else {
+            weekInput.value = isoDay(start);
+          }
         }
         if (weekRange) {
           weekRange.textContent = displayDay(start) + " - " + displayDay(inclusiveEnd);

@@ -1,6 +1,12 @@
 {% extends "web/base.html" %}
+{% load static %}
 
 {% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}">
+{% endblock %}
 
 {% block content %}
   <header class="page-header">
@@ -264,8 +270,13 @@
 {% endblock %}
 
 {% block extra_scripts %}
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script>
     (function () {
+      if (window.InstitutoDatePicker) {
+        window.InstitutoDatePicker.init(document);
+      }
+
       function qs(selector) {
         return document.querySelector(selector);
       }

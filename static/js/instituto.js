@@ -3,8 +3,71 @@
     return document.querySelector(selector);
   }
 
-  function qsa(selector) {
-    return Array.prototype.slice.call(document.querySelectorAll(selector));
+  function qsa(selector, root) {
+    return Array.prototype.slice.call((root || document).querySelectorAll(selector));
+  }
+
+  const datePickerLocale = {
+    weekdays: {
+      shorthand: ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"],
+      longhand: ["Domingo", "Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado"]
+    },
+    months: {
+      shorthand: ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"],
+      longhand: [
+        "Enero",
+        "Febrero",
+        "Marzo",
+        "Abril",
+        "Mayo",
+        "Junio",
+        "Julio",
+        "Agosto",
+        "Septiembre",
+        "Octubre",
+        "Noviembre",
+        "Diciembre"
+      ]
+    },
+    firstDayOfWeek: 1,
+    rangeSeparator: " a ",
+    weekAbbreviation: "Sem",
+    scrollTitle: "Desplazar para cambiar",
+    toggleTitle: "Clic para cambiar",
+    amPM: ["AM", "PM"],
+    yearAriaLabel: "Anio",
+    monthAriaLabel: "Mes",
+    hourAriaLabel: "Hora",
+    minuteAriaLabel: "Minuto"
+  };
+
+  function initDatePickers(root) {
+    if (!window.flatpickr) {
+      return;
+    }
+
+    qsa("input.js-date-picker", root).forEach(function (input) {
+      if (input._flatpickr) {
+        return;
+      }
+
+      flatpickr(input, {
+        allowInput: true,
+        altFormat: "d/m/Y",
+        altInput: true,
+        altInputClass: "form-control flatpickr-display-input",
+        ariaDateFormat: "d/m/Y",
+        dateFormat: "Y-m-d",
+        disableMobile: true,
+        locale: datePickerLocale,
+        monthSelectorType: "static",
+        nextArrow: '<i class="ri-arrow-right-s-line"></i>',
+        prevArrow: '<i class="ri-arrow-left-s-line"></i>',
+        onReady: function (_, __, instance) {
+          instance.calendarContainer.classList.add("instituto-date-calendar");
+        }
+      });
+    });
   }
 
   function closeMobileSidebar() {
@@ -24,9 +87,14 @@
     });
   }
 
+  window.InstitutoDatePicker = {
+    init: initDatePickers
+  };
+
   document.addEventListener("DOMContentLoaded", function () {
     const savedTheme = localStorage.getItem("theme") || "light";
     applyTheme(savedTheme);
+    initDatePickers(document);
 
     qsa(".sidebar-mobile-toggle").forEach(function (button) {
       button.addEventListener("click", function () {
