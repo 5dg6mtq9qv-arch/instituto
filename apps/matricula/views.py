@@ -155,6 +155,12 @@ class FichaInscripcionCreateView(InstitutoCreateView):
     success_url = reverse_lazy("matricula:ficha_list")
     cancel_url = reverse_lazy("matricula:ficha_list")
 
+    def get(self, request, *args, **kwargs):
+        return redirect("matricula:matricula_proceso")
+
+    def post(self, request, *args, **kwargs):
+        return redirect("matricula:matricula_proceso")
+
 
 class FichaInscripcionUpdateView(InstitutoUpdateView):
     model = FichaInscripcion

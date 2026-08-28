@@ -83,6 +83,160 @@ class PartnerForm(BootstrapFormMixin, forms.ModelForm):
         }
 
 
+class PartnerTypedForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Partner
+        fields = [
+            "empresa",
+            "tipo_identificacion",
+            "identificacion",
+            "nombre",
+            "direccion",
+            "telefono",
+            "telefono_celular",
+            "email",
+            "fecha_nacimiento",
+            "genero",
+            "ocupacion",
+            "activo",
+        ]
+        labels = {
+            "telefono": "Telefono fijo",
+            "telefono_celular": "Celular",
+            "fecha_nacimiento": "Fecha de nacimiento",
+            "genero": "Genero",
+        }
+        widgets = {
+            "nombre": forms.Textarea(attrs={"rows": 2}),
+            "email": forms.Textarea(attrs={"rows": 2}),
+            "fecha_nacimiento": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.instance.pk and not self.initial.get("tipo_identificacion"):
+            tipo_identificacion = TipoIdentificacion.objects.filter(activo=True).order_by("id").first()
+            if tipo_identificacion:
+                self.fields["tipo_identificacion"].initial = tipo_identificacion
+
+
+class EstudianteForm(PartnerTypedForm):
+    def save(self, commit=True):
+        partner = super().save(commit=False)
+        partner.es_estudiante = True
+        if commit:
+            partner.save()
+            self.save_m2m()
+        return partner
+
+
+class RepresentanteForm(PartnerTypedForm):
+    def save(self, commit=True):
+        partner = super().save(commit=False)
+        partner.es_cliente = True
+        partner.es_representante = True
+        if commit:
+            partner.save()
+            self.save_m2m()
+        return partner
+
+
+class DocenteForm(PartnerTypedForm):
+    username = forms.CharField(label="Usuario", max_length=150)
+    password = forms.CharField(
+        label="Contrasena",
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}, render_value=False),
+        help_text="En edicion puedes dejarla vacia para conservar la contrasena actual.",
+    )
+    password_confirm = forms.CharField(
+        label="Confirmar contrasena",
+        required=False,
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}, render_value=False),
+    )
+
+    class Meta(PartnerTypedForm.Meta):
+        fields = [
+            "empresa",
+            "tipo_identificacion",
+            "identificacion",
+            "nombre",
+            "direccion",
+            "telefono",
+            "telefono_celular",
+            "email",
+            "fecha_nacimiento",
+            "genero",
+            "ocupacion",
+            "activo",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        usuario = self.instance.usuario if self.instance.pk and self.instance.usuario_id else None
+        if usuario:
+            self.fields["username"].initial = usuario.username
+            self.fields["password"].label = "Nueva contrasena"
+        elif self.instance.pk:
+            self.fields["password"].help_text = "Este docente no tiene acceso creado; ingresa una contrasena."
+        if not self.instance.pk or not usuario:
+            self.fields["password"].required = True
+            self.fields["password_confirm"].required = True
+
+    def clean_username(self):
+        username = self.cleaned_data["username"].strip()
+        user_model = get_user_model()
+        current_user_id = self.instance.usuario_id if self.instance.pk else None
+        if user_model.objects.filter(username=username).exclude(pk=current_user_id).exists():
+            raise forms.ValidationError("Ya existe un usuario con este nombre.")
+        return username
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password = cleaned_data.get("password")
+        password_confirm = cleaned_data.get("password_confirm")
+        if password or password_confirm:
+            if password != password_confirm:
+                self.add_error("password_confirm", "Las contrasenas no coinciden.")
+        return cleaned_data
+
+    def save(self, commit=True):
+        partner = super().save(commit=False)
+        if not partner.pk:
+            partner.es_cliente = False
+            partner.es_estudiante = False
+            partner.es_representante = False
+        partner.es_docente = True
+        user = self.build_user(partner)
+        partner.usuario = user
+        if commit:
+            user.save()
+            self.assign_docente_group(user)
+            partner.save()
+            self.save_m2m()
+        return partner
+
+    def build_user(self, partner):
+        user_model = get_user_model()
+        user = partner.usuario if partner.pk and partner.usuario_id else user_model()
+        user.username = self.cleaned_data["username"]
+        user.email = partner.email or ""
+        user.first_name = partner.nombre[:150]
+        user.last_name = ""
+        user.is_active = partner.activo
+        password = self.cleaned_data.get("password")
+        if password:
+            user.set_password(password)
+        return user
+
+    @staticmethod
+    def assign_docente_group(user):
+        docente_group, _ = Group.objects.get_or_create(name="Docente")
+        user.groups.add(docente_group)
+
+
 class MiPerfilPartnerForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = Partner

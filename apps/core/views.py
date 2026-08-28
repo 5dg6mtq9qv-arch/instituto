@@ -4,17 +4,20 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.mixins import UserPassesTestMixin
 from django.contrib.auth.models import Group
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.urls import reverse_lazy
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
 from apps.core.forms import (
+    DocenteForm,
     EmpresaForm,
+    EstudianteForm,
     GroupPermissionForm,
     MiPerfilPartnerForm,
     MiPerfilPasswordChangeForm,
-    PartnerForm,
+    RepresentanteForm,
     SystemUserForm,
 )
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
@@ -51,47 +54,216 @@ class EmpresaUpdateView(InstitutoUpdateView):
     cancel_url = reverse_lazy("core:empresa_list")
 
 
-class PartnerListView(InstitutoListView):
+class PartnerListView(LoginRequiredMixin, View):
+    def get(self, request, *args, **kwargs):
+        return redirect("core:estudiante_list")
+
+
+class PartnerTypeListView(InstitutoListView):
     model = Partner
-    title = "Personas"
-    create_url_name = "core:partner_nuevo"
+    create_url_name = None
+    update_url_name = None
     columns = (
         ("Nombre", "nombre"),
         ("Identificacion", "identificacion"),
-        ("Telefono", "telefono_celular"),
+        ("Celular", "telefono_celular"),
         ("Email", "email"),
-        ("Estudiante", "es_estudiante"),
-        ("Representante", "es_representante"),
-        ("Docente", "es_docente"),
+        ("Estado", "estado_operativo"),
     )
+    search_fields = ("nombre", "identificacion", "telefono", "telefono_celular", "email")
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("tipo_identificacion", "empresa")
         q = self.request.GET.get("q")
         if q:
-            queryset = queryset.filter(
-                Q(nombre__icontains=q)
-                | Q(identificacion__icontains=q)
-                | Q(telefono_celular__icontains=q)
-                | Q(email__icontains=q)
-            )
+            query = Q()
+            for field in self.search_fields:
+                query |= Q(**{f"{field}__icontains": q})
+            queryset = queryset.filter(query)
         return queryset
 
+    def get_column_value(self, obj, attr):
+        if attr == "estado_operativo":
+            return "Activo" if obj.activo else "Inactivo"
+        if attr == "usuario_acceso":
+            return obj.usuario.username if obj.usuario_id else "-"
+        if attr == "representante_principal":
+            return self.get_representante_principal(obj)
+        if attr == "estudiantes_vinculados":
+            return self.get_estudiantes_vinculados(obj)
+        return super().get_column_value(obj, attr)
 
-class PartnerCreateView(InstitutoCreateView):
+    def get_column_kind(self, attr):
+        if attr == "estado_operativo":
+            return "status"
+        return super().get_column_kind(attr)
+
+    def get_representante_principal(self, obj):
+        representantes = [
+            relacion.partner_b.nombre
+            for relacion in obj.relaciones_a.all()
+            if relacion.activo and relacion.relacion == "representante" and relacion.partner_b.es_representante
+        ]
+        return ", ".join(representantes) or "-"
+
+    def get_estudiantes_vinculados(self, obj):
+        estudiantes = [
+            relacion.partner_a.nombre
+            for relacion in obj.relaciones_b.all()
+            if relacion.activo and relacion.relacion == "representante" and relacion.partner_a.es_estudiante
+        ]
+        return ", ".join(estudiantes) or "-"
+
+
+class EstudianteListView(PartnerTypeListView):
+    title = "Estudiantes"
+    update_url_name = "core:estudiante_editar"
+    columns = (
+        ("Nombre", "nombre"),
+        ("Identificacion", "identificacion"),
+        ("Celular", "telefono_celular"),
+        ("Email", "email"),
+        ("Representante", "representante_principal"),
+        ("Estado", "estado_operativo"),
+    )
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(es_estudiante=True)
+            .prefetch_related("relaciones_a__partner_b")
+        )
+
+
+class RepresentanteListView(PartnerTypeListView):
+    title = "Representantes"
+    update_url_name = "core:representante_editar"
+    columns = (
+        ("Nombre", "nombre"),
+        ("Identificacion", "identificacion"),
+        ("Celular", "telefono_celular"),
+        ("Email", "email"),
+        ("Estudiantes", "estudiantes_vinculados"),
+        ("Estado", "estado_operativo"),
+    )
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(es_representante=True)
+            .prefetch_related("relaciones_b__partner_a")
+        )
+
+
+class PartnerCreateView(LoginRequiredMixin, View):
+    def get(self, request, *args, **kwargs):
+        raise PermissionDenied("Los estudiantes y representantes se crean desde el proceso de matricula.")
+
+    def post(self, request, *args, **kwargs):
+        raise PermissionDenied("Los estudiantes y representantes se crean desde el proceso de matricula.")
+
+
+class PartnerUpdateView(LoginRequiredMixin, View):
+    def get(self, request, pk, *args, **kwargs):
+        return self.redirect_to_typed_view(request, pk)
+
+    def post(self, request, pk, *args, **kwargs):
+        return self.redirect_to_typed_view(request, pk)
+
+    def redirect_to_typed_view(self, request, pk):
+        partner = get_partner_for_legacy_redirect(pk)
+        if partner.es_estudiante:
+            return redirect("core:estudiante_editar", pk=partner.pk)
+        if partner.es_representante:
+            return redirect("core:representante_editar", pk=partner.pk)
+        if partner.es_docente and user_can_manage_docentes(request.user):
+            return redirect("core:docente_editar", pk=partner.pk)
+        raise PermissionDenied("No hay una vista de edicion disponible para este registro.")
+
+
+class EstudianteUpdateView(InstitutoUpdateView):
     model = Partner
-    form_class = PartnerForm
-    title = "Nueva persona"
-    success_url = reverse_lazy("core:partner_list")
-    cancel_url = reverse_lazy("core:partner_list")
+    form_class = EstudianteForm
+    title = "Editar estudiante"
+    success_url = reverse_lazy("core:estudiante_list")
+    cancel_url = reverse_lazy("core:estudiante_list")
+
+    def get_queryset(self):
+        return super().get_queryset().filter(es_estudiante=True)
 
 
-class PartnerUpdateView(InstitutoUpdateView):
+class RepresentanteUpdateView(InstitutoUpdateView):
     model = Partner
-    form_class = PartnerForm
-    title = "Editar persona"
-    success_url = reverse_lazy("core:partner_list")
-    cancel_url = reverse_lazy("core:partner_list")
+    form_class = RepresentanteForm
+    title = "Editar representante"
+    success_url = reverse_lazy("core:representante_list")
+    cancel_url = reverse_lazy("core:representante_list")
+
+    def get_queryset(self):
+        return super().get_queryset().filter(es_representante=True)
+
+
+def user_can_manage_docentes(user):
+    return user.is_authenticated and (user.is_superuser or user.groups.filter(name="Director").exists())
+
+
+def get_partner_for_legacy_redirect(pk):
+    return get_object_or_404(Partner, pk=pk)
+
+
+class DocenteManagementMixin(UserPassesTestMixin):
+    def test_func(self):
+        return user_can_manage_docentes(self.request.user)
+
+    def get_permission_required(self):
+        return ()
+
+
+class DocenteListView(DocenteManagementMixin, PartnerTypeListView):
+    title = "Docentes"
+    create_url_name = "core:docente_nuevo"
+    create_label = "Nuevo docente"
+    update_url_name = "core:docente_editar"
+    columns = (
+        ("Nombre", "nombre"),
+        ("Identificacion", "identificacion"),
+        ("Celular", "telefono_celular"),
+        ("Email", "email"),
+        ("Usuario", "usuario_acceso"),
+        ("Estado", "estado_operativo"),
+    )
+
+    def get_queryset(self):
+        return super().get_queryset().filter(es_docente=True).select_related("usuario")
+
+    def can_create_object(self):
+        return user_can_manage_docentes(self.request.user)
+
+    def can_update_object(self, obj):
+        return user_can_manage_docentes(self.request.user)
+
+
+class DocenteCreateView(DocenteManagementMixin, InstitutoCreateView):
+    model = Partner
+    form_class = DocenteForm
+    template_name = "core/docente_form.html"
+    title = "Nuevo docente"
+    success_url = reverse_lazy("core:docente_list")
+    cancel_url = reverse_lazy("core:docente_list")
+
+
+class DocenteUpdateView(DocenteManagementMixin, InstitutoUpdateView):
+    model = Partner
+    form_class = DocenteForm
+    template_name = "core/docente_form.html"
+    title = "Editar docente"
+    success_url = reverse_lazy("core:docente_list")
+    cancel_url = reverse_lazy("core:docente_list")
+
+    def get_queryset(self):
+        return super().get_queryset().filter(es_docente=True)
 
 
 class MiPerfilView(LoginRequiredMixin, View):

@@ -6,7 +6,8 @@ MENU_ITEMS = [
         "perm": "matricula.add_fichainscripcion",
         "icon": "ri-user-add-line",
     },
-    {"label": "Personas", "url_name": "core:partner_list", "perm": "core.view_partner", "icon": "ri-team-line"},
+    {"label": "Estudiantes", "url_name": "core:estudiante_list", "perm": "core.view_partner", "icon": "ri-graduation-cap-line"},
+    {"label": "Representantes", "url_name": "core:representante_list", "perm": "core.view_partner", "icon": "ri-account-circle-line"},
     {
         "label": "Fichas",
         "url_name": "matricula:ficha_list",
@@ -46,15 +47,15 @@ MENU_GROUPS = [
         "items": [
             {"label": "Matricular", "url_name": "matricula:matricula_proceso", "perm": "matricula.add_fichainscripcion"},
             {"label": "Fichas", "url_name": "matricula:ficha_list", "perm": "matricula.view_fichainscripcion"},
-            {"label": "Nueva ficha", "url_name": "matricula:ficha_nueva", "perm": "matricula.add_fichainscripcion"},
-            {"label": "Personas", "url_name": "core:partner_list", "perm": "core.view_partner"},
-            {"label": "Nueva persona", "url_name": "core:partner_nuevo", "perm": "core.add_partner"},
+            {"label": "Estudiantes", "url_name": "core:estudiante_list", "perm": "core.view_partner"},
+            {"label": "Representantes", "url_name": "core:representante_list", "perm": "core.view_partner"},
         ],
     },
     {
         "label": "Administrativo",
         "icon": "ri-building-4-line",
         "items": [
+            {"label": "Docentes", "url_name": "core:docente_list", "perm": None, "groups": ["Director"]},
             {"label": "Usuarios", "url_name": "core:usuario_list", "perm": "auth.view_user", "superuser_only": True},
             {"label": "Grupos", "url_name": "core:grupo_list", "perm": "auth.view_group"},
         ],

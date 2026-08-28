@@ -1,0 +1,87 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Administrativo</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+  </header>
+
+  <form class="panel form-panel" method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <section class="form-section form-section-current">
+      <div class="section-heading">
+        <h2>Datos del docente</h2>
+      </div>
+      <div class="row g-3">
+        {% include "web/form_field.html" with field=form.empresa cols="col-md-6" %}
+        {% include "web/form_field.html" with field=form.tipo_identificacion cols="col-md-6" %}
+        {% include "web/form_field.html" with field=form.identificacion cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.nombre cols="col-md-8" %}
+        {% include "web/form_field.html" with field=form.telefono cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.telefono_celular cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.email cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.fecha_nacimiento cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.genero cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.ocupacion cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.direccion cols="col-md-8" %}
+        {% include "web/form_field.html" with field=form.activo cols="col-md-4" %}
+      </div>
+    </section>
+
+    <section class="form-section">
+      <div class="section-heading">
+        <h2>Acceso docente</h2>
+      </div>
+      <div class="row g-3">
+        {% include "web/form_field.html" with field=form.username cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.password cols="col-md-4" %}
+        {% include "web/form_field.html" with field=form.password_confirm cols="col-md-4" %}
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar docente</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      if (window.InstitutoDatePicker) {
+        window.InstitutoDatePicker.init(document);
+      }
+
+      if (window.Switchery) {
+        document.querySelectorAll(".js-switch").forEach(function (element) {
+          if (element.dataset.switchery === "true") return;
+          new Switchery(element, {
+            color: "#16a34a",
+            secondaryColor: "#d1d5db",
+            jackColor: "#ffffff",
+            size: "small"
+          });
+        });
+      }
+    });
+  </script>
+{% endblock %}

@@ -44,6 +44,9 @@ def home(request):
     def visible_cards(cards):
         return [item for item in cards if item]
 
+    def director_can_manage_docentes():
+        return user.is_superuser or user.groups.filter(name="Director").exists()
+
     def metric(label, value, icon, accent, helper="", url_name=None, url=""):
         return {
             "label": label,
@@ -109,7 +112,7 @@ def home(request):
     def institutional_metrics():
         return [
             metric("Empresas", Empresa.objects.count(), "ri-building-4-line", "warning", "Configuracion institucional", "core:empresa_list"),
-            metric("Estudiantes", Partner.objects.filter(es_estudiante=True).count(), "ri-graduation-cap-line", "blue", "Personas marcadas como estudiantes", "core:partner_list"),
+            metric("Estudiantes", Partner.objects.filter(es_estudiante=True).count(), "ri-graduation-cap-line", "blue", "Matriculados registrados", "core:estudiante_list"),
             metric("Fichas", FichaInscripcion.objects.count(), "ri-file-list-3-line", "purple", "Inscripciones registradas", "matricula:ficha_list"),
             metric("Cuotas pendientes", Cuota.objects.filter(estado__in=["pendiente", "parcial", "vencida"]).count(), "ri-bill-line", "primary", "Valores por cobrar", "cartera:cuota_list"),
         ]
@@ -320,14 +323,14 @@ def home(request):
         {
             "slug": "administrativo",
             "title": "Administrativo",
-            "description": "Estructura base: periodos, aulas, personas y usuarios.",
+            "description": "Estructura base, docentes y accesos del sistema.",
             "cards": visible_cards(
                 [
                     card("Aulas", "Listado, jornada, horario y capacidad.", Aula.objects.count(), "matricula:aula_list", "ri-door-open-line", "primary", "matricula.view_aula", "matricula:aula_nueva"),
                     card("Periodos", "Ciclos activos, fechas y regimen.", PeriodoAcademico.objects.count(), "matricula:periodo_list", "ri-calendar-2-line", "info", "matricula.view_periodoacademico", "matricula:periodo_nuevo"),
                     card("Cursos", "Ofertas, carreras y universidades.", Curso.objects.count(), "matricula:curso_list", "ri-graduation-cap-line", "warning", "matricula.view_curso", "matricula:curso_nuevo"),
-                    card("Personas", "Estudiantes, representantes y docentes.", Partner.objects.count(), "core:partner_list", "ri-team-line", "purple", "core.view_partner", "core:partner_nuevo"),
-                    card("Usuarios", "Accesos y grupos del sistema.", User.objects.count(), "core:usuario_list", "ri-user-settings-line", "blue", "auth.view_user", "core:usuario_nuevo"),
+                    card("Docentes", "Perfiles docentes para planificacion.", Partner.objects.filter(es_docente=True).count(), "core:docente_list", "ri-user-star-line", "purple", None, "core:docente_nuevo", "Nuevo docente") if director_can_manage_docentes() else None,
+                    card("Usuarios", "Accesos y grupos del sistema.", User.objects.count(), "core:usuario_list", "ri-user-settings-line", "blue", None, "core:usuario_nuevo") if user.is_superuser else None,
                 ]
             ),
         },
@@ -338,9 +341,9 @@ def home(request):
             "cards": visible_cards(
                 [
                     card("Matricular", "Crear estudiante, representante, ficha y cuotas.", FichaInscripcion.objects.filter(estado="borrador").count(), "matricula:matricula_proceso", "ri-user-add-line", "primary", "matricula.add_fichainscripcion", "matricula:matricula_proceso", "Iniciar"),
-                    card("Matriculados", "Fichas activas por periodo y aula.", FichaInscripcion.objects.filter(estado="activa").count(), "matricula:ficha_list", "ri-file-list-3-line", "success", "matricula.view_fichainscripcion", "matricula:ficha_nueva"),
-                    card("Estudiantes", "Personas marcadas como estudiantes.", Partner.objects.filter(es_estudiante=True).count(), "core:partner_list", "ri-graduation-cap-line", "info", "core.view_partner", "core:partner_nuevo"),
-                    card("Representantes", "Contactos y responsables de pago.", Partner.objects.filter(es_representante=True).count(), "core:partner_list", "ri-account-circle-line", "warning", "core.view_partner", "core:partner_nuevo"),
+                    card("Matriculados", "Fichas activas por periodo y aula.", FichaInscripcion.objects.filter(estado="activa").count(), "matricula:ficha_list", "ri-file-list-3-line", "success", "matricula.view_fichainscripcion", "matricula:matricula_proceso", "Matricular"),
+                    card("Estudiantes", "Creados desde el proceso de matricula.", Partner.objects.filter(es_estudiante=True).count(), "core:estudiante_list", "ri-graduation-cap-line", "info", "core.view_partner"),
+                    card("Representantes", "Contactos y responsables de pago.", Partner.objects.filter(es_representante=True).count(), "core:representante_list", "ri-account-circle-line", "warning", "core.view_partner"),
                 ]
             ),
         },
