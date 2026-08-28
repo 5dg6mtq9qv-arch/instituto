@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from .forms import FormaPagoForm
 from .models import Cuota, FormaPago, Pago, PlanPago
 
 
@@ -10,17 +11,29 @@ class CuotaInline(admin.TabularInline):
 
 @admin.register(FormaPago)
 class FormaPagoAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "tipo", "empresa", "orden", "es_venta", "es_pago", "activo")
-    list_filter = ("empresa", "activo", "es_venta", "es_pago")
-    search_fields = ("nombre", "tipo")
+    form = FormaPagoForm
+    list_display = ("nombre", "empresa", "activo")
+    list_filter = ("empresa", "activo")
+    search_fields = ("nombre",)
 
 
 @admin.register(PlanPago)
 class PlanPagoAdmin(admin.ModelAdmin):
-    list_display = ("ficha_inscripcion", "valor_total", "descuento", "abono", "saldo", "estado", "activo")
+    exclude = ("valor_total", "valor_matricula", "descuento")
+    list_display = ("ficha_inscripcion", "abono", "restante", "estado", "activo")
     list_filter = ("empresa", "estado", "activo")
     search_fields = ("ficha_inscripcion__numero", "ficha_inscripcion__estudiante__nombre")
     inlines = [CuotaInline]
+
+    def save_model(self, request, obj, form, change):
+        obj.valor_matricula = 0
+        obj.descuento = 0
+        obj.valor_total = (obj.abono or 0) + (obj.saldo or 0)
+        super().save_model(request, obj, form, change)
+
+    @admin.display(description="Restante")
+    def restante(self, obj):
+        return obj.saldo
 
 
 @admin.register(Cuota)

@@ -22,18 +22,41 @@
     </div>
     <dl>
       <div>
-        <dt>Total</dt>
-        <dd>{{ ficha.plan_pago.valor_total|default:ficha.valor_total_curso }}</dd>
+        <dt>Curso</dt>
+        <dd>{{ ficha.curso|default:"-" }}</dd>
+      </div>
+      <div>
+        <dt>Aula</dt>
+        <dd>{{ ficha.aula|default:"-" }}</dd>
       </div>
       <div>
         <dt>Abono</dt>
         <dd>{{ ficha.abono }}</dd>
       </div>
       <div>
-        <dt>Saldo</dt>
+        <dt>Restante</dt>
         <dd>{{ ficha.saldo }}</dd>
       </div>
     </dl>
+  </section>
+
+  <section class="document-data-grid mt-3">
+    <div>
+      <span>Periodo</span>
+      <strong>{{ ficha.periodo_academico|default:"Pendiente" }}</strong>
+    </div>
+    <div>
+      <span>Horario</span>
+      <strong>{{ ficha.horario|default:"-" }}</strong>
+    </div>
+    <div>
+      <span>Hora</span>
+      <strong>{{ ficha.hora|default:"-" }}</strong>
+    </div>
+    <div>
+      <span>Duracion</span>
+      <strong>{{ ficha.duracion|default:"-" }}</strong>
+    </div>
   </section>
 
   <section class="panel mt-3">

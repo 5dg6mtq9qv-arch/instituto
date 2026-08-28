@@ -27,7 +27,7 @@ JOIN core.empresa e ON e.id = fi.id_empresa
 JOIN core.partner cliente ON cliente.id = fi.id_cliente
 JOIN core.partner estudiante ON estudiante.id = fi.id_estudiante
 LEFT JOIN core.partner representante ON representante.id = fi.id_representante
-JOIN matricula.periodo_academico pa ON pa.id = fi.id_periodo_academico
+LEFT JOIN matricula.periodo_academico pa ON pa.id = fi.id_periodo_academico
 LEFT JOIN matricula.curso c ON c.id = fi.id_curso
 LEFT JOIN matricula.aula a ON a.id = fi.id_aula
 """

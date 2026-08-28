@@ -12,6 +12,7 @@ class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
     paginate_by = 20
     title = ""
     create_url_name = None
+    create_label = "Nuevo"
     update_url_name = None
     columns = ()
 
@@ -23,6 +24,7 @@ class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         context["title"] = self.title
         context["create_url_name"] = self.create_url_name if self.can_create_object() else None
+        context["create_label"] = self.create_label
         context["update_url_name"] = self.get_update_url_name()
         context["columns"] = self.columns
         context["object_rows"] = [self.get_row(obj) for obj in context["object_list"]]

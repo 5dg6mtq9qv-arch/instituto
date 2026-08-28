@@ -9,10 +9,15 @@ from .models import Empresa, Partner, TipoIdentificacion
 class BootstrapFormMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field in self.fields.values():
+        for field_name, field in self.fields.items():
             widget = field.widget
             if isinstance(widget, forms.CheckboxInput):
-                widget.attrs.setdefault("class", "form-check-input")
+                if field_name in {"activo", "activa", "is_active"}:
+                    current_class = widget.attrs.get("class", "")
+                    if "js-switch" not in current_class.split():
+                        widget.attrs["class"] = f"{current_class} js-switch".strip()
+                else:
+                    widget.attrs.setdefault("class", "form-check-input")
             elif isinstance(widget, forms.CheckboxSelectMultiple):
                 pass
             elif isinstance(widget, forms.Select):

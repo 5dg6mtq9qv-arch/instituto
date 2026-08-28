@@ -11,7 +11,7 @@
     {% if create_url_name %}
       <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
         <i class="ri-add-line"></i>
-        <span>Nuevo</span>
+        <span>{{ create_label|default:"Nuevo" }}</span>
       </a>
     {% endif %}
   </header>

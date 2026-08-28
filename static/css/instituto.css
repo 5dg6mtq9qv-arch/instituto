@@ -1016,6 +1016,280 @@ dd {
   color: var(--instituto-muted);
 }
 
+.matricula-process {
+  display: grid;
+  gap: 16px;
+}
+
+.matricula-setup-warning {
+  align-items: center;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.matricula-setup-warning strong,
+.matricula-setup-warning span {
+  display: inline-flex;
+}
+
+.matricula-stepper {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.matricula-step {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  color: var(--instituto-muted);
+  display: grid;
+  gap: 4px 10px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  min-height: 64px;
+  padding: 10px 12px;
+}
+
+.matricula-step strong {
+  align-items: center;
+  background: var(--neutral-100);
+  border-radius: 999px;
+  color: var(--instituto-muted);
+  display: inline-flex;
+  font-size: 14px;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.matricula-step small {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matricula-step i {
+  color: var(--success-600);
+  font-size: 18px;
+}
+
+.matricula-step.done {
+  border-color: var(--success-200);
+  color: var(--success-700);
+}
+
+.matricula-step.done strong {
+  background: var(--success-100);
+  color: var(--success-700);
+}
+
+.matricula-step.active {
+  border-color: var(--primary-600);
+  box-shadow: inset 0 -3px 0 var(--primary-600);
+  color: var(--instituto-ink);
+}
+
+.matricula-step.active strong {
+  background: var(--primary-600);
+  color: #ffffff;
+}
+
+.matricula-process-grid {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+}
+
+.matricula-main-panel,
+.matricula-side-panel {
+  padding: 20px;
+}
+
+.matricula-step-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--instituto-line);
+  display: flex;
+  justify-content: space-between;
+  margin: -2px 0 20px;
+  padding-bottom: 16px;
+}
+
+.matricula-step-section .section-heading {
+  margin-bottom: 14px;
+}
+
+.matricula-mode-field .mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.matricula-mode-field .mode-options div {
+  background: #ffffff;
+  min-height: 52px;
+}
+
+.matricula-mode-field .mode-options div.is-active {
+  background: var(--primary-50);
+  border-color: var(--primary-600);
+  color: var(--primary-700);
+}
+
+.matricula-mode-field .mode-options label {
+  cursor: pointer;
+  font-weight: 800;
+  margin: 0;
+  width: 100%;
+}
+
+.matricula-aula-preview {
+  align-items: center;
+  background: #f8fbfc;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 46px;
+  padding: 10px 12px;
+}
+
+.matricula-aula-preview span {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--instituto-line);
+  border-radius: 999px;
+  color: var(--instituto-ink);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+}
+
+.matricula-aula-preview span.text-muted {
+  background: transparent;
+  border: 0;
+  color: var(--instituto-muted) !important;
+  padding: 0;
+}
+
+.matricula-aula-preview i {
+  color: var(--primary-600);
+  font-size: 16px;
+}
+
+.matricula-payment-strip {
+  background: #f8fbfc;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+  padding: 14px;
+}
+
+.matricula-payment-strip div {
+  display: grid;
+  gap: 4px;
+}
+
+.matricula-payment-strip span,
+.matricula-side-total span {
+  color: var(--instituto-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.matricula-payment-strip strong,
+.matricula-side-total strong {
+  color: var(--instituto-ink);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.matricula-side-panel {
+  display: grid;
+  gap: 18px;
+  position: sticky;
+  top: 92px;
+}
+
+.matricula-side-block + .matricula-side-block {
+  border-top: 1px solid var(--instituto-line);
+  padding-top: 18px;
+}
+
+.matricula-status-list {
+  display: grid;
+  gap: 8px;
+}
+
+.matricula-status-item {
+  align-items: center;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  color: var(--instituto-ink);
+  display: flex;
+  font-weight: 800;
+  gap: 10px;
+  min-height: 42px;
+  padding: 9px 11px;
+}
+
+.matricula-status-item:hover {
+  color: var(--primary-700);
+  text-decoration: none;
+}
+
+.matricula-status-item i {
+  font-size: 18px;
+}
+
+.matricula-status-item.is-ready {
+  background: var(--success-100);
+  border-color: var(--success-200);
+  color: var(--success-700);
+}
+
+.matricula-status-item.is-pending {
+  background: var(--warning-100);
+  border-color: var(--warning-200);
+  color: var(--warning-700);
+}
+
+.matricula-summary-list {
+  gap: 0;
+}
+
+.matricula-summary-list div {
+  gap: 12px;
+}
+
+.matricula-summary-list dd {
+  max-width: 58%;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.matricula-side-total {
+  background: var(--primary-50);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+}
+
 .form-section {
   border-top: 1px solid var(--instituto-line);
   padding: 22px 0 4px;
@@ -1065,6 +1339,29 @@ dd {
   display: grid;
   gap: 18px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.document-data-grid > div {
+  background: #ffffff;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  box-shadow: var(--instituto-shadow);
+  display: grid;
+  gap: 4px;
+  min-height: 78px;
+  padding: 14px 16px;
+}
+
+.document-data-grid span {
+  color: var(--instituto-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.document-data-grid strong {
+  color: var(--instituto-ink);
+  font-weight: 800;
+  overflow-wrap: anywhere;
 }
 
 .permission-grid {
@@ -1387,7 +1684,7 @@ dd {
   padding-top: 0;
 }
 
-.payment-total-box {
+.payment-selected-box {
   background: var(--primary-50);
   border-radius: 8px;
   display: grid;
@@ -1395,13 +1692,13 @@ dd {
   padding: 12px 14px;
 }
 
-.payment-total-box span {
+.payment-selected-box span {
   color: var(--instituto-muted);
   font-size: 13px;
   font-weight: 700;
 }
 
-.payment-total-box strong {
+.payment-selected-box strong {
   color: var(--primary-700);
   font-size: 24px;
   font-weight: 800;
@@ -1409,6 +1706,58 @@ dd {
 
 .payment-comment {
   grid-column: 1 / -1;
+}
+
+.payment-method-form {
+  max-width: 980px;
+}
+
+.payment-method-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.payment-method-presets button {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  color: var(--instituto-ink);
+  display: inline-flex;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 13px;
+}
+
+.payment-method-presets button:hover,
+.payment-method-presets button:focus {
+  border-color: var(--primary-600);
+  color: var(--primary-700);
+  outline: 0;
+}
+
+.payment-method-presets i {
+  color: var(--primary-600);
+  font-size: 18px;
+}
+
+.switch-field,
+.payment-switch-field {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-height: 44px;
+}
+
+.switch-field label,
+.payment-switch-field label {
+  color: var(--instituto-ink);
+  cursor: pointer;
+  font-weight: 800;
+  margin: 0;
 }
 
 .app-table thead th {
@@ -2412,6 +2761,14 @@ dd {
     grid-template-columns: 1fr;
   }
 
+  .matricula-process-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .matricula-side-panel {
+    position: static;
+  }
+
   .dashboard-role-panel {
     grid-template-columns: 1fr;
   }
@@ -2468,6 +2825,9 @@ dd {
   .module-grid,
   .hub-card-grid,
   .process-steps,
+  .matricula-stepper,
+  .matricula-mode-field .mode-options,
+  .matricula-payment-strip,
   .form-summary-card,
   .payment-register-grid,
   .document-summary,

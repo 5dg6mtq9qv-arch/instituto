@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 from django.db.models import Q
 from django.utils import timezone
@@ -71,9 +73,6 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             "forma_pago_convenio",
             "fecha_proximo_pago",
             "valor_proximo_pago",
-            "valor_total_curso",
-            "valor_matricula",
-            "descuento",
             "abono",
             "saldo",
             "promo",
@@ -92,6 +91,10 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             "correo_representante": forms.Textarea(attrs={"rows": 2}),
             "observacion": forms.Textarea(attrs={"rows": 3}),
         }
+        labels = {
+            "valor_proximo_pago": "Valor de cuota",
+            "saldo": "Restante",
+        }
 
 
 class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
@@ -102,7 +105,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     )
 
     estudiante_modo = forms.ChoiceField(
-        label="Estudiante",
+        label="Registro del estudiante",
         choices=MODO_CHOICES,
         initial="seleccionar",
         widget=forms.RadioSelect(attrs={"class": "mode-options"}),
@@ -125,7 +128,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     curso_grado = forms.CharField(label="Curso/Grado", max_length=120, required=False)
 
     representante_modo = forms.ChoiceField(
-        label="Representante",
+        label="Registro del representante",
         choices=MODO_CHOICES,
         initial="seleccionar",
         widget=forms.RadioSelect(attrs={"class": "mode-options"}),
@@ -145,9 +148,17 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
 
     numero = forms.CharField(label="No. ficha", max_length=30, required=False)
     fecha = forms.DateField(label="Fecha", widget=forms.DateInput(attrs={"type": "date"}))
-    periodo_academico = forms.ModelChoiceField(label="Periodo", queryset=PeriodoAcademico.objects.none())
-    curso = forms.ModelChoiceField(queryset=Curso.objects.none(), required=False)
-    aula = forms.ModelChoiceField(queryset=Aula.objects.none(), required=False)
+    periodo_academico = forms.ModelChoiceField(label="Periodo", queryset=PeriodoAcademico.objects.none(), required=False)
+    curso = forms.ModelChoiceField(
+        label="Curso",
+        queryset=Curso.objects.none(),
+        required=False,
+    )
+    aula = forms.ModelChoiceField(
+        label="Aula",
+        queryset=Aula.objects.none(),
+        required=False,
+    )
     edad = forms.IntegerField(
         required=False,
         min_value=0,
@@ -164,9 +175,24 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     duracion = forms.CharField(max_length=80, required=False)
 
     forma_pago_convenio = forms.ChoiceField(label="Convenio", choices=FORMAS_PAGO_CONVENIO)
-    valor_total_curso = forms.DecimalField(label="Valor total del curso", max_digits=12, decimal_places=2, min_value=0)
-    valor_matricula = forms.DecimalField(label="Valor de matricula", max_digits=12, decimal_places=2, min_value=0, initial=0)
-    descuento = forms.DecimalField(max_digits=12, decimal_places=2, min_value=0, initial=0)
+    valor_cuota = forms.DecimalField(label="Valor de cuota", max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+    valor_total_curso = forms.DecimalField(
+        label="Valor total del curso",
+        max_digits=12,
+        decimal_places=2,
+        min_value=0,
+        required=False,
+        initial=0,
+    )
+    valor_matricula = forms.DecimalField(
+        label="Valor de matricula",
+        max_digits=12,
+        decimal_places=2,
+        min_value=0,
+        required=False,
+        initial=0,
+    )
+    descuento = forms.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, initial=0)
     abono = forms.DecimalField(max_digits=12, decimal_places=2, min_value=0, initial=0)
     forma_pago_abono = forms.ModelChoiceField(
         label="Forma de pago del abono",
@@ -185,45 +211,127 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     def __init__(self, *args, **kwargs):
         empresa = kwargs.pop("empresa", None)
         super().__init__(*args, **kwargs)
+        self.empresa = empresa
         if empresa:
-            self.fields["estudiante_partner"].queryset = Partner.objects.filter(
+            estudiantes = Partner.objects.filter(
                 empresa=empresa,
                 es_estudiante=True,
                 activo=True,
             ).order_by("nombre")
-            self.fields["representante_partner"].queryset = Partner.objects.filter(
+            representantes = Partner.objects.filter(
                 empresa=empresa,
                 es_representante=True,
                 activo=True,
             ).order_by("nombre")
-            self.fields["periodo_academico"].queryset = PeriodoAcademico.objects.filter(empresa=empresa, activo=True)
-            self.fields["curso"].queryset = Curso.objects.filter(empresa=empresa, activo=True)
-            self.fields["aula"].queryset = Aula.objects.filter(empresa=empresa, activo=True)
+            periodos = PeriodoAcademico.objects.filter(empresa=empresa, activo=True)
+            cursos = Curso.objects.filter(empresa=empresa, activo=True)
+            aulas = Aula.objects.filter(empresa=empresa, activo=True)
             self.fields["forma_pago_abono"].queryset = FormaPago.objects.filter(empresa=empresa, activo=True, es_pago=True)
         else:
-            self.fields["estudiante_partner"].queryset = Partner.objects.filter(es_estudiante=True, activo=True).order_by("nombre")
-            self.fields["representante_partner"].queryset = Partner.objects.filter(es_representante=True, activo=True).order_by("nombre")
-            self.fields["periodo_academico"].queryset = PeriodoAcademico.objects.filter(activo=True)
-            self.fields["curso"].queryset = Curso.objects.filter(activo=True)
-            self.fields["aula"].queryset = Aula.objects.filter(activo=True)
+            estudiantes = Partner.objects.filter(es_estudiante=True, activo=True).order_by("nombre")
+            representantes = Partner.objects.filter(es_representante=True, activo=True).order_by("nombre")
+            periodos = PeriodoAcademico.objects.filter(activo=True)
+            cursos = Curso.objects.filter(activo=True)
+            aulas = Aula.objects.filter(activo=True)
             self.fields["forma_pago_abono"].queryset = FormaPago.objects.filter(activo=True, es_pago=True)
+
+        periodo_id = self.selected_periodo_id()
+        if periodo_id:
+            aulas = aulas.filter(periodo_academico_id=periodo_id)
+
+        self.fields["estudiante_partner"].queryset = estudiantes
+        self.fields["representante_partner"].queryset = representantes
+        self.fields["periodo_academico"].queryset = periodos.order_by("-fecha_inicio", "nombre")
+        self.fields["curso"].queryset = cursos.order_by("nombre")
+        self.fields["aula"].queryset = aulas.select_related("periodo_academico").order_by(
+            "periodo_academico",
+            "nombre",
+            "seccion",
+        )
+
+        self.fields["estudiante_partner"].empty_label = "Seleccione estudiante registrado"
+        self.fields["representante_partner"].empty_label = "Seleccione representante registrado"
+        self.fields["periodo_academico"].empty_label = "Asignar luego"
+        self.fields["curso"].empty_label = "Asignar luego"
+        self.fields["aula"].empty_label = "Asignar luego"
+        self.fields["curso"].label_from_instance = self.curso_label
+        self.fields["aula"].label_from_instance = self.aula_label
+
+        if not self.is_bound and not self.initial.get("estudiante_modo") and not estudiantes.exists():
+            self.fields["estudiante_modo"].initial = "crear"
+        if not self.is_bound and not self.initial.get("representante_modo") and not representantes.exists():
+            self.fields["representante_modo"].initial = "crear"
+
+        self.fields["periodo_academico"].widget.attrs["data-periodo-select"] = "true"
+        self.fields["curso"].widget.attrs["data-curso-select"] = "true"
+        self.fields["aula"].widget.attrs["data-aula-select"] = "true"
+        self.fields["horario"].widget.attrs["data-aula-horario"] = "horario"
+        self.fields["hora"].widget.attrs["data-aula-horario"] = "hora"
+        self.fields["duracion"].widget.attrs["data-aula-horario"] = "duracion"
+        self.fields["valor_cuota"].widget.attrs["data-money-input"] = "cuota"
+        self.fields["abono"].widget.attrs["data-money-input"] = "abono"
+        self.fields["numero_cuotas"].widget.attrs["data-installments-input"] = "true"
+
+    def selected_periodo_id(self):
+        if self.is_bound:
+            value = self.data.get(self.add_prefix("periodo_academico"))
+        else:
+            value = self.initial.get("periodo_academico")
+        if hasattr(value, "pk"):
+            return value.pk
+        return value or None
+
+    @staticmethod
+    def curso_label(curso):
+        details = [curso.grado, curso.carrera, curso.universidad]
+        detail_text = " / ".join(detail for detail in details if detail)
+        return f"{curso.nombre} - {detail_text}" if detail_text else curso.nombre
+
+    @staticmethod
+    def aula_label(aula):
+        detail = " ".join(part for part in [aula.seccion, aula.jornada] if part)
+        schedule = " / ".join(part for part in [aula.horario, aula.hora] if part)
+        suffix = " - ".join(part for part in [detail, schedule] if part)
+        return f"{aula.nombre} - {suffix}" if suffix else aula.nombre
 
     def clean(self):
         cleaned_data = super().clean()
         self.clean_estudiante(cleaned_data)
         self.clean_representante(cleaned_data)
+        self.clean_matricula(cleaned_data)
         fecha_nacimiento = cleaned_data.get("estudiante_fecha_nacimiento")
         cleaned_data["edad"] = calcular_edad(fecha_nacimiento)
-        valor_total_curso = cleaned_data.get("valor_total_curso") or 0
-        valor_matricula = cleaned_data.get("valor_matricula") or 0
-        descuento = cleaned_data.get("descuento") or 0
+        valor_cuota = cleaned_data.get("valor_cuota") or 0
+        numero_cuotas = cleaned_data.get("numero_cuotas") or 0
         abono = cleaned_data.get("abono") or 0
-        saldo = valor_total_curso + valor_matricula - descuento - abono
-        if saldo < 0:
-            self.add_error("abono", "El abono no puede ser mayor que el total menos descuento.")
+        saldo = valor_cuota * numero_cuotas
+        cleaned_data["saldo_calculado"] = saldo
+        cleaned_data["valor_total_curso"] = saldo + abono
+        cleaned_data["valor_matricula"] = Decimal("0.00")
+        cleaned_data["descuento"] = Decimal("0.00")
         if abono > 0 and not cleaned_data.get("forma_pago_abono"):
             self.add_error("forma_pago_abono", "Seleccione la forma de pago del abono.")
         return cleaned_data
+
+    def clean_matricula(self, cleaned_data):
+        if "periodo_academico" not in self.fields:
+            return
+        periodo = cleaned_data.get("periodo_academico")
+        curso = cleaned_data.get("curso")
+        aula = cleaned_data.get("aula")
+
+        if periodo and aula and aula.periodo_academico_id != periodo.pk:
+            self.add_error("aula", "El aula seleccionada no pertenece al periodo academico.")
+
+        if curso:
+            cleaned_data["curso_grado"] = cleaned_data.get("curso_grado") or curso.grado or ""
+            cleaned_data["carrera"] = cleaned_data.get("carrera") or curso.carrera or ""
+            cleaned_data["universidad"] = cleaned_data.get("universidad") or curso.universidad or ""
+
+        if aula:
+            cleaned_data["horario"] = cleaned_data.get("horario") or aula.horario or ""
+            cleaned_data["hora"] = cleaned_data.get("hora") or aula.hora or ""
+            cleaned_data["duracion"] = cleaned_data.get("duracion") or aula.duracion or ""
 
     def clean_estudiante(self, cleaned_data):
         if "estudiante_modo" not in self.fields:
@@ -351,15 +459,9 @@ class MatriculaDatosForm(MatriculaPasoForm):
     field_names = (
         "numero",
         "fecha",
-        "periodo_academico",
-        "curso",
-        "aula",
         "colegio",
         "curso_grado",
         "nota_grado",
-        "horario",
-        "hora",
-        "duracion",
         "carrera",
         "universidad",
     )
@@ -368,9 +470,7 @@ class MatriculaDatosForm(MatriculaPasoForm):
 class MatriculaConvenioForm(MatriculaPasoForm):
     field_names = (
         "forma_pago_convenio",
-        "valor_total_curso",
-        "valor_matricula",
-        "descuento",
+        "valor_cuota",
         "abono",
         "forma_pago_abono",
         "numero_documento_abono",

@@ -5,6 +5,7 @@
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -75,9 +76,9 @@
         {% with input_type=field.field.widget.input_type|default:'' %}
         <div class="col-md-6{% if input_type == 'checkbox' %} d-flex align-items-end{% endif %}">
           {% if input_type == 'checkbox' %}
-            <div class="form-check mb-2">
+            <div class="{% if field.name == 'activo' or field.name == 'activa' or field.name == 'is_active' %}switch-field{% else %}form-check mb-2{% endif %}">
               {{ field }}
-              <label class="form-check-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              <label class="{% if field.name == 'activo' or field.name == 'activa' or field.name == 'is_active' %}{% else %}form-check-label{% endif %}" for="{{ field.id_for_label }}">{{ field.label }}</label>
             </div>
           {% else %}
             <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -126,8 +127,21 @@
 
 {% block extra_scripts %}
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
+      if (window.Switchery) {
+        document.querySelectorAll(".js-switch").forEach(function (element) {
+          if (element.dataset.switchery === "true") return;
+          new Switchery(element, {
+            color: "#16a34a",
+            secondaryColor: "#d1d5db",
+            jackColor: "#ffffff",
+            size: "small"
+          });
+        });
+      }
+
       if (!document.querySelector(".js-time-picker")) return;
       flatpickr(".js-time-picker", {
         enableTime: true,

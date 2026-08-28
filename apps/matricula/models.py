@@ -106,7 +106,7 @@ class FichaInscripcion(models.Model):
     FORMA_PAGO_CONVENIO_CHOICES = (
         ("quincenal", "Quincenal"),
         ("mensual", "Mensual"),
-        ("unico", "Un solo pago total"),
+        ("unico", "Pago unico"),
     )
 
     ESTADO_CHOICES = (
@@ -128,6 +128,8 @@ class FichaInscripcion(models.Model):
         PeriodoAcademico,
         db_column="id_periodo_academico",
         on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
     )
     curso = models.ForeignKey(
         Curso,

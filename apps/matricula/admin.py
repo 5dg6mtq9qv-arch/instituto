@@ -26,7 +26,8 @@ class AulaAdmin(admin.ModelAdmin):
 
 @admin.register(FichaInscripcion)
 class FichaInscripcionAdmin(admin.ModelAdmin):
-    list_display = ("numero", "fecha", "estudiante", "cliente", "periodo_academico", "aula", "saldo", "estado")
+    exclude = ("valor_total_curso", "valor_matricula", "descuento")
+    list_display = ("numero", "fecha", "estudiante", "cliente", "periodo_academico", "aula", "restante", "estado")
     list_filter = ("empresa", "periodo_academico", "aula", "estado", "forma_pago_convenio", "promo")
     search_fields = (
         "numero",
@@ -40,6 +41,10 @@ class FichaInscripcionAdmin(admin.ModelAdmin):
         "universidad",
     )
     date_hierarchy = "fecha"
+
+    @admin.display(description="Restante")
+    def restante(self, obj):
+        return obj.saldo
 
 
 @admin.register(AulaHistorial)

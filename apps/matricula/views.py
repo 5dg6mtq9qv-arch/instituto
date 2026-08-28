@@ -1,6 +1,6 @@
 from calendar import monthrange
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
@@ -15,7 +15,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
 
-from apps.cartera.models import Cuota, Pago, PlanPago
+from apps.cartera.models import Cuota, FormaPago, Pago, PlanPago
 from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacion
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 
@@ -31,7 +31,7 @@ from .forms import (
     PeriodoAcademicoForm,
     representante_conyuge_data,
 )
-from .models import Aula, Curso, FichaInscripcion, PeriodoAcademico
+from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
 from .odt import TEMPLATE_PATH, build_document_response_file
 
 
@@ -46,14 +46,6 @@ def add_months(value, months):
 def next_ficha_numero(empresa):
     ultimo_id = FichaInscripcion.objects.filter(empresa=empresa).aggregate(Max("id"))["id__max"] or 0
     return str(ultimo_id + 1).zfill(7)
-
-
-def monto_cuota(valor, numero_cuotas, indice):
-    valor = Decimal(valor)
-    base = (valor / numero_cuotas).quantize(Decimal("0.01"))
-    if indice < numero_cuotas:
-        return base
-    return valor - (base * (numero_cuotas - 1))
 
 
 class PeriodoAcademicoListView(InstitutoListView):
@@ -129,14 +121,17 @@ class AulaUpdateView(InstitutoUpdateView):
 class FichaInscripcionListView(InstitutoListView):
     model = FichaInscripcion
     title = "Fichas de inscripcion"
-    create_url_name = "matricula:ficha_nueva"
+    create_url_name = "matricula:matricula_proceso"
+    create_label = "Matricular"
+    update_url_name = "matricula:ficha_editar"
     columns = (
         ("Numero", "numero"),
         ("Fecha", "fecha"),
         ("Estudiante", "estudiante"),
         ("Representante", "representante"),
         ("Curso", "curso"),
-        ("Saldo", "saldo"),
+        ("Aula", "aula"),
+        ("Restante", "saldo"),
         ("Estado", "estado"),
     )
 
@@ -227,14 +222,81 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         return Empresa.objects.filter(activa=True).first()
 
     def get_initial(self, empresa):
-        periodo = PeriodoAcademico.objects.filter(empresa=empresa, estado="activo", activo=True).first() if empresa else None
         return {
             "numero": next_ficha_numero(empresa) if empresa else "",
             "fecha": timezone.localdate(),
-            "periodo_academico": periodo,
             "fecha_inicio_cobro": timezone.localdate(),
             "forma_pago_convenio": "mensual",
         }
+
+    def get_catalog_status(self, empresa):
+        items = []
+        if not empresa:
+            return [
+                {
+                    "label": "Empresa activa",
+                    "ready": False,
+                    "url": reverse("core:empresa_list"),
+                }
+            ]
+
+        active_payment = FormaPago.objects.filter(empresa=empresa, activo=True, es_pago=True).exists()
+        items.extend(
+            [
+                {
+                    "label": "Empresa activa",
+                    "ready": True,
+                    "url": reverse("core:empresa_list"),
+                },
+                {
+                    "label": "Forma de pago para abono",
+                    "ready": active_payment,
+                    "url": reverse("cartera:forma_pago_list"),
+                },
+            ]
+        )
+        return items
+
+    def get_display_from_model(self, model, value):
+        if not value:
+            return ""
+        try:
+            return str(model.objects.get(pk=value))
+        except (model.DoesNotExist, TypeError, ValueError):
+            return ""
+
+    def build_summary(self, request, empresa):
+        data = self.combined_querydict(self.get_session_data(request))
+        valor_cuota = self.safe_decimal(data.get("valor_cuota"))
+        numero_cuotas = self.safe_int(data.get("numero_cuotas"))
+        abono = self.safe_decimal(data.get("abono"))
+        saldo = valor_cuota * numero_cuotas
+        return {
+            "empresa": str(empresa) if empresa else "Pendiente",
+            "estudiante": data.get("estudiante_nombre") or "Pendiente",
+            "representante": data.get("representante_nombre") or "Pendiente",
+            "numero": data.get("numero") or "Pendiente",
+            "fecha": data.get("fecha") or "",
+            "asignacion": "Pendiente",
+            "valor_cuota": valor_cuota,
+            "numero_cuotas": numero_cuotas,
+            "abono": abono,
+            "saldo": saldo,
+        }
+
+    @staticmethod
+    def safe_decimal(value):
+        try:
+            return Decimal(value or "0")
+        except (InvalidOperation, TypeError, ValueError):
+            return Decimal("0")
+
+    @staticmethod
+    def safe_int(value):
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
 
     def get_step_index(self, step):
         keys = [key for key, _, _ in self.steps]
@@ -255,7 +317,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             initial.update(step_data)
         return {field: initial.get(field) for field in form_class.field_names if field in initial}
 
-    def get_context(self, request, form, step_key, step_label):
+    def get_context(self, request, form, step_key, step_label, empresa):
         step_index = self.get_step_index(step_key)
         step_items = []
         for index, (key, label, _) in enumerate(self.steps):
@@ -266,6 +328,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             else:
                 status = "pending"
             step_items.append({"key": key, "label": label, "number": index + 1, "status": status})
+        catalog_status = self.get_catalog_status(empresa)
         return {
             "form": form,
             "title": "Matricular",
@@ -277,13 +340,16 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "is_first_step": step_index == 0,
             "is_last_step": step_index == len(self.steps) - 1,
             "back_step": self.steps[step_index - 1][0] if step_index else "",
+            "catalog_status": catalog_status,
+            "catalog_ready": all(item["ready"] for item in catalog_status),
+            "process_summary": self.build_summary(request, empresa),
         }
 
     def get(self, request):
         empresa = self.get_empresa()
         step_key, step_label, form_class = self.get_step(request)
         form = form_class(empresa=empresa, initial=self.get_initial_for_step(request, empresa, form_class))
-        return render(request, self.template_name, self.get_context(request, form, step_key, step_label))
+        return render(request, self.template_name, self.get_context(request, form, step_key, step_label, empresa))
 
     @transaction.atomic
     def post(self, request):
@@ -293,7 +359,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         if not empresa:
             form.add_error(None, "Debe existir una empresa activa para registrar matriculas.")
         if not form.is_valid():
-            return render(request, self.template_name, self.get_context(request, form, step_key, step_label))
+            return render(request, self.template_name, self.get_context(request, form, step_key, step_label, empresa))
 
         session_data = self.get_session_data(request)
         session_data[step_key] = self.serialize_step(form)
@@ -343,7 +409,12 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     def guardar_estudiante(self, data, empresa):
         if data.get("estudiante_modo") == "seleccionar" and data.get("estudiante_partner"):
-            return data["estudiante_partner"]
+            partner = data["estudiante_partner"]
+            if not partner.es_estudiante or not partner.activo:
+                partner.es_estudiante = True
+                partner.activo = True
+                partner.save(update_fields=["es_estudiante", "activo"])
+            return partner
         return self.guardar_partner(
             empresa=empresa,
             tipo_identificacion=self.get_tipo_identificacion(),
@@ -358,6 +429,18 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     def guardar_representante(self, data, empresa):
         if data.get("representante_modo") == "seleccionar" and data.get("representante_partner"):
             partner = data["representante_partner"]
+            update_fields = []
+            if not partner.es_cliente:
+                partner.es_cliente = True
+                update_fields.append("es_cliente")
+            if not partner.es_representante:
+                partner.es_representante = True
+                update_fields.append("es_representante")
+            if not partner.activo:
+                partner.activo = True
+                update_fields.append("activo")
+            if update_fields:
+                partner.save(update_fields=update_fields)
             self.guardar_conyuge_partner(partner, data)
             return partner
         partner = self.guardar_partner(
@@ -410,7 +493,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             if representante_id
             else self.guardar_representante(data, empresa)
         )
-        PartnerPartner.objects.get_or_create(
+        relacion, _ = PartnerPartner.objects.get_or_create(
             partner_a=estudiante,
             partner_b=representante,
             relacion="representante",
@@ -421,38 +504,47 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 "usuario_updated": user,
             },
         )
+        relacion_updates = []
+        for field in ["principal", "contacto_emergencia", "activo"]:
+            if not getattr(relacion, field):
+                setattr(relacion, field, True)
+                relacion_updates.append(field)
+        if relacion_updates:
+            relacion.usuario_updated = user
+            relacion_updates.append("usuario_updated")
+            relacion.save(update_fields=relacion_updates)
 
-        total = data["valor_total_curso"] + data["valor_matricula"] - data["descuento"]
-        saldo = total - data["abono"]
+        saldo = data["saldo_calculado"]
+        total = saldo + data["abono"]
         ficha = FichaInscripcion.objects.create(
             empresa=empresa,
             numero=data["numero"] or next_ficha_numero(empresa),
             fecha=data["fecha"],
-            periodo_academico=data["periodo_academico"],
-            curso=data["curso"],
-            aula=data["aula"],
+            periodo_academico=data.get("periodo_academico"),
+            curso=data.get("curso"),
+            aula=data.get("aula"),
             cliente=representante,
             estudiante=estudiante,
             representante=representante,
             edad=data["edad"],
             colegio=data["colegio"],
-            curso_grado=data["curso_grado"],
-            nota_grado=data["nota_grado"],
-            carrera=data["carrera"],
-            universidad=data["universidad"],
-            nombre_conyuge=data["nombre_conyuge"],
-            ocupacion_conyuge=data["ocupacion_conyuge"],
+            curso_grado=data.get("curso_grado"),
+            nota_grado=data.get("nota_grado"),
+            carrera=data.get("carrera"),
+            universidad=data.get("universidad"),
+            nombre_conyuge=data.get("nombre_conyuge"),
+            ocupacion_conyuge=data.get("ocupacion_conyuge"),
             correo_estudiante=data["estudiante_email"],
             correo_representante=data["representante_email"],
-            horario=data["horario"] or (data["aula"].horario if data["aula"] else ""),
-            hora=data["hora"] or (data["aula"].hora if data["aula"] else ""),
-            duracion=data["duracion"] or (data["aula"].duracion if data["aula"] else ""),
+            horario=data.get("horario") or (data["aula"].horario if data.get("aula") else ""),
+            hora=data.get("hora") or (data["aula"].hora if data.get("aula") else ""),
+            duracion=data.get("duracion") or (data["aula"].duracion if data.get("aula") else ""),
             forma_pago_convenio=data["forma_pago_convenio"],
             fecha_proximo_pago=data["fecha_inicio_cobro"],
-            valor_proximo_pago=monto_cuota(saldo, data["numero_cuotas"], 1) if saldo else Decimal("0.00"),
-            valor_total_curso=data["valor_total_curso"],
-            valor_matricula=data["valor_matricula"],
-            descuento=data["descuento"],
+            valor_proximo_pago=data["valor_cuota"] if saldo else Decimal("0.00"),
+            valor_total_curso=total,
+            valor_matricula=Decimal("0.00"),
+            descuento=Decimal("0.00"),
             abono=data["abono"],
             saldo=saldo,
             promo=data["promo"],
@@ -463,12 +555,19 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             observacion=data["observacion"],
             usuario_updated=user,
         )
+        if ficha.aula_id:
+            AulaHistorial.objects.create(
+                ficha_inscripcion=ficha,
+                aula_destino=ficha.aula,
+                motivo="Asignacion inicial por matricula",
+                usuario=user,
+            )
         plan = PlanPago.objects.create(
             empresa=empresa,
             ficha_inscripcion=ficha,
             valor_total=total,
-            valor_matricula=data["valor_matricula"],
-            descuento=data["descuento"],
+            valor_matricula=Decimal("0.00"),
+            descuento=Decimal("0.00"),
             abono=data["abono"],
             saldo=saldo,
             estado="activo",
@@ -536,7 +635,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
                 fecha_cuota = data["fecha_inicio_cobro"] + timedelta(days=15 * (indice - 1))
             else:
                 fecha_cuota = add_months(data["fecha_inicio_cobro"], indice - 1)
-            valor = monto_cuota(saldo, data["numero_cuotas"], indice)
+            valor = data["valor_cuota"]
             Cuota.objects.create(
                 plan_pago=plan,
                 numero=indice,

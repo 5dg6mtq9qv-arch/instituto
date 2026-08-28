@@ -14,8 +14,8 @@
   <section class="panel payment-student-panel">
     <div class="payment-top-actions">
       <div>
-        <span>Total seleccionado</span>
-        <strong data-payment-total>0.00</strong>
+        <span>Seleccionado</span>
+        <strong data-payment-selected>0.00</strong>
       </div>
       <button class="btn btn-primary-600" type="button" data-open-payment-modal>Pagar seleccionadas</button>
     </div>
@@ -30,7 +30,7 @@
         <strong>{{ ficha.aula|default:"-" }}</strong>
       </div>
       <div>
-        <span>Saldo</span>
+        <span>Restante</span>
         <strong>{{ ficha.plan_pago.saldo }}</strong>
       </div>
       <div>
@@ -54,7 +54,7 @@
               <th>Fecha</th>
               <th>Valor</th>
               <th>Pagado</th>
-              <th>Saldo</th>
+              <th>Restante</th>
               <th>Estado</th>
               <th class="text-end">Acciones</th>
             </tr>
@@ -120,9 +120,9 @@
                   {{ form.comprobante }}
                   {{ form.comprobante.errors }}
                 </div>
-                <div class="payment-total-box">
-                  <span>Total seleccionado</span>
-                  <strong data-payment-total>0.00</strong>
+                <div class="payment-selected-box">
+                  <span>Seleccionado</span>
+                  <strong data-payment-selected>0.00</strong>
                 </div>
                 <div class="payment-comment">
                   <label class="form-label" for="{{ form.comentario.id_for_label }}">{{ form.comentario.label }}</label>
@@ -146,8 +146,7 @@
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       const checkboxes = Array.from(document.querySelectorAll("[data-payment-checkbox]"));
-      const totalNode = document.querySelector("[data-payment-total]");
-      const totalNodes = Array.from(document.querySelectorAll("[data-payment-total]"));
+      const selectedNodes = Array.from(document.querySelectorAll("[data-payment-selected]"));
       const selectAll = document.querySelector("[data-select-all-payments]");
       const modalElement = document.getElementById("paymentModal");
       const openButtons = Array.from(document.querySelectorAll("[data-open-payment-modal]"));
@@ -157,22 +156,22 @@
         return Number(String(value || "0").replace(",", "."));
       }
 
-      function updateTotal() {
-        const total = checkboxes
+      function updateSelectedAmount() {
+        const selectedAmount = checkboxes
           .filter((checkbox) => checkbox.checked)
           .reduce((sum, checkbox) => sum + parseAmount(checkbox.dataset.amount), 0);
-        totalNodes.forEach((node) => {
-          node.textContent = total.toFixed(2);
+        selectedNodes.forEach((node) => {
+          node.textContent = selectedAmount.toFixed(2);
         });
       }
 
-      checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateTotal));
+      checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateSelectedAmount));
       if (selectAll) {
         selectAll.addEventListener("change", function () {
           checkboxes.forEach((checkbox) => {
             checkbox.checked = selectAll.checked;
           });
-          updateTotal();
+          updateSelectedAmount();
         });
       }
       openButtons.forEach((button) => {
@@ -192,7 +191,7 @@
           if (selectAll) {
             selectAll.checked = false;
           }
-          updateTotal();
+          updateSelectedAmount();
           bootstrap.Modal.getOrCreateInstance(modalElement).show();
         });
       });

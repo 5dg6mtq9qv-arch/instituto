@@ -1,0 +1,115 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Cartera</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
+  </header>
+
+  <form class="panel form-panel payment-method-form" method="post" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <section class="form-section form-section-current">
+      <div class="section-heading">
+        <h2>Datos principales</h2>
+      </div>
+
+      <div class="payment-method-presets" role="group" aria-label="Formas de pago frecuentes">
+        <button type="button" data-payment-name="Efectivo">
+          <i class="ri-cash-line"></i>
+          <span>Efectivo</span>
+        </button>
+        <button type="button" data-payment-name="Tarjeta">
+          <i class="ri-bank-card-line"></i>
+          <span>Tarjeta</span>
+        </button>
+        <button type="button" data-payment-name="Cheque">
+          <i class="ri-file-paper-2-line"></i>
+          <span>Cheque</span>
+        </button>
+        <button type="button" data-payment-name="Transferencia">
+          <i class="ri-exchange-dollar-line"></i>
+          <span>Transferencia</span>
+        </button>
+        <button type="button" data-payment-name="Deposito">
+          <i class="ri-bank-line"></i>
+          <span>Deposito</span>
+        </button>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.empresa.id_for_label }}">{{ form.empresa.label }}</label>
+          {{ form.empresa }}
+          {% for error in form.empresa.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+
+        <div class="col-md-6">
+          <label class="form-label" for="{{ form.nombre.id_for_label }}">{{ form.nombre.label }}</label>
+          {{ form.nombre }}
+          {% for error in form.nombre.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+
+        <div class="col-12">
+          <div class="switch-field">
+            {{ form.activo }}
+            <label for="{{ form.activo.id_for_label }}">{{ form.activo.label }}</label>
+          </div>
+          {% for error in form.activo.errors %}
+            <div class="invalid-feedback d-block">{{ error }}</div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <div class="form-actions">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      <button class="btn btn-primary" type="submit">Guardar forma de pago</button>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const nameInput = document.getElementById("{{ form.nombre.id_for_label }}");
+
+      document.querySelectorAll("[data-payment-name]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          if (!nameInput) return;
+          nameInput.value = button.dataset.paymentName;
+          nameInput.focus();
+        });
+      });
+
+      if (!window.Switchery) return;
+      document.querySelectorAll(".js-switch").forEach(function (element) {
+        if (element.dataset.switchery === "true") return;
+        new Switchery(element, {
+          color: "#16a34a",
+          secondaryColor: "#d1d5db",
+          jackColor: "#ffffff",
+          size: "small"
+        });
+      });
+    });
+  </script>
+{% endblock %}

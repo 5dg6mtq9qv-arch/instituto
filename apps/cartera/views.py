@@ -21,7 +21,7 @@ class AlumnoCarteraListView(InstitutoListView):
         ("Alumno", "estudiante"),
         ("Ficha", "numero"),
         ("Aula", "aula"),
-        ("Saldo", "plan_pago.saldo"),
+        ("Restante", "plan_pago.saldo"),
         ("Estado", "estado"),
     )
 
@@ -122,12 +122,14 @@ class FormaPagoListView(InstitutoListView):
     model = FormaPago
     title = "Formas de pago"
     create_url_name = "cartera:forma_pago_nueva"
-    columns = (("Nombre", "nombre"), ("Tipo", "tipo"), ("Orden", "orden"), ("Activa", "activo"))
+    create_label = "Nueva forma"
+    columns = (("Forma de pago", "nombre"), ("Activa", "activo"))
 
 
 class FormaPagoCreateView(InstitutoCreateView):
     model = FormaPago
     form_class = FormaPagoForm
+    template_name = "cartera/forma_pago_form.html"
     title = "Nueva forma de pago"
     success_url = reverse_lazy("cartera:forma_pago_list")
     cancel_url = reverse_lazy("cartera:forma_pago_list")
@@ -136,6 +138,7 @@ class FormaPagoCreateView(InstitutoCreateView):
 class FormaPagoUpdateView(InstitutoUpdateView):
     model = FormaPago
     form_class = FormaPagoForm
+    template_name = "cartera/forma_pago_form.html"
     title = "Editar forma de pago"
     success_url = reverse_lazy("cartera:forma_pago_list")
     cancel_url = reverse_lazy("cartera:forma_pago_list")
@@ -145,7 +148,7 @@ class PlanPagoListView(InstitutoListView):
     model = PlanPago
     title = "Planes de pago"
     create_url_name = "cartera:plan_pago_nuevo"
-    columns = (("Ficha", "ficha_inscripcion"), ("Total", "valor_total"), ("Abono", "abono"), ("Saldo", "saldo"), ("Estado", "estado"))
+    columns = (("Ficha", "ficha_inscripcion"), ("Abono", "abono"), ("Restante", "saldo"), ("Estado", "estado"))
 
     def get_queryset(self):
         return super().get_queryset().select_related("ficha_inscripcion", "empresa")

@@ -9,53 +9,271 @@
       <h1>{{ title }}</h1>
     </div>
     <div class="topbar-actions">
-      <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">Volver</a>
-      <a class="btn btn-outline-danger" href="{% url 'matricula:matricula_proceso' %}?reiniciar=1">Reiniciar</a>
+      <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">
+        <i class="ri-arrow-left-line"></i>
+        Fichas
+      </a>
+      <a class="btn btn-outline-danger" href="{% url 'matricula:matricula_proceso' %}?reiniciar=1">
+        <i class="ri-refresh-line"></i>
+        Reiniciar
+      </a>
     </div>
   </header>
 
-  <form class="panel form-panel" method="post" novalidate>
+  <form class="matricula-process" method="post" novalidate>
     {% csrf_token %}
+
     {% if form.non_field_errors %}
       <div class="alert alert-danger">{{ form.non_field_errors }}</div>
     {% endif %}
 
-    <div class="process-steps">
+    {% if not catalog_ready %}
+      <div class="alert alert-warning matricula-setup-warning">
+        <strong>Catalogos pendientes para matricular.</strong>
+        <span>Revise el panel de estado antes de confirmar una ficha.</span>
+      </div>
+    {% endif %}
+
+    <nav class="matricula-stepper" aria-label="Pasos de matricula">
       {% for item in step_items %}
-        <span class="{{ item.status }}">{{ item.number }}. {{ item.label }}</span>
+        <span class="matricula-step {{ item.status }}"{% if item.status == "active" %} aria-current="step"{% endif %}>
+          <strong>{{ item.number }}</strong>
+          <small>{{ item.label }}</small>
+          {% if item.status == "done" %}
+            <i class="ri-check-line"></i>
+          {% endif %}
+        </span>
       {% endfor %}
-    </div>
+    </nav>
 
-    <section class="form-section form-section-current">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">Paso {{ step_number }}</p>
-          <h2>{{ step_label }}</h2>
+    <div class="matricula-process-grid">
+      <section class="panel form-panel matricula-main-panel">
+        <div class="matricula-step-heading">
+          <div>
+            <p class="eyebrow">Paso {{ step_number }}</p>
+            <h2>{{ step_label }}</h2>
+          </div>
         </div>
-      </div>
 
-      <div class="row g-3">
-        {% for field in form %}
-          {% include "web/form_field.html" with field=field cols="col-md-6" %}
-        {% endfor %}
-      </div>
-    </section>
+        {% if step_key == "estudiante" %}
+          <section class="form-section form-section-current matricula-step-section">
+            <div class="row g-3">
+              <div class="col-12 matricula-mode-field">
+                <label class="form-label">{{ form.estudiante_modo.label }}</label>
+                {{ form.estudiante_modo }}
+                {% for error in form.estudiante_modo.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+              {% include "web/form_field.html" with field=form.estudiante_partner cols="col-12" %}
+            </div>
+          </section>
 
-    <div class="form-actions">
-      {% if not is_first_step %}
-        <a class="btn btn-outline-secondary" href="{% url 'matricula:matricula_proceso' %}?paso={{ back_step }}">Anterior</a>
-      {% else %}
-        <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">Cancelar</a>
-      {% endif %}
-      {% if is_last_step %}
-        <button class="btn btn-primary" type="submit">Confirmar matricula y generar documentos</button>
-      {% else %}
-        <button class="btn btn-primary" type="submit">Siguiente</button>
-      {% endif %}
+          <section class="form-section matricula-step-section">
+            <div class="section-heading">
+              <h2>Datos del estudiante</h2>
+            </div>
+            <div class="row g-3">
+              {% include "web/form_field.html" with field=form.estudiante_identificacion cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.estudiante_nombre cols="col-md-8" %}
+              {% include "web/form_field.html" with field=form.estudiante_fecha_nacimiento cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.edad cols="col-md-2" %}
+              {% include "web/form_field.html" with field=form.estudiante_telefono cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.estudiante_email cols="col-md-3" %}
+            </div>
+          </section>
+        {% elif step_key == "representante" %}
+          <section class="form-section form-section-current matricula-step-section">
+            <div class="row g-3">
+              <div class="col-12 matricula-mode-field">
+                <label class="form-label">{{ form.representante_modo.label }}</label>
+                {{ form.representante_modo }}
+                {% for error in form.representante_modo.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+              {% include "web/form_field.html" with field=form.representante_partner cols="col-12" %}
+            </div>
+          </section>
+
+          <section class="form-section matricula-step-section">
+            <div class="section-heading">
+              <h2>Datos del representante</h2>
+            </div>
+            <div class="row g-3">
+              {% include "web/form_field.html" with field=form.representante_identificacion cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.representante_nombre cols="col-md-8" %}
+              {% include "web/form_field.html" with field=form.representante_telefono cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.representante_celular cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.representante_email cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.representante_ocupacion cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.representante_direccion cols="col-12" %}
+            </div>
+          </section>
+
+          <section class="form-section matricula-step-section">
+            <div class="section-heading">
+              <h2>Conyuge</h2>
+            </div>
+            <div class="row g-3">
+              {% include "web/form_field.html" with field=form.nombre_conyuge cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.ocupacion_conyuge cols="col-md-6" %}
+            </div>
+          </section>
+        {% elif step_key == "matricula" %}
+          <section class="form-section form-section-current matricula-step-section">
+            <div class="section-heading">
+              <h2>Ficha</h2>
+            </div>
+            <div class="row g-3">
+              {% include "web/form_field.html" with field=form.numero cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.fecha cols="col-md-6" %}
+            </div>
+          </section>
+
+          <section class="form-section matricula-step-section">
+            <div class="section-heading">
+              <h2>Datos academicos</h2>
+            </div>
+            <div class="row g-3">
+              {% include "web/form_field.html" with field=form.colegio cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.curso_grado cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.nota_grado cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.carrera cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.universidad cols="col-md-6" %}
+            </div>
+          </section>
+        {% elif step_key == "convenio" %}
+          <section class="form-section form-section-current matricula-step-section">
+            <div class="section-heading">
+              <h2>Valores</h2>
+            </div>
+            <div class="row g-3">
+              {% include "web/form_field.html" with field=form.forma_pago_convenio cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.valor_cuota cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.numero_cuotas cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.abono cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.forma_pago_abono cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.numero_documento_abono cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.fecha_inicio_cobro cols="col-md-4" %}
+            </div>
+            <div class="matricula-payment-strip" data-payment-preview>
+              <div>
+                <span>Cuota</span>
+                <strong data-payment-cuota>$0.00</strong>
+              </div>
+              <div>
+                <span>Abono</span>
+                <strong data-payment-abono>$0.00</strong>
+              </div>
+              <div>
+                <span>Restante</span>
+                <strong data-payment-saldo>$0.00</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section matricula-step-section">
+            <div class="section-heading">
+              <h2>Autorizaciones</h2>
+            </div>
+            <div class="row g-3">
+              {% include "web/form_field.html" with field=form.promo cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.autorizacion_imagen cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.acepta_garantia cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.acepta_no_devolucion cols="col-md-3" %}
+              {% include "web/form_field.html" with field=form.observacion cols="col-12" %}
+            </div>
+          </section>
+        {% endif %}
+
+        <div class="form-actions">
+          {% if not is_first_step %}
+            <a class="btn btn-outline-secondary" href="{% url 'matricula:matricula_proceso' %}?paso={{ back_step }}">
+              <i class="ri-arrow-left-line"></i>
+              Anterior
+            </a>
+          {% else %}
+            <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">Cancelar</a>
+          {% endif %}
+          {% if is_last_step %}
+            <button class="btn btn-primary" type="submit">
+              <i class="ri-check-line"></i>
+              Confirmar matricula
+            </button>
+          {% else %}
+            <button class="btn btn-primary" type="submit">
+              Siguiente
+              <i class="ri-arrow-right-line"></i>
+            </button>
+          {% endif %}
+        </div>
+      </section>
+
+      <aside class="panel matricula-side-panel">
+        <section class="matricula-side-block">
+          <div class="section-heading">
+            <h2>Estado</h2>
+          </div>
+          <div class="matricula-status-list">
+            {% for item in catalog_status %}
+              <a class="matricula-status-item{% if item.ready %} is-ready{% else %} is-pending{% endif %}" href="{{ item.url }}">
+                <i class="{% if item.ready %}ri-checkbox-circle-line{% else %}ri-error-warning-line{% endif %}"></i>
+                <span>{{ item.label }}</span>
+              </a>
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="matricula-side-block">
+          <div class="section-heading">
+            <h2>Resumen</h2>
+          </div>
+          <dl class="matricula-summary-list">
+            <div>
+              <dt>Empresa</dt>
+              <dd>{{ process_summary.empresa }}</dd>
+            </div>
+            <div>
+              <dt>Estudiante</dt>
+              <dd>{{ process_summary.estudiante }}</dd>
+            </div>
+            <div>
+              <dt>Representante</dt>
+              <dd>{{ process_summary.representante }}</dd>
+            </div>
+            <div>
+              <dt>Asignacion</dt>
+              <dd>{{ process_summary.asignacion }}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="matricula-side-block">
+          <div class="section-heading">
+            <h2>Convenio</h2>
+          </div>
+          <div class="matricula-side-total">
+            <span>Restante estimado</span>
+            <strong>{{ process_summary.saldo }}</strong>
+          </div>
+        </section>
+      </aside>
     </div>
   </form>
+{% endblock %}
+
+{% block extra_scripts %}
   <script>
     (function () {
+      function qs(selector) {
+        return document.querySelector(selector);
+      }
+
+      function qsa(selector) {
+        return Array.prototype.slice.call(document.querySelectorAll(selector));
+      }
+
       const modeConfigs = [
         {
           name: "estudiante",
@@ -86,24 +304,32 @@
 
       function setFieldsVisible(fieldNames, visible) {
         fieldNames.forEach(function (fieldName) {
-          const element = document.querySelector(".field-" + fieldName);
+          const element = qs(".field-" + fieldName);
           if (element) {
             element.classList.toggle("d-none", !visible);
           }
         });
       }
 
+      function syncModeCards(groupName) {
+        qsa("input[name='" + groupName + "_modo']").forEach(function (input) {
+          const wrapper = input.closest("div");
+          if (wrapper) {
+            wrapper.classList.toggle("is-active", input.checked);
+          }
+        });
+      }
+
       modeConfigs.forEach(function (config) {
-        const inputs = document.querySelectorAll("input[name='" + config.name + "_modo']");
-        if (!inputs.length) {
-          return;
-        }
+        const inputs = qsa("input[name='" + config.name + "_modo']");
+        if (!inputs.length) return;
 
         function syncMode() {
-          const checked = document.querySelector("input[name='" + config.name + "_modo']:checked");
+          const checked = qs("input[name='" + config.name + "_modo']:checked");
           const mode = checked ? checked.value : "seleccionar";
           setFieldsVisible(config.selectFields, mode === "seleccionar");
           setFieldsVisible(config.createFields, mode === "crear");
+          syncModeCards(config.name);
         }
 
         inputs.forEach(function (input) {
@@ -115,15 +341,15 @@
       const representanteSelect = document.getElementById("id_representante_partner");
       const representantePrefillUrl = "{% url 'matricula:representante_prefill' 0 %}";
 
-      function setInputValue(id, value) {
+      function setInputValue(id, value, force) {
         const input = document.getElementById(id);
-        if (input) {
+        if (input && (force || !input.value)) {
           input.value = value || "";
         }
       }
 
       function prefillRepresentante() {
-        const modeInput = document.querySelector("input[name='representante_modo']:checked");
+        const modeInput = qs("input[name='representante_modo']:checked");
         if (!representanteSelect || !modeInput || modeInput.value !== "seleccionar" || !representanteSelect.value) {
           return;
         }
@@ -136,22 +362,22 @@
             return response.json();
           })
           .then(function (data) {
-            setInputValue("id_representante_identificacion", data.identificacion);
-            setInputValue("id_representante_nombre", data.nombre);
-            setInputValue("id_representante_telefono", data.telefono);
-            setInputValue("id_representante_celular", data.celular);
-            setInputValue("id_representante_email", data.email);
-            setInputValue("id_representante_ocupacion", data.ocupacion);
-            setInputValue("id_representante_direccion", data.direccion);
-            setInputValue("id_nombre_conyuge", data.nombre_conyuge);
-            setInputValue("id_ocupacion_conyuge", data.ocupacion_conyuge);
+            setInputValue("id_representante_identificacion", data.identificacion, true);
+            setInputValue("id_representante_nombre", data.nombre, true);
+            setInputValue("id_representante_telefono", data.telefono, true);
+            setInputValue("id_representante_celular", data.celular, true);
+            setInputValue("id_representante_email", data.email, true);
+            setInputValue("id_representante_ocupacion", data.ocupacion, true);
+            setInputValue("id_representante_direccion", data.direccion, true);
+            setInputValue("id_nombre_conyuge", data.nombre_conyuge, false);
+            setInputValue("id_ocupacion_conyuge", data.ocupacion_conyuge, false);
           })
           .catch(function () {});
       }
 
       if (representanteSelect) {
         representanteSelect.addEventListener("change", prefillRepresentante);
-        document.querySelectorAll("input[name='representante_modo']").forEach(function (input) {
+        qsa("input[name='representante_modo']").forEach(function (input) {
           input.addEventListener("change", prefillRepresentante);
         });
         prefillRepresentante();
@@ -159,18 +385,11 @@
 
       const birthInput = document.getElementById("id_estudiante_fecha_nacimiento");
       const ageInput = document.getElementById("id_edad");
-      if (!birthInput || !ageInput) {
-        return;
-      }
 
       function calculateAge(value) {
-        if (!value) {
-          return "";
-        }
+        if (!value) return "";
         const birthDate = new Date(value + "T00:00:00");
-        if (Number.isNaN(birthDate.getTime())) {
-          return "";
-        }
+        if (Number.isNaN(birthDate.getTime())) return "";
         const today = new Date();
         let age = today.getFullYear() - birthDate.getFullYear();
         const monthDiff = today.getMonth() - birthDate.getMonth();
@@ -181,12 +400,48 @@
       }
 
       function updateAge() {
-        ageInput.value = calculateAge(birthInput.value);
+        if (birthInput && ageInput) {
+          ageInput.value = calculateAge(birthInput.value);
+        }
       }
 
-      birthInput.addEventListener("change", updateAge);
-      birthInput.addEventListener("input", updateAge);
-      updateAge();
+      if (birthInput && ageInput) {
+        birthInput.addEventListener("change", updateAge);
+        birthInput.addEventListener("input", updateAge);
+        updateAge();
+      }
+
+      const moneyInputs = qsa("[data-money-input]");
+      const cuotaNode = qs("[data-payment-cuota]");
+      const abonoNode = qs("[data-payment-abono]");
+      const saldoNode = qs("[data-payment-saldo]");
+      const installmentsInput = qs("[data-installments-input]");
+      const formatter = new Intl.NumberFormat("es-EC", {style: "currency", currency: "USD"});
+
+      function moneyValue(name) {
+        const input = qs("[data-money-input='" + name + "']");
+        if (!input) return 0;
+        const value = Number(String(input.value || "0").replace(",", "."));
+        return Number.isFinite(value) ? value : 0;
+      }
+
+      function syncPayment() {
+        if (!cuotaNode || !abonoNode || !saldoNode) return;
+        const cuota = moneyValue("cuota");
+        const abono = moneyValue("abono");
+        const cuotas = Math.max(Number(installmentsInput ? installmentsInput.value : 0) || 0, 0);
+        cuotaNode.textContent = formatter.format(cuota);
+        abonoNode.textContent = formatter.format(abono);
+        saldoNode.textContent = formatter.format(cuota * cuotas);
+      }
+
+      moneyInputs.forEach(function (input) {
+        input.addEventListener("input", syncPayment);
+      });
+      if (installmentsInput) {
+        installmentsInput.addEventListener("input", syncPayment);
+      }
+      syncPayment();
     })();
   </script>
 {% endblock %}
