@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
 {% endblock %}
 
 {% block content %}
@@ -127,17 +128,27 @@
             <select class="form-select" id="materiaPlanificacion" name="materia" data-planning-materia>
               <option value="">Sin materia</option>
               {% for materia in materias %}
-                <option value="{{ materia.pk }}">{% firstof materia.nombre_corto materia.nombre %}</option>
+                <option value="{{ materia.pk }}">{{ materia.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3 planning-docente-field" data-planning-docente-container hidden>
+            <label class="form-label" for="docentePlanificacion">Docente</label>
+            <select class="form-select" id="docentePlanificacion" name="docente" data-planning-docente disabled>
+              <option value="">Usar asignacion general</option>
+              {% for docente in docentes %}
+                <option value="{{ docente.pk }}">{{ docente.nombre }}</option>
               {% endfor %}
             </select>
           </div>
 
           <div class="planning-period-switch" data-planning-periodo-container>
             <input class="js-switch" id="asignarPeriodoPlanificacion" type="checkbox" name="asignar_periodo" data-planning-periodo-switch>
-            <label for="asignarPeriodoPlanificacion">Asignar a todo el periodo</label>
+            <label for="asignarPeriodoPlanificacion">Aplicar desde esta fecha al resto del periodo</label>
           </div>
 
-          <button class="btn btn-primary-600 w-100" type="submit">Guardar materia</button>
+          <button class="btn btn-primary-600 w-100" type="submit">Guardar cambios</button>
         </form>
       {% else %}
         <p class="text-muted mb-0">No tienes permiso para asignar materias.</p>
@@ -229,6 +240,7 @@
   <script src="{% static 'assets/js/full-calendar.js' %}"></script>
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
   <script>
     (function () {
       if (window.flatpickr) {
@@ -259,6 +271,9 @@
       const diaLabels = {{ dia_labels_json|safe }};
       const openScheduleOnLoad = {{ schedule_form_has_errors|yesno:"true,false" }};
       const calendarNotice = document.querySelector("[data-calendar-notice]");
+      const planningMateriaInput = document.querySelector("[data-planning-materia]");
+      const planningDocenteInput = document.querySelector("[data-planning-docente]");
+      const planningDocenteContainer = document.querySelector("[data-planning-docente-container]");
       let periodSwitchery = null;
       let schedulePeriodSwitchery = null;
       let activePlanningEvent = null;
@@ -282,6 +297,42 @@
             size: "small"
           });
         }
+      }
+
+      function setPlanningDocenteControl(materiaId, docenteId) {
+        const hasMateria = Boolean(materiaId);
+        if (planningDocenteContainer) {
+          planningDocenteContainer.hidden = !hasMateria;
+        }
+        if (!planningDocenteInput) return;
+        planningDocenteInput.disabled = !hasMateria;
+        if (!hasMateria) {
+          planningDocenteInput.value = "";
+          return;
+        }
+        if (typeof docenteId !== "undefined") {
+          planningDocenteInput.value = docenteId || "";
+        }
+      }
+
+      if (planningMateriaInput) {
+        planningMateriaInput.addEventListener("change", function () {
+          setPlanningDocenteControl(this.value);
+        });
+      }
+
+      if (window.jQuery && jQuery.fn.select2 && planningMateriaInput) {
+        jQuery(planningMateriaInput).select2({
+          width: "100%",
+          dropdownParent: jQuery("#planificacionMateriaOffcanvas"),
+          placeholder: "Selecciona materia",
+          allowClear: true,
+          language: {
+            noResults: function () {
+              return "Sin resultados";
+            }
+          }
+        });
       }
 
       function resetPeriodSwitch(periodAvailable) {
@@ -455,7 +506,13 @@
         hideCalendarNotice();
         document.querySelector("[data-planning-horario]").value = event.horarioId;
         document.querySelector("[data-planning-fecha]").value = event.fecha;
-        document.querySelector("[data-planning-materia]").value = event.materiaId || "";
+        if (planningMateriaInput) {
+          planningMateriaInput.value = event.materiaId || "";
+          if (window.jQuery && jQuery.fn.select2) {
+            jQuery(planningMateriaInput).trigger("change.select2");
+          }
+        }
+        setPlanningDocenteControl(event.materiaId || "", event.docenteId || "");
         document.querySelector("[data-planning-date]").textContent = formatDate(event.start);
         document.querySelector("[data-planning-aula]").textContent = event.aula || "";
         document.querySelector("[data-planning-time]").textContent = event.hora || "";
@@ -650,6 +707,36 @@
       color: #1f2937;
       cursor: pointer;
       margin: 0;
+    }
+
+    #planificacionMateriaOffcanvas .select2-container--default .select2-selection--single {
+      align-items: center;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      display: flex;
+      min-height: 44px;
+      padding: 6px 36px 6px 12px;
+    }
+
+    #planificacionMateriaOffcanvas .select2-container--default.select2-container--open .select2-selection--single {
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 1px #0d6efd;
+    }
+
+    #planificacionMateriaOffcanvas .select2-container--default .select2-selection--single .select2-selection__rendered {
+      color: #1f2937;
+      line-height: 1.35;
+      padding: 0;
+    }
+
+    #planificacionMateriaOffcanvas .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 42px;
+      right: 8px;
+    }
+
+    .select2-container--open .select2-dropdown {
+      border-color: #d1d5db;
+      z-index: 1080;
     }
 
     #calendar .fc-event {

@@ -910,6 +910,14 @@ class Clase(models.Model):
         on_delete=models.RESTRICT,
         related_name="clases",
     )
+    docente = models.ForeignKey(
+        "core.Partner",
+        db_column="id_docente",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="clases_asignadas",
+    )
     fecha = models.DateField()
     tema = models.ForeignKey(
         "academico.Tema",

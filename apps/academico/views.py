@@ -89,7 +89,8 @@ def user_can_access_coordinacion(user):
 
 
 UNASSIGNED_CLASS_ALERT_DAYS = 30
-APPROVED_CLASS_LOCK_MESSAGE = "La clase no se puede modificar porque tiene una planificacion aprobada."
+CLASS_ASSIGNMENT_LOCK_STATES = {"revision", "aprobada"}
+CLASS_ASSIGNMENT_LOCK_MESSAGE = "La clase no se puede modificar porque tiene una planificacion enviada o aprobada."
 
 
 def file_attachment_meta(file_field):
@@ -169,8 +170,36 @@ def can_assign_docente(user):
     )
 
 
+def docente_responsable_filter(docente):
+    return Q(docente=docente) | Q(
+        docente__isnull=True,
+        materia_curso__profesor_materia_cursos__partner=docente,
+    )
+
+
+def docente_responsable_search_filter(query):
+    return (
+        Q(docente__nombre__icontains=query)
+        | Q(docente__identificacion__icontains=query)
+        | Q(
+            docente__isnull=True,
+            materia_curso__profesor_materia_cursos__partner__nombre__icontains=query,
+        )
+        | Q(
+            docente__isnull=True,
+            materia_curso__profesor_materia_cursos__partner__identificacion__icontains=query,
+        )
+    )
+
+
+def get_clase_docentes(clase):
+    if clase.docente_id:
+        return [clase.docente]
+    return [item.partner for item in clase.materia_curso.profesor_materia_cursos.all()]
+
+
 def clase_tiene_docente(clase):
-    return clase.materia_curso.profesor_materia_cursos.exists()
+    return bool(clase.docente_id) or clase.materia_curso.profesor_materia_cursos.exists()
 
 
 def clases_sin_docente_queryset(curso=None, start_date=None, end_date=None):
@@ -178,10 +207,11 @@ def clases_sin_docente_queryset(curso=None, start_date=None, end_date=None):
         Clase.objects.select_related(
             "materia_curso__materia",
             "materia_curso__grupo",
+            "docente",
             "horario_aula_curso__aula_curso__aula",
             "horario_aula_curso__horario_dia__horario",
         )
-        .filter(materia_curso__profesor_materia_cursos__isnull=True)
+        .filter(docente__isnull=True, materia_curso__profesor_materia_cursos__isnull=True)
         .distinct()
     )
     if curso:
@@ -893,8 +923,8 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
 
     def has_schedule_edit_lock(self, schedule_form, horario_aula_curso, fecha_horario):
         clases = Clase.objects.filter(horario_aula_curso=horario_aula_curso)
-        if clases.filter(estado_planificacion="aprobada").exists():
-            schedule_form.add_error(None, "No se puede modificar el horario porque tiene una planificacion aprobada.")
+        if clases.filter(estado_planificacion__in=CLASS_ASSIGNMENT_LOCK_STATES).exists():
+            schedule_form.add_error(None, "No se puede modificar el horario porque tiene una planificacion enviada o aprobada.")
             return True
         if clases.filter(fecha__lt=timezone.localdate()).exists():
             schedule_form.add_error(None, "No se puede modificar el horario porque tiene clases anteriores a hoy.")
@@ -981,14 +1011,18 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
             materia_id = request.POST.get("materia") or ""
+            docente_id = request.POST.get("docente") or ""
             asignar_periodo = request.POST.get("asignar_periodo") == "on" and not horario_aula_curso.fecha
             today = timezone.localdate()
             if fecha_clase < today:
                 messages.error(request, "No se puede modificar una clase con fecha anterior a hoy.")
                 return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
             selected_clase = Clase.objects.filter(horario_aula_curso=horario_aula_curso, fecha=fecha_clase).first()
-            if selected_clase and selected_clase.estado_planificacion == "aprobada" and not asignar_periodo:
-                messages.error(request, APPROVED_CLASS_LOCK_MESSAGE)
+            if selected_clase and selected_clase.estado_planificacion in CLASS_ASSIGNMENT_LOCK_STATES and not asignar_periodo:
+                messages.error(request, CLASS_ASSIGNMENT_LOCK_MESSAGE)
+                return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
+            if docente_id and not materia_id:
+                messages.error(request, "Asigna una materia antes de asignar docente.")
                 return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
             materia_grupo = None
@@ -998,11 +1032,19 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     materia=materia,
                     grupo=curso,
                 )
+            docente = None
+            if docente_id:
+                docente = get_object_or_404(Partner, pk=docente_id, es_docente=True, activo=True)
 
             with transaction.atomic():
-                updated_count, locked_count = self.apply_clase_assignment(horario_aula_curso, fecha_clase, materia_grupo)
+                updated_count, locked_count = self.apply_clase_assignment(
+                    horario_aula_curso,
+                    fecha_clase,
+                    materia_grupo,
+                    docente,
+                )
                 if asignar_periodo:
-                    current_date = max(curso_periodo.periodo.fecha_inicio, today)
+                    current_date = max(fecha_clase, today)
                     while current_date <= curso_periodo.periodo.fecha_fin:
                         if (
                             current_date != fecha_clase
@@ -1012,24 +1054,25 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 horario_aula_curso,
                                 current_date,
                                 materia_grupo,
+                                docente,
                             )
                             updated_count += updated
                             locked_count += locked
                         current_date += timedelta(days=1)
                     action = "asignada" if materia_grupo else "removida"
                     if updated_count:
-                        messages.success(request, f"Clase {action} correctamente en {updated_count} fecha(s) editable(s).")
+                        messages.success(request, f"Clase {action} correctamente desde la fecha seleccionada en {updated_count} fecha(s) editable(s).")
                     if locked_count:
                         messages.warning(
                             request,
-                            f"{locked_count} clase(s) no se modificaron porque tienen una planificacion aprobada.",
+                            f"{locked_count} clase(s) no se modificaron porque tienen una planificacion enviada o aprobada.",
                         )
                     if not updated_count and not locked_count:
                         messages.info(request, "No habia clases editables para modificar en este horario.")
                 elif locked_count:
-                    messages.error(request, APPROVED_CLASS_LOCK_MESSAGE)
+                    messages.error(request, CLASS_ASSIGNMENT_LOCK_MESSAGE)
                 elif materia_grupo:
-                    messages.success(request, "Clase asignada correctamente.")
+                    messages.success(request, "Clase actualizada correctamente.")
                 else:
                     messages.success(request, "Clase removida correctamente.")
             return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
@@ -1037,9 +1080,9 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         messages.error(request, "Selecciona un horario del calendario para asignar la clase.")
         return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
-    def apply_clase_assignment(self, horario_aula_curso, fecha_clase, materia_grupo):
+    def apply_clase_assignment(self, horario_aula_curso, fecha_clase, materia_grupo, docente=None):
         clase = Clase.objects.filter(horario_aula_curso=horario_aula_curso, fecha=fecha_clase).first()
-        if clase and clase.estado_planificacion == "aprobada":
+        if clase and clase.estado_planificacion in CLASS_ASSIGNMENT_LOCK_STATES:
             return 0, 1
         if not materia_grupo:
             if clase:
@@ -1050,13 +1093,21 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             Clase.objects.create(
                 horario_aula_curso=horario_aula_curso,
                 materia_curso=materia_grupo,
+                docente=docente,
                 fecha=fecha_clase,
             )
             return 1, 0
+        update_fields = []
         if clase.materia_curso_id != materia_grupo.pk:
             reset_fields = self.reset_clase_planificacion(clase)
             clase.materia_curso = materia_grupo
-            clase.save(update_fields=["materia_curso", *reset_fields])
+            update_fields.extend(["materia_curso", *reset_fields])
+        docente_id = docente.pk if docente else None
+        if clase.docente_id != docente_id:
+            clase.docente = docente
+            update_fields.append("docente")
+        if update_fields:
+            clase.save(update_fields=update_fields)
         return 1, 0
 
     def delete_clase_assignment(self, clase):
@@ -1126,6 +1177,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
     def get_context(self, schedule_form=None, schedule_action=None):
         cursos = Curso.objects.filter(activo=True).order_by("nombre")
         materias = list(Materia.objects.order_by("nombre"))
+        docentes = list(Partner.objects.filter(es_docente=True, activo=True).order_by("nombre"))
         selected_curso_id = self.request.GET.get("curso") or self.request.POST.get("curso") or ""
         selected_curso = None
         selected_curso_periodo = None
@@ -1192,7 +1244,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             if selected_curso_periodo:
                 clases = {
                     (item.horario_aula_curso_id, item.fecha): item
-                    for item in Clase.objects.select_related("materia_curso__materia").filter(
+                    for item in Clase.objects.select_related("materia_curso__materia", "docente").filter(
                         horario_aula_curso__in=horarios,
                         fecha__gte=selected_curso_periodo.periodo.fecha_inicio,
                         fecha__lte=selected_curso_periodo.periodo.fecha_fin,
@@ -1222,9 +1274,11 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                         clase = clases.get((horario_aula_curso.pk, current_date))
                         materia_id = clase.materia_curso.materia_id if clase else None
                         materia = next((item for item in materias if item.pk == materia_id), None)
-                        docentes = docentes_by_materia_curso.get(clase.materia_curso_id, []) if clase else []
-                        docente_label = ", ".join(docente.nombre for docente in docentes)
-                        sin_docente = bool(clase and materia and not docentes)
+                        clase_docentes = []
+                        if clase:
+                            clase_docentes = [clase.docente] if clase.docente_id else docentes_by_materia_curso.get(clase.materia_curso_id, [])
+                        docente_label = ", ".join(docente.nombre for docente in clase_docentes)
+                        sin_docente = bool(clase and materia and not clase_docentes)
                         event_color = "#fef3c7" if sin_docente else (materia.color if materia else "#dff1ff")
                         title_parts = [
                             str(horario_aula_curso.aula_curso.aula),
@@ -1235,20 +1289,20 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                         elif sin_docente:
                             title_parts.append("Sin docente asignado")
 
-                        approved_locked = bool(clase and clase.estado_planificacion == "aprobada")
+                        planning_locked = bool(clase and clase.estado_planificacion in CLASS_ASSIGNMENT_LOCK_STATES)
                         single_date = bool(horario_aula_curso.fecha)
                         class_name = "materia-event sin-docente-event" if sin_docente else ("materia-event" if materia else "sin-materia-event")
                         if single_date:
                             class_name = f"{class_name} single-date-event"
                         is_past_date = current_date < today
-                        editable_date = not is_past_date and not approved_locked
+                        editable_date = not is_past_date and not planning_locked
                         if is_past_date:
                             class_name = f"{class_name} fecha-pasada-event"
-                        if approved_locked:
+                        if planning_locked:
                             class_name = f"{class_name} approved-locked-event"
                         locked_reason = ""
-                        if approved_locked:
-                            locked_reason = APPROVED_CLASS_LOCK_MESSAGE
+                        if planning_locked:
+                            locked_reason = CLASS_ASSIGNMENT_LOCK_MESSAGE
                         elif is_past_date:
                             locked_reason = "No se puede modificar una clase con fecha anterior a hoy."
 
@@ -1282,6 +1336,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 "horaFin": f"{horario.hora_fin:%H:%M}",
                                 "materiaId": materia_id or "",
                                 "materia": getattr(materia, "nombre", "") if materia else "",
+                                "docenteId": clase.docente_id if clase and clase.docente_id else "",
                                 "docente": docente_label or ("Sin docente asignado" if sin_docente else ""),
                                 "editableDate": editable_date,
                                 "lockedReason": locked_reason,
@@ -1298,6 +1353,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "periodo_create_url": reverse_lazy("academico:periodo_nuevo"),
             "cursos": cursos,
             "materias": materias,
+            "docentes": docentes,
             "rows": rows,
             "calendar_events_json": json.dumps(calendar_events),
             "calendar_default_date": calendar_default_date,
@@ -1360,6 +1416,7 @@ class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMix
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "docente",
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__dia",
                 "horario_aula_curso__horario_dia__horario",
@@ -1381,7 +1438,7 @@ class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMix
         for clase in queryset:
             horario = clase.horario_aula_curso.horario_dia.horario
             materia = clase.materia_curso.materia
-            docente_label = ", ".join(docentes.get(clase.materia_curso_id, []))
+            docente_label = clase.docente.nombre if clase.docente_id else ", ".join(docentes.get(clase.materia_curso_id, []))
             rows.append(
                 {
                     "fecha": clase.fecha,
@@ -2336,12 +2393,13 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "docente",
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__aula_curso__curso",
                 "horario_aula_curso__horario_dia__horario",
             )
             .prefetch_related("competencias", "estrategias", "recursos")
-            .filter(materia_curso__profesor_materia_cursos__partner=docente)
+            .filter(docente_responsable_filter(docente))
             .distinct()
             .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
         )
@@ -2528,13 +2586,14 @@ class DocenteCalendarioMixin:
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "docente",
                 "tema",
                 "subtema",
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__dia",
                 "horario_aula_curso__horario_dia__horario",
             )
-            .filter(materia_curso__profesor_materia_cursos__partner=docente)
+            .filter(docente_responsable_filter(docente))
             .distinct()
             .order_by(
                 "fecha",
@@ -2762,10 +2821,11 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "docente",
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__horario",
             )
-            .filter(materia_curso__profesor_materia_cursos__partner=docente)
+            .filter(docente_responsable_filter(docente))
             .distinct(),
             pk=self.kwargs["pk"],
         )
@@ -2984,7 +3044,7 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
         if selected_grupo:
             clases_queryset = clases_queryset.filter(materia_curso__grupo=selected_grupo)
         if selected_docente:
-            clases_queryset = clases_queryset.filter(materia_curso__profesor_materia_cursos__partner=selected_docente)
+            clases_queryset = clases_queryset.filter(docente_responsable_filter(selected_docente))
 
         cards = [self.build_attendance_card(clase) for clase in clases_queryset.distinct()]
         stats = self.get_attendance_stats(cards)
@@ -3014,6 +3074,7 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "docente",
                 "asistencia_cerrada_por",
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__horario",
@@ -3073,7 +3134,7 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
             "grupo": clase.materia_curso.grupo,
             "materia": clase.materia_curso.materia,
             "aula": clase.horario_aula_curso.aula_curso.aula,
-            "docentes": [item.partner for item in clase.materia_curso.profesor_materia_cursos.all()],
+            "docentes": get_clase_docentes(clase),
             "counts": counts,
             "count_items": self.get_count_items(counts),
             "fichas": fichas,
@@ -3224,6 +3285,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "docente",
                 "tema",
                 "subtema",
                 "horario_aula_curso__aula_curso__aula",
@@ -3235,7 +3297,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                 "recursos",
                 Prefetch("clase_recursos", queryset=ClaseRecurso.objects.select_related("recurso")),
             )
-            .filter(materia_curso__profesor_materia_cursos__partner=docente),
+            .filter(docente_responsable_filter(docente)),
             pk=self.kwargs["pk"],
         )
 
@@ -3564,15 +3626,14 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
         clases_queryset = self.get_clases_queryset()
 
         if selected_docente:
-            clases_queryset = clases_queryset.filter(materia_curso__profesor_materia_cursos__partner=selected_docente)
+            clases_queryset = clases_queryset.filter(docente_responsable_filter(selected_docente))
         if q:
             clases_queryset = clases_queryset.filter(
                 Q(materia_curso__materia__nombre__icontains=q)
                 | Q(materia_curso__grupo__nombre__icontains=q)
                 | Q(tema__nombre__icontains=q)
                 | Q(subtema__nombre__icontains=q)
-                | Q(materia_curso__profesor_materia_cursos__partner__nombre__icontains=q)
-                | Q(materia_curso__profesor_materia_cursos__partner__identificacion__icontains=q)
+                | docente_responsable_search_filter(q)
             )
         clases = list(clases_queryset.distinct())
         stats = self.get_revision_stats(clases)
@@ -3606,6 +3667,7 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "docente",
                 "tema",
                 "subtema",
                 "horario_aula_curso__aula_curso__aula",
@@ -3701,7 +3763,7 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
 
     def build_revision_card(self, clase):
         horario = clase.horario_aula_curso.horario_dia.horario
-        docentes = [item.partner for item in clase.materia_curso.profesor_materia_cursos.all()]
+        docentes = get_clase_docentes(clase)
         competencias = list(clase.competencias.all())
         estrategias = list(clase.estrategias.all())
         recursos = list(clase.recursos.all())
@@ -3749,6 +3811,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
+                "docente",
                 "tema",
                 "subtema",
                 "horario_aula_curso__aula_curso__aula",
@@ -3846,10 +3909,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
 
     def get_context(self, clase):
         horario = clase.horario_aula_curso.horario_dia.horario
-        docentes = [
-            item.partner
-            for item in clase.materia_curso.profesor_materia_cursos.all()
-        ]
+        docentes = get_clase_docentes(clase)
         observaciones = clase.observaciones_revision or {}
         review_items = [
             {

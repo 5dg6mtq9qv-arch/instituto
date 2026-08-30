@@ -142,6 +142,18 @@ class DocenteHorariosPanelTests(TestCase):
         self.user.is_superuser = True
         self.user.save(update_fields=["is_staff", "is_superuser"])
 
+    def create_docente(self, username="docente-reemplazo", identificacion="DOC-002", nombre="Docente Reemplazo"):
+        user = get_user_model().objects.create_user(username=username, password="ClaveActual987!")
+        docente = Partner.objects.create(
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion=identificacion,
+            nombre=nombre,
+            usuario=user,
+            es_docente=True,
+            activo=True,
+        )
+        return docente, user
+
     def find_cell_containing(self, sheet, text):
         for row in sheet.iter_rows():
             for cell in row:
@@ -677,7 +689,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.pendiente.tema = self.tema
         self.pendiente.subtema = self.subtema
         self.pendiente.descripcion = "Planificacion previa."
-        self.pendiente.estado_planificacion = "revision"
+        self.pendiente.estado_planificacion = "rechazada"
         self.pendiente.save(update_fields=["tema", "subtema", "descripcion", "estado_planificacion"])
         self.pendiente.competencias.add(self.competencia)
         self.pendiente.estrategias.add(self.estrategia)
@@ -727,8 +739,85 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.revision.materia_curso, self.materia_curso)
         self.assertFalse(MateriaCurso.objects.filter(materia=nueva_materia, grupo=self.curso).exists())
-        self.assertContains(response, "La clase no se puede modificar porque tiene una planificacion aprobada.")
+        self.assertContains(response, "La clase no se puede modificar porque tiene una planificacion enviada o aprobada.")
         self.assertContains(response, "approved-locked-event")
+
+    def test_academic_planning_assigns_single_day_docente_override(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        reemplazo, _ = self.create_docente()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": self.materia.pk,
+                "docente": reemplazo.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+        self.revision.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.pendiente.docente, reemplazo)
+        self.assertIsNone(self.revision.docente)
+
+    def test_academic_planning_assigns_docente_from_selected_date_forward(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        reemplazo, _ = self.create_docente()
+        selected_date = self.rechazada.fecha
+        future_date = selected_date + timedelta(days=7)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": selected_date.isoformat(),
+                "materia": self.materia.pk,
+                "docente": reemplazo.pk,
+                "asignar_periodo": "on",
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+        self.rechazada.refresh_from_db()
+        future_class = Clase.objects.get(horario_aula_curso=self.horario_aula_curso, fecha=future_date)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(self.pendiente.docente)
+        self.assertEqual(self.rechazada.docente, reemplazo)
+        self.assertEqual(future_class.docente, reemplazo)
+
+    def test_academic_planning_does_not_change_submitted_class_docente(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        reemplazo, _ = self.create_docente()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.revision.fecha.isoformat(),
+                "materia": self.materia.pk,
+                "docente": reemplazo.pk,
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+        self.revision.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(self.revision.docente)
+        self.assertContains(response, "La clase no se puede modificar porque tiene una planificacion enviada o aprobada.")
 
     def test_academic_planning_adds_schedule_block(self):
         periodo = self.create_periodo_for_course()
@@ -971,7 +1060,7 @@ class DocenteHorariosPanelTests(TestCase):
         horario_aula_curso.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "No se puede modificar el horario porque tiene una planificacion aprobada.")
+        self.assertContains(response, "No se puede modificar el horario porque tiene una planificacion enviada o aprobada.")
         self.assertEqual(horario_aula_curso.horario_dia.horario.hora_inicio, time(15, 0))
         self.assertEqual(horario_aula_curso.horario_dia.horario.hora_fin, time(16, 0))
 
@@ -1020,6 +1109,27 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "data-available-select")
         self.assertContains(response, "data-selected-list")
         self.assertEqual(response.context["planning_total"], 5)
+
+    def test_docente_class_planning_uses_single_class_docente_override(self):
+        reemplazo, reemplazo_user = self.create_docente()
+        self.pendiente.docente = reemplazo
+        self.pendiente.save(update_fields=["docente"])
+
+        self.client.force_login(self.user)
+        old_docente_response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.client.force_login(reemplazo_user)
+        reemplazo_response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(old_docente_response.status_code, 404)
+        self.assertEqual(reemplazo_response.status_code, 200)
+        self.assertContains(reemplazo_response, "teacher-plan-hero")
 
     def test_docente_class_planning_draft_keeps_planification_pending(self):
         self.client.force_login(self.user)
@@ -1159,6 +1269,24 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(response.context["selected_estado"], "revision")
         self.assertEqual(len(response.context["revision_cards"]), 1)
         self.assertEqual(response.context["revision_cards"][0]["clase"], self.revision)
+
+    def test_coordinacion_review_dashboard_filters_by_docente_override(self):
+        coordinator = self.create_coordinator()
+        reemplazo, _ = self.create_docente()
+        self.pendiente.docente = reemplazo
+        self.pendiente.save(update_fields=["docente"])
+        self.client.force_login(coordinator)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_revision_planificaciones"),
+            {"docente": reemplazo.pk, "estado": "pendiente"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_docente"], reemplazo)
+        self.assertEqual(len(response.context["revision_cards"]), 1)
+        self.assertEqual(response.context["revision_cards"][0]["clase"], self.pendiente)
 
     def test_coordinacion_review_dashboard_shows_late_cards(self):
         coordinator = self.create_coordinator()
