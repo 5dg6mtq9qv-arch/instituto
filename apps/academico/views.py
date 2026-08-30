@@ -236,6 +236,25 @@ def xlsx_color(hex_color):
     return (hex_color or "#2563eb").replace("#", "").upper()
 
 
+SCHEDULE_EXPORT_COLUMN_WIDTH = 30
+SCHEDULE_EXPORT_LINE_HEIGHT = 15
+SCHEDULE_EXPORT_MIN_ROW_HEIGHT = 78
+SCHEDULE_EXPORT_MAX_ROW_HEIGHT = 360
+
+
+def estimated_schedule_wrapped_lines(value, column_width=SCHEDULE_EXPORT_COLUMN_WIDTH):
+    line_count = 0
+    wrap_width = max(1, column_width - 4)
+    for line in str(value).splitlines() or [""]:
+        line_count += max(1, (len(line) + wrap_width - 1) // wrap_width)
+    return line_count
+
+
+def schedule_export_row_height(line_count):
+    calculated = line_count * SCHEDULE_EXPORT_LINE_HEIGHT + 10
+    return max(SCHEDULE_EXPORT_MIN_ROW_HEIGHT, min(SCHEDULE_EXPORT_MAX_ROW_HEIGHT, calculated))
+
+
 def safe_sheet_title(title):
     invalid = '[]:*?/\\'
     cleaned = "".join("_" if char in invalid else char for char in str(title or "Hoja"))
@@ -1391,6 +1410,7 @@ class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMix
         thin = Side(style="thin", color="D7DEE8")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
         center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        schedule_alignment = Alignment(horizontal="center", vertical="top", wrap_text=True)
 
         sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
         title_cell = sheet.cell(row=1, column=1, value=f"Horario - {title}")
@@ -1424,26 +1444,34 @@ class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMix
             current_row += 1
 
             time_slots = sorted({row["hora"] for row in week_rows})
-            week_matrix = {(row["hora"], row["fecha"].weekday()): row for row in week_rows}
+            week_matrix = {}
+            for row in week_rows:
+                week_matrix.setdefault((row["hora"], row["fecha"].weekday()), []).append(row)
             for time_slot in time_slots:
                 time_cell = sheet.cell(row=current_row, column=1, value=time_slot)
                 time_cell.font = Font(bold=True, color="FFFFFF")
                 time_cell.fill = time_fill
                 time_cell.border = border
                 time_cell.alignment = center
+                max_lines = 1
                 for weekday in range(7):
                     cell = sheet.cell(row=current_row, column=weekday + 2)
-                    item = week_matrix.get((time_slot, weekday))
-                    if item:
-                        cell.value = self.schedule_label(item)
-                        cell.fill = PatternFill("solid", fgColor=xlsx_color(item["color"]))
-                        cell.font = Font(color=xlsx_color(readable_text_color(item["color"])), bold=True)
+                    entries = week_matrix.get((time_slot, weekday), [])
+                    if entries:
+                        cell.value = "\n\n".join(self.schedule_label(item) for item in entries)
+                        cell.fill = PatternFill("solid", fgColor=xlsx_color(entries[0]["color"]))
+                        cell.font = Font(
+                            color=xlsx_color(readable_text_color(entries[0]["color"])),
+                            bold=True,
+                            size=9,
+                        )
+                        max_lines = max(max_lines, estimated_schedule_wrapped_lines(cell.value))
                     else:
                         cell.value = ""
                         cell.fill = PatternFill("solid", fgColor="FFFFFF")
                     cell.border = border
-                    cell.alignment = center
-                sheet.row_dimensions[current_row].height = 46
+                    cell.alignment = schedule_alignment
+                sheet.row_dimensions[current_row].height = schedule_export_row_height(max_lines)
                 current_row += 1
 
             current_row += 2
@@ -1451,7 +1479,7 @@ class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMix
         if not rows:
             sheet.cell(row=3, column=1, value="Sin horarios registrados.")
 
-        widths = [18, 24, 24, 24, 24, 24, 24, 24]
+        widths = [18] + [SCHEDULE_EXPORT_COLUMN_WIDTH] * 7
         for col, width in enumerate(widths, start=1):
             sheet.column_dimensions[get_column_letter(col)].width = width
         sheet.freeze_panes = "B5"
@@ -2643,6 +2671,7 @@ class DocenteCalendarioExportView(LoginRequiredMixin, DocenteCalendarioMixin, Vi
         thin = Side(style="thin", color="D7DEE8")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
         center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        schedule_alignment = Alignment(horizontal="center", vertical="top", wrap_text=True)
 
         sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
         title_cell = sheet.cell(row=1, column=1, value=f"Horario semanal - {docente.nombre}")
@@ -2692,17 +2721,17 @@ class DocenteCalendarioExportView(LoginRequiredMixin, DocenteCalendarioMixin, Vi
                 if entries:
                     cell.value = "\n\n".join(self.schedule_label(row) for row in entries)
                     cell.fill = PatternFill("solid", fgColor=xlsx_color(entries[0]["color"]))
-                    cell.font = Font(color=xlsx_color(readable_text_color(entries[0]["color"])), bold=True)
-                    max_lines = max(max_lines, len(cell.value.splitlines()))
+                    cell.font = Font(color=xlsx_color(readable_text_color(entries[0]["color"])), bold=True, size=9)
+                    max_lines = max(max_lines, estimated_schedule_wrapped_lines(cell.value))
                 else:
                     cell.value = ""
                     cell.fill = empty_fill
                 cell.border = border
-                cell.alignment = center
-            sheet.row_dimensions[current_row].height = max(50, min(120, max_lines * 18))
+                cell.alignment = schedule_alignment
+            sheet.row_dimensions[current_row].height = schedule_export_row_height(max_lines)
             current_row += 1
 
-        widths = [18, 26, 26, 26, 26, 26, 26, 26]
+        widths = [18] + [SCHEDULE_EXPORT_COLUMN_WIDTH] * 7
         for col, width in enumerate(widths, start=1):
             sheet.column_dimensions[get_column_letter(col)].width = width
         sheet.freeze_panes = "B5"

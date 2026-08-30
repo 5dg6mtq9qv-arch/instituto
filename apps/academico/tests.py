@@ -142,6 +142,21 @@ class DocenteHorariosPanelTests(TestCase):
         self.user.is_superuser = True
         self.user.save(update_fields=["is_staff", "is_superuser"])
 
+    def find_cell_containing(self, sheet, text):
+        for row in sheet.iter_rows():
+            for cell in row:
+                if cell.value and text in str(cell.value):
+                    return cell
+        self.fail(f"No se encontro una celda con el texto {text!r}")
+
+    def find_cell_containing_all(self, sheet, *texts):
+        for row in sheet.iter_rows():
+            for cell in row:
+                value = str(cell.value or "")
+                if all(text in value for text in texts):
+                    return cell
+        self.fail(f"No se encontro una celda con los textos {texts!r}")
+
     def create_class_for_date(
         self,
         fecha,
@@ -586,6 +601,9 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertGreaterEqual(response.context["week_count"], 1)
 
     def test_docente_calendar_export_returns_weekly_excel(self):
+        self.revision.tema = self.tema
+        self.revision.subtema = self.subtema
+        self.revision.save(update_fields=["tema", "subtema"])
         self.client.force_login(self.user)
 
         response = self.client.get(
@@ -602,9 +620,56 @@ class DocenteHorariosPanelTests(TestCase):
         workbook = load_workbook(BytesIO(response.content))
         sheet = workbook.active
         values = [cell.value for row in sheet.iter_rows() for cell in row if cell.value]
+        schedule_cell = self.find_cell_containing(sheet, "Matematicas")
 
         self.assertTrue(any("Matematicas" in str(value) for value in values))
         self.assertTrue(any("Grupo A" in str(value) for value in values))
+        self.assertIn("Numeros", schedule_cell.value)
+        self.assertIn("Suma", schedule_cell.value)
+        self.assertTrue(schedule_cell.alignment.wrap_text)
+        self.assertEqual(schedule_cell.alignment.vertical, "top")
+        self.assertEqual(sheet.column_dimensions["B"].width, 30)
+        self.assertGreaterEqual(sheet.row_dimensions[schedule_cell.row].height, 78)
+
+    def test_academic_planning_export_fits_and_combines_overlapping_slots(self):
+        self.make_superuser()
+        another_course = Curso.objects.create(nombre="Grupo B", activo=True)
+        another_aula = Aula.objects.create(nombre="Aula 2")
+        another_aula_curso = AulaCurso.objects.create(aula=another_aula, curso=another_course)
+        another_horario_aula_curso = HorarioAulaCurso.objects.create(
+            aula_curso=another_aula_curso,
+            horario_dia=self.horario_aula_curso.horario_dia,
+        )
+        another_materia_curso = MateriaCurso.objects.create(materia=self.materia, grupo=another_course)
+        ProfesorMateriaCurso.objects.create(partner=self.docente, materia_curso=another_materia_curso)
+        Clase.objects.create(
+            horario_aula_curso=another_horario_aula_curso,
+            materia_curso=another_materia_curso,
+            fecha=self.pendiente.fecha,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:planificacion_academica_exportar"),
+            {"tipo": "general"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        workbook = load_workbook(BytesIO(response.content))
+        sheet = workbook["General"]
+        schedule_cell = self.find_cell_containing_all(sheet, "Grupo A", "Grupo B")
+
+        self.assertIn("Grupo B", schedule_cell.value)
+        self.assertIn("\n\n", schedule_cell.value)
+        self.assertTrue(schedule_cell.alignment.wrap_text)
+        self.assertEqual(schedule_cell.alignment.vertical, "top")
+        self.assertEqual(sheet.column_dimensions["B"].width, 30)
+        self.assertGreaterEqual(sheet.row_dimensions[schedule_cell.row].height, 130)
 
     def test_academic_planning_updates_future_class_without_delete_error(self):
         self.create_periodo_for_course()
