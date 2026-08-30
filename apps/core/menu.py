@@ -23,12 +23,18 @@ MENU_ITEMS = [
         "perm": "academico.view_curso",
         "icon": "ri-calendar-check-line",
     },
-    {"label": "Grupos", "url_name": "core:grupo_list", "perm": "auth.view_group", "icon": "ri-shield-user-line"},
+    {
+        "label": "Grupos",
+        "url_name": "core:grupo_list",
+        "perm": None,
+        "groups": ["Administrador"],
+        "icon": "ri-shield-user-line",
+    },
     {
         "label": "Usuarios",
         "url_name": "core:usuario_list",
-        "perm": "auth.view_user",
-        "superuser_only": True,
+        "perm": None,
+        "groups": ["Administrador"],
         "icon": "ri-user-settings-line",
     },
 ]
@@ -56,8 +62,8 @@ MENU_GROUPS = [
         "icon": "ri-building-4-line",
         "items": [
             {"label": "Docentes", "url_name": "core:docente_list", "perm": None, "groups": ["Director"]},
-            {"label": "Usuarios", "url_name": "core:usuario_list", "perm": "auth.view_user", "superuser_only": True},
-            {"label": "Grupos", "url_name": "core:grupo_list", "perm": "auth.view_group"},
+            {"label": "Usuarios", "url_name": "core:usuario_list", "perm": None, "groups": ["Administrador"]},
+            {"label": "Grupos", "url_name": "core:grupo_list", "perm": None, "groups": ["Administrador"]},
         ],
     },
     {

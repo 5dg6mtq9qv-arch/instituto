@@ -1,0 +1,10 @@
+<nav class="security-area-tabs" aria-label="Seguridad">
+  <a class="security-area-tab{% if security_active_tab == 'groups' %} active{% endif %}" href="{% url 'core:grupo_list' %}">
+    <i class="ri-shield-user-line"></i>
+    <span>Grupos</span>
+  </a>
+  <a class="security-area-tab{% if security_active_tab == 'users' %} active{% endif %}" href="{% url 'core:usuario_list' %}">
+    <i class="ri-user-settings-line"></i>
+    <span>Usuarios</span>
+  </a>
+</nav>

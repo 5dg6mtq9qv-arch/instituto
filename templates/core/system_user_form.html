@@ -11,6 +11,8 @@
     <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
   </header>
 
+  {% include "core/security_tabs.html" %}
+
   <form class="panel form-panel" method="post" novalidate>
     {% csrf_token %}
     {% if form.non_field_errors %}

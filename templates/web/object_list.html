@@ -16,6 +16,10 @@
     {% endif %}
   </header>
 
+  {% if security_active_tab %}
+    {% include "core/security_tabs.html" %}
+  {% endif %}
+
   <section class="panel list-panel">
     <form class="list-toolbar" method="get">
       <div class="list-search">

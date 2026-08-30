@@ -2,6 +2,131 @@
 
 {% block title %}{{ title }} | Instituto{% endblock %}
 
+{% block extra_head %}
+  <style>
+    .permission-action {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid var(--instituto-line);
+      border-radius: 8px;
+      color: var(--instituto-ink);
+      cursor: pointer;
+      display: flex;
+      gap: 10px;
+      line-height: 1.25;
+      margin: 0;
+      min-height: 42px;
+      padding: 10px 12px;
+    }
+
+    .permission-action:hover {
+      background: var(--neutral-50);
+    }
+
+    .permission-action input {
+      flex: 0 0 auto;
+      margin: 0;
+    }
+
+    .permission-tab-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .permission-tab-button {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid var(--instituto-line);
+      border-radius: 8px;
+      color: var(--instituto-ink);
+      display: inline-flex;
+      font-weight: 800;
+      gap: 8px;
+      min-height: 40px;
+      padding: 8px 12px;
+    }
+
+    .permission-tab-button small {
+      background: var(--neutral-100);
+      border-radius: 999px;
+      color: var(--instituto-muted);
+      font-size: 12px;
+      font-weight: 800;
+      padding: 3px 8px;
+    }
+
+    .permission-tab-button.active {
+      background: var(--primary-50);
+      border-color: var(--primary-300);
+      color: var(--primary-700);
+    }
+
+    .permission-tab-panel[hidden] {
+      display: none;
+    }
+
+    .permission-panel {
+      border: 1px solid var(--instituto-line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .permission-model-row {
+      align-items: start;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+      padding: 14px 16px;
+    }
+
+    .permission-model-row + .permission-model-row {
+      border-top: 1px solid var(--instituto-line);
+    }
+
+    .permission-model-label strong {
+      color: var(--instituto-ink);
+      display: block;
+      font-size: 14px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .permission-action-list {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(4, minmax(118px, 1fr));
+    }
+
+    .permission-action {
+      font-size: 13px;
+      font-weight: 700;
+      min-height: 38px;
+      padding: 8px 10px;
+    }
+
+    .permission-action:has(input:checked) {
+      background: var(--primary-50);
+      border-color: var(--primary-300);
+      color: var(--primary-700);
+    }
+
+    @media (max-width: 1199.98px) {
+      .permission-action-list {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 767.98px) {
+      .permission-action-list,
+      .permission-model-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+{% endblock %}
+
 {% block content %}
   <header class="page-header">
     <div>
@@ -10,6 +135,8 @@
     </div>
     <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
   </header>
+
+  {% include "core/security_tabs.html" %}
 
   <form class="panel form-panel" method="post" novalidate>
     {% csrf_token %}
@@ -25,67 +152,66 @@
 
     <section class="form-section">
       <div class="section-heading">
-        <h2>Usuarios</h2>
-        <span class="selection-count" data-selection-count="users">0 seleccionados</span>
-      </div>
-      {% for error in form.users.errors %}
-        <div class="invalid-feedback d-block">{{ error }}</div>
-      {% endfor %}
-      <div class="assignment-picker" data-assignment-picker="users">
-        <button class="assignment-picker-toggle" type="button" data-picker-toggle>
-          <span data-picker-summary>Seleccionar usuarios</span>
-          <i class="ri-arrow-down-s-line"></i>
-        </button>
-        <div class="assignment-picker-menu">
-          <div class="assignment-picker-search">
-            <i class="ri-search-line"></i>
-            <input type="search" placeholder="Buscar usuario" data-picker-search>
-          </div>
-          <div class="assignment-picker-list">
-            {% for checkbox in form.users %}
-              <label class="assignment-option" data-picker-option>
-                {{ checkbox.tag }}
-                <span>{{ checkbox.choice_label }}</span>
-              </label>
-            {% empty %}
-              <p class="text-muted mb-0">No hay usuarios activos.</p>
-            {% endfor %}
-          </div>
-        </div>
-        <div class="assignment-selected" data-picker-selected></div>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <div class="section-heading">
         <h2>Permisos</h2>
-        <span class="selection-count" data-selection-count="permissions">0 seleccionados</span>
+        <span class="selection-count" data-selection-count="{{ form.permissions.html_name }}">0 seleccionados</span>
       </div>
       {% for error in form.permissions.errors %}
         <div class="invalid-feedback d-block">{{ error }}</div>
       {% endfor %}
-      <div class="assignment-picker" data-assignment-picker="permissions">
-        <button class="assignment-picker-toggle" type="button" data-picker-toggle>
-          <span data-picker-summary>Seleccionar permisos</span>
-          <i class="ri-arrow-down-s-line"></i>
-        </button>
-        <div class="assignment-picker-menu">
-          <div class="assignment-picker-search">
-            <i class="ri-search-line"></i>
-            <input type="search" placeholder="Buscar permiso" data-picker-search>
-          </div>
-          <div class="assignment-picker-list">
-            {% for checkbox in form.permissions %}
-              <label class="assignment-option" data-picker-option>
-                {{ checkbox.tag }}
-                <span>{{ checkbox.choice_label }}</span>
-              </label>
-            {% empty %}
-              <p class="text-muted mb-0">No hay permisos disponibles.</p>
+      <div>
+        {% if form.permission_groups %}
+          <div class="permission-tab-list" role="tablist" aria-label="Modulos de permisos">
+            {% for section in form.permission_groups %}
+              <button
+                class="permission-tab-button{% if forloop.first %} active{% endif %}"
+                type="button"
+                role="tab"
+                data-permission-tab="permissions-{{ section.key }}"
+                aria-controls="permissions-{{ section.key }}"
+                aria-selected="{% if forloop.first %}true{% else %}false{% endif %}"
+              >
+                <span>{{ section.label }}</span>
+                <small data-tab-count="{{ section.key }}">0 sel.</small>
+              </button>
             {% endfor %}
           </div>
-        </div>
-        <div class="assignment-selected" data-picker-selected></div>
+        {% endif %}
+        {% for section in form.permission_groups %}
+          <section
+            class="permission-tab-panel"
+            id="permissions-{{ section.key }}"
+            role="tabpanel"
+            data-permission-panel="{{ section.key }}"
+            {% if not forloop.first %}hidden{% endif %}
+          >
+            <div class="permission-panel">
+              {% for model in section.models %}
+                <div class="permission-model-row">
+                  <div class="permission-model-label">
+                    <strong>{{ model.label }}</strong>
+                  </div>
+                  <div class="permission-action-list">
+                    {% for item in model.permissions %}
+                      <label class="permission-action" for="{{ item.id }}" title="{{ item.name }}">
+                        <input
+                          class="form-check-input"
+                          id="{{ item.id }}"
+                          type="checkbox"
+                          name="{{ form.permissions.html_name }}"
+                          value="{{ item.permission.pk }}"
+                          {% if item.checked %}checked{% endif %}
+                        >
+                        <span>{{ item.action }}</span>
+                      </label>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+        {% empty %}
+          <p class="text-muted mb-0">No hay permisos disponibles.</p>
+        {% endfor %}
       </div>
     </section>
 
@@ -99,52 +225,55 @@
 {% block extra_scripts %}
   <script>
     document.addEventListener("DOMContentLoaded", function () {
-      document.querySelectorAll("[data-assignment-picker]").forEach((picker) => {
-        const toggle = picker.querySelector("[data-picker-toggle]");
-        const summary = picker.querySelector("[data-picker-summary]");
-        const search = picker.querySelector("[data-picker-search]");
-        const options = Array.from(picker.querySelectorAll("[data-picker-option]"));
-        const selected = picker.querySelector("[data-picker-selected]");
-        const countTarget = document.querySelector(`[data-selection-count="${picker.dataset.assignmentPicker}"]`);
+      const tabButtons = Array.from(document.querySelectorAll("[data-permission-tab]"));
+      const tabPanels = Array.from(document.querySelectorAll("[data-permission-panel]"));
 
-        function checkedOptions() {
-          return options.filter((option) => option.querySelector("input").checked);
-        }
+      function activateTab(panelId) {
+        tabButtons.forEach(function (button) {
+          const active = button.dataset.permissionTab === panelId;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", active ? "true" : "false");
+        });
 
-        function refresh() {
-          const checked = checkedOptions();
-          const count = checked.length;
-          summary.textContent = count ? `${count} seleccionado${count === 1 ? "" : "s"}` : "Seleccionar";
-          if (countTarget) countTarget.textContent = `${count} seleccionado${count === 1 ? "" : "s"}`;
-          selected.innerHTML = "";
-          checked.slice(0, 12).forEach((option) => {
-            const chip = document.createElement("span");
-            chip.textContent = option.querySelector("span").textContent.trim();
-            selected.appendChild(chip);
-          });
-          if (checked.length > 12) {
-            const chip = document.createElement("span");
-            chip.textContent = `+${checked.length - 12} mas`;
-            selected.appendChild(chip);
-          }
-        }
+        tabPanels.forEach(function (panel) {
+          panel.hidden = panel.id !== panelId;
+        });
+      }
 
-        toggle.addEventListener("click", () => {
-          picker.classList.toggle("open");
-          if (picker.classList.contains("open")) search.focus();
+      tabButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          activateTab(button.dataset.permissionTab);
         });
-        search.addEventListener("input", () => {
-          const term = search.value.trim().toLowerCase();
-          options.forEach((option) => {
-            option.hidden = !option.textContent.toLowerCase().includes(term);
-          });
-        });
-        options.forEach((option) => option.querySelector("input").addEventListener("change", refresh));
-        document.addEventListener("click", (event) => {
-          if (!picker.contains(event.target)) picker.classList.remove("open");
-        });
-        refresh();
       });
+
+      function refreshTabCounts() {
+        tabPanels.forEach(function (panel) {
+          const selected = panel.querySelectorAll("input[type='checkbox']:checked").length;
+          const target = document.querySelector(`[data-tab-count="${panel.dataset.permissionPanel}"]`);
+          if (target) target.textContent = `${selected} sel.`;
+        });
+      }
+
+      document.querySelectorAll("[data-selection-count]").forEach(function (target) {
+        const fieldName = target.dataset.selectionCount;
+        const inputs = Array.from(document.querySelectorAll("input[type='checkbox']")).filter(function (input) {
+          return input.name === fieldName;
+        });
+
+        function refreshCount() {
+          const total = inputs.filter(function (input) {
+            return input.checked;
+          }).length;
+          target.textContent = `${total} seleccionado${total === 1 ? "" : "s"}`;
+        }
+
+        inputs.forEach(function (input) {
+          input.addEventListener("change", refreshCount);
+          input.addEventListener("change", refreshTabCounts);
+        });
+        refreshCount();
+      });
+      refreshTabCounts();
     });
   </script>
 {% endblock %}

@@ -137,6 +137,116 @@ class DashboardPersonalizationTests(TestCase):
         self.assertContains(response, "Cartera")
 
 
+class SecurityGroupViewTests(TestCase):
+    def setUp(self):
+        set_current_request(None)
+        self.target_group = Group.objects.create(name="Operador")
+        self.admin_group = Group.objects.get_or_create(name="Administrador")[0]
+        self.group_permissions = list(
+            Permission.objects.filter(
+                content_type__app_label="auth",
+                content_type__model="group",
+                codename__in=("view_group", "add_group", "change_group"),
+            )
+        )
+
+    def tearDown(self):
+        set_current_request(None)
+
+    def test_group_management_requires_administrador_group(self):
+        user = get_user_model().objects.create_user(username="seguridad", password="ClaveActual987!")
+        user.user_permissions.add(*self.group_permissions)
+        self.client.force_login(user)
+
+        urls = (
+            reverse("core:grupo_list"),
+            reverse("core:grupo_nuevo"),
+            reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}),
+        )
+        for url in urls:
+            with self.subTest(url=url):
+                response = self.client.get(url, HTTP_HOST="localhost")
+                self.assertEqual(response.status_code, 403)
+
+    def test_administrador_group_can_edit_group_permissions_with_simplified_form(self):
+        self.admin_group.permissions.clear()
+        user = get_user_model().objects.create_user(username="admin_roles", password="ClaveActual987!")
+        member = get_user_model().objects.create_user(username="miembro", password="ClaveActual987!")
+        member.groups.add(self.target_group)
+        user.groups.add(self.admin_group)
+        permission = self.group_permissions[0]
+        self.client.force_login(user)
+
+        list_response = self.client.get(reverse("core:grupo_list"), HTTP_HOST="localhost")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "security-area-tabs")
+        self.assertContains(list_response, "list-create-btn")
+        self.assertContains(list_response, reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}))
+
+        response = self.client.get(
+            reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "security-area-tabs")
+        self.assertContains(response, "permission-tab-list")
+        self.assertContains(response, "permission-tab-panel")
+        self.assertNotContains(response, "assignment-picker")
+        self.assertNotContains(response, 'name="users"')
+
+        response = self.client.post(
+            reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}),
+            {
+                "name": self.target_group.name,
+                "permissions": [permission.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(response, reverse("core:grupo_list"), fetch_redirect_response=False)
+        self.target_group.refresh_from_db()
+        self.assertTrue(self.target_group.permissions.filter(pk=permission.pk).exists())
+        self.assertTrue(member.groups.filter(pk=self.target_group.pk).exists())
+
+    def test_administrador_group_can_assign_groups_from_user_form(self):
+        self.admin_group.permissions.clear()
+        user = get_user_model().objects.create_user(username="admin_users", password="ClaveActual987!")
+        member = get_user_model().objects.create_user(username="usuario_grupo", password="ClaveActual987!")
+        user.groups.add(self.admin_group)
+        self.client.force_login(user)
+
+        list_response = self.client.get(reverse("core:usuario_list"), HTTP_HOST="localhost")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "security-area-tabs")
+        self.assertContains(list_response, "list-create-btn")
+        self.assertContains(list_response, reverse("core:usuario_editar", kwargs={"pk": member.pk}))
+
+        form_response = self.client.get(
+            reverse("core:usuario_editar", kwargs={"pk": member.pk}),
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(form_response.status_code, 200)
+        self.assertContains(form_response, "data-group-picker")
+
+        response = self.client.post(
+            reverse("core:usuario_editar", kwargs={"pk": member.pk}),
+            {
+                "username": member.username,
+                "first_name": "Usuario",
+                "last_name": "Grupo",
+                "email": "usuario.grupo@example.com",
+                "is_active": "on",
+                "groups": [self.target_group.pk],
+                "password": "",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(response, reverse("core:usuario_list"), fetch_redirect_response=False)
+        self.assertTrue(member.groups.filter(pk=self.target_group.pk).exists())
+
+
 class PartnerRoleViewTests(TestCase):
     def setUp(self):
         set_current_request(None)

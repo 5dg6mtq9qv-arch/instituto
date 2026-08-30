@@ -1399,6 +1399,37 @@ dd {
   padding: 7px 10px;
 }
 
+.security-area-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.security-area-tab {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid var(--instituto-line);
+  border-radius: 8px;
+  color: var(--instituto-ink);
+  display: inline-flex;
+  font-weight: 800;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 14px;
+}
+
+.security-area-tab:hover,
+.security-area-tab.active {
+  background: var(--primary-50);
+  border-color: var(--primary-300);
+  color: var(--primary-700);
+}
+
+.security-area-tab i {
+  font-size: 18px;
+}
+
 .assignment-picker {
   position: relative;
 }

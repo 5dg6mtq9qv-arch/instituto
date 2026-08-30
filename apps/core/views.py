@@ -310,19 +310,30 @@ class MiPerfilView(LoginRequiredMixin, View):
         return getattr(self.request.user, "partner", None)
 
 
+def user_is_system_admin(user):
+    return user.is_authenticated and (
+        user.is_superuser or user.groups.filter(name="Administrador").exists()
+    )
+
+
 class SecurityAccessMixin(UserPassesTestMixin):
-    def test_func(self):
-        user = self.request.user
-        return user.is_superuser or user.has_perm("auth.view_group") or user.has_perm("auth.change_group")
+    security_active_tab = ""
 
-
-class SuperuserRequiredMixin(UserPassesTestMixin):
     def test_func(self):
-        return self.request.user.is_superuser
+        return user_is_system_admin(self.request.user)
+
+    def get_permission_required(self):
+        return ()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["security_active_tab"] = self.security_active_tab
+        return context
 
 
 class GroupListView(SecurityAccessMixin, InstitutoListView):
     model = Group
+    security_active_tab = "groups"
     title = "Grupos y permisos"
     create_url_name = "core:grupo_nuevo"
     update_url_name = "core:grupo_editar"
@@ -346,35 +357,36 @@ class GroupListView(SecurityAccessMixin, InstitutoListView):
             return obj.permissions.count()
         return super().get_column_value(obj, attr)
 
+    def can_create_object(self):
+        return user_is_system_admin(self.request.user)
+
+    def can_update_object(self, obj):
+        return user_is_system_admin(self.request.user)
+
 
 class GroupCreateView(SecurityAccessMixin, InstitutoCreateView):
     model = Group
     form_class = GroupPermissionForm
+    security_active_tab = "groups"
     template_name = "core/group_form.html"
     title = "Nuevo grupo"
     success_url = reverse_lazy("core:grupo_list")
     cancel_url = reverse_lazy("core:grupo_list")
 
-    def test_func(self):
-        user = self.request.user
-        return user.is_superuser or user.has_perm("auth.add_group")
-
 
 class GroupUpdateView(SecurityAccessMixin, InstitutoUpdateView):
     model = Group
     form_class = GroupPermissionForm
+    security_active_tab = "groups"
     template_name = "core/group_form.html"
     title = "Editar grupo"
     success_url = reverse_lazy("core:grupo_list")
     cancel_url = reverse_lazy("core:grupo_list")
 
-    def test_func(self):
-        user = self.request.user
-        return user.is_superuser or user.has_perm("auth.change_group")
 
-
-class SystemUserListView(SuperuserRequiredMixin, InstitutoListView):
+class SystemUserListView(SecurityAccessMixin, InstitutoListView):
     model = get_user_model()
+    security_active_tab = "users"
     title = "Usuarios del sistema"
     create_url_name = "core:usuario_nuevo"
     update_url_name = "core:usuario_editar"
@@ -405,19 +417,27 @@ class SystemUserListView(SuperuserRequiredMixin, InstitutoListView):
             return ", ".join(obj.groups.values_list("name", flat=True)) or "-"
         return super().get_column_value(obj, attr)
 
+    def can_create_object(self):
+        return user_is_system_admin(self.request.user)
 
-class SystemUserCreateView(SuperuserRequiredMixin, InstitutoCreateView):
+    def can_update_object(self, obj):
+        return user_is_system_admin(self.request.user)
+
+
+class SystemUserCreateView(SecurityAccessMixin, InstitutoCreateView):
     model = get_user_model()
     form_class = SystemUserForm
+    security_active_tab = "users"
     template_name = "core/system_user_form.html"
     title = "Nuevo usuario del sistema"
     success_url = reverse_lazy("core:usuario_list")
     cancel_url = reverse_lazy("core:usuario_list")
 
 
-class SystemUserUpdateView(SuperuserRequiredMixin, InstitutoUpdateView):
+class SystemUserUpdateView(SecurityAccessMixin, InstitutoUpdateView):
     model = get_user_model()
     form_class = SystemUserForm
+    security_active_tab = "users"
     template_name = "core/system_user_form.html"
     title = "Editar usuario del sistema"
     success_url = reverse_lazy("core:usuario_list")

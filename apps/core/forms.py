@@ -276,6 +276,25 @@ class MiPerfilPasswordChangeForm(BootstrapFormMixin, PasswordChangeForm):
     )
 
 
+SECURITY_APP_LABELS = {
+    "academico": "Academico",
+    "auditoria": "Auditoria",
+    "auth": "Seguridad",
+    "cartera": "Cartera",
+    "core": "Base",
+    "matricula": "Matriculas",
+}
+
+PERMISSION_ACTION_LABELS = (
+    ("view_all_", "Ver todo"),
+    ("review_", "Revisar"),
+    ("view_", "Ver"),
+    ("add_", "Crear"),
+    ("change_", "Editar"),
+    ("delete_", "Eliminar"),
+)
+
+
 class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
     permissions = forms.ModelMultipleChoiceField(
         label="Permisos",
@@ -283,16 +302,10 @@ class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
         required=False,
         widget=forms.CheckboxSelectMultiple,
     )
-    users = forms.ModelMultipleChoiceField(
-        label="Usuarios del grupo",
-        queryset=get_user_model().objects.none(),
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-    )
 
     class Meta:
         model = Group
-        fields = ["name", "permissions", "users"]
+        fields = ["name", "permissions"]
         labels = {"name": "Nombre del grupo"}
 
     def __init__(self, *args, **kwargs):
@@ -313,9 +326,7 @@ class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
         )
         self.fields["permissions"].queryset = permission_queryset
         self.fields["permissions"].label_from_instance = self.permission_label
-        self.fields["users"].queryset = get_user_model().objects.filter(is_active=True).order_by("username")
-        if self.instance.pk:
-            self.fields["users"].initial = self.instance.user_set.all()
+        self.permission_groups = self.build_permission_groups(permission_queryset)
 
     @staticmethod
     def permission_label(permission):
@@ -324,11 +335,66 @@ class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
         model = content_type.model.replace("_", " ").title()
         return f"{schema} / {model} / {permission.name}"
 
-    def save(self, commit=True):
-        group = super().save(commit=commit)
-        if commit:
-            group.user_set.set(self.cleaned_data["users"])
-        return group
+    def selected_permission_ids(self):
+        if self.is_bound:
+            return set(self.data.getlist(self.add_prefix("permissions")))
+        if self.instance.pk:
+            return {str(pk) for pk in self.instance.permissions.values_list("pk", flat=True)}
+        return {str(getattr(permission, "pk", permission)) for permission in self.initial.get("permissions", [])}
+
+    def build_permission_groups(self, permissions):
+        selected_ids = self.selected_permission_ids()
+        sections = {}
+        for permission in permissions:
+            content_type = permission.content_type
+            app_key = content_type.app_label
+            section = sections.setdefault(
+                app_key,
+                {
+                    "key": app_key,
+                    "label": SECURITY_APP_LABELS.get(app_key, app_key.replace("_", " ").title()),
+                    "models": {},
+                },
+            )
+            model_key = content_type.model
+            model_section = section["models"].setdefault(
+                model_key,
+                {
+                    "key": model_key,
+                    "label": self.model_label(content_type),
+                    "permissions": [],
+                },
+            )
+            model_section["permissions"].append(
+                {
+                    "permission": permission,
+                    "id": f"id_permissions_{permission.pk}",
+                    "checked": str(permission.pk) in selected_ids,
+                    "action": self.permission_action_label(permission),
+                    "name": permission.name,
+                }
+            )
+        return [
+            {
+                **section,
+                "models": list(section["models"].values()),
+            }
+            for section in sections.values()
+        ]
+
+    @staticmethod
+    def model_label(content_type):
+        model_class = content_type.model_class()
+        if model_class:
+            return str(model_class._meta.verbose_name_plural).title()
+        return content_type.model.replace("_", " ").title()
+
+    @staticmethod
+    def permission_action_label(permission):
+        for prefix, label in PERMISSION_ACTION_LABELS:
+            if permission.codename.startswith(prefix):
+                return label
+        return permission.name
 
 
 class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
