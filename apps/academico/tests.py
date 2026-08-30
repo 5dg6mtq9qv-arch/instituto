@@ -1111,6 +1111,83 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(len(response.context["revision_cards"]), 1)
         self.assertEqual(response.context["revision_cards"][0]["clase"], self.atrasada)
 
+    def test_coordinacion_attendance_review_filters_by_group_and_docente(self):
+        coordinator = self.create_coordinator()
+        estudiante_uno, ficha_uno = self.create_student_ficha(
+            nombre="Ana Asistencia",
+            identificacion="AST-001",
+            numero="AST-001",
+        )
+        estudiante_dos, ficha_dos = self.create_student_ficha(
+            nombre="Luis Asistencia",
+            identificacion="AST-002",
+            numero="AST-002",
+        )
+        GrupoEstudiante.objects.create(ficha_inscripcion=ficha_uno, estudiante=estudiante_uno, grupo=self.curso)
+        GrupoEstudiante.objects.create(ficha_inscripcion=ficha_dos, estudiante=estudiante_dos, grupo=self.curso)
+        ClaseAsistencia.objects.create(
+            clase=self.revision,
+            estudiante=estudiante_uno,
+            estado="presente",
+            registrado_por=self.docente,
+        )
+        ClaseAsistencia.objects.create(
+            clase=self.revision,
+            estudiante=estudiante_dos,
+            estado="ausente",
+            observacion="No asistio.",
+            registrado_por=self.docente,
+        )
+        self.client.force_login(coordinator)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_revision_asistencia"),
+            {"grupo": self.curso.pk, "docente": self.docente.pk, "estado": "ausentes"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Revision de asistencia")
+        self.assertContains(response, "attendance-review-card")
+        self.assertContains(response, "Ver reporte")
+        self.assertNotContains(response, "Ana Asistencia")
+        self.assertNotContains(response, "No asistio.")
+        self.assertEqual(response.context["selected_grupo"], self.curso)
+        self.assertEqual(response.context["selected_docente"], self.docente)
+        self.assertEqual(response.context["selected_estado"], "ausentes")
+        self.assertEqual(len(response.context["attendance_cards"]), 1)
+        card = response.context["attendance_cards"][0]
+        self.assertEqual(card["clase"], self.revision)
+        self.assertEqual(card["counts"]["presente"], 1)
+        self.assertEqual(card["counts"]["ausente"], 1)
+        self.assertEqual(card["observation_count"], 1)
+
+        report_response = self.client.get(str(card["report_url"]), HTTP_HOST="localhost")
+
+        self.assertEqual(report_response.status_code, 200)
+        self.assertContains(report_response, "Reporte de asistencia")
+        self.assertContains(report_response, "Ana Asistencia")
+        self.assertContains(report_response, "No asistio.")
+        self.assertEqual(report_response.context["card"]["counts"]["ausente"], 1)
+
+    def test_director_attendance_review_opens_without_docente_partner(self):
+        director = get_user_model().objects.create_user(username="director-asistencia", password="ClaveActual987!")
+        director.groups.add(Group.objects.get_or_create(name="Director")[0])
+        estudiante, ficha = self.create_student_ficha()
+        GrupoEstudiante.objects.create(ficha_inscripcion=ficha, estudiante=estudiante, grupo=self.curso)
+        self.client.force_login(director)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_revision_asistencia"),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Revision de asistencia")
+        self.assertContains(response, "Revision asistencia")
+        self.assertGreaterEqual(response.context["attendance_stats"]["total"], 4)
+        self.assertGreaterEqual(response.context["attendance_stats"]["pendientes_registro"], 4)
+
     def test_coordinacion_review_detail_renders_visual_review_panel(self):
         coordinator = self.create_coordinator()
         self.client.force_login(coordinator)

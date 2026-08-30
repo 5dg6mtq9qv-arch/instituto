@@ -89,6 +89,12 @@ MENU_GROUPS = [
                 "perm": None,
                 "groups": ["Coordinacion", "Direccion", "Director"],
             },
+            {
+                "label": "Revision asistencia",
+                "url_name": "academico:coordinacion_revision_asistencia",
+                "perm": None,
+                "groups": ["Coordinacion", "Direccion", "Director"],
+            },
         ],
     },
     {

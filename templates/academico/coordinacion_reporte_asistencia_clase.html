@@ -1,0 +1,405 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Coordinacion</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ list_url }}">Volver</a>
+  </header>
+
+  <section class="panel attendance-report-hero">
+    <div class="attendance-report-title">
+      <span class="subject-color" style="background: {{ card.materia.color }}"></span>
+      <div>
+        <span>{{ card.grupo }}</span>
+        <h2>{{ card.materia }}</h2>
+        <p>{{ card.aula }} · {{ clase.fecha|date:"d M Y" }} · {{ card.horario.hora_inicio|time:"H:i" }} - {{ card.horario.hora_fin|time:"H:i" }}</p>
+      </div>
+    </div>
+    <div class="attendance-report-status status-{{ card.status_key }}">
+      <span>{{ card.status_label }}</span>
+      <strong>{{ card.saved_count }}/{{ card.total_estudiantes }}</strong>
+    </div>
+  </section>
+
+  <section class="attendance-report-meta">
+    <div>
+      <span>Docente</span>
+      <strong>
+        {% for docente in card.docentes %}
+          {{ docente.nombre }}{% if not forloop.last %}, {% endif %}
+        {% empty %}
+          Sin docente asignado
+        {% endfor %}
+      </strong>
+    </div>
+    <div>
+      <span>Cierre</span>
+      <strong>
+        {% if clase.asistencia_cerrada %}
+          {% if clase.fecha_cierre_asistencia %}{{ clase.fecha_cierre_asistencia|date:"d/m/Y H:i" }}{% else %}Cerrada{% endif %}
+        {% else %}
+          Abierta
+        {% endif %}
+      </strong>
+    </div>
+    <div>
+      <span>Cerrada por</span>
+      <strong>{{ clase.asistencia_cerrada_por|default:"Pendiente" }}</strong>
+    </div>
+  </section>
+
+  <section class="attendance-report-counts">
+    {% for item in card.count_items %}
+      <div class="attendance-report-count state-{{ item.key }}">
+        <i class="{{ item.icon }}"></i>
+        <span>{{ item.label }}</span>
+        <strong>{{ item.count }}</strong>
+      </div>
+    {% endfor %}
+  </section>
+
+  {% if card.moved_out_rows %}
+    <section class="panel attendance-report-moved">
+      <header>
+        <span>Movimientos</span>
+        <strong>{{ card.moved_out_rows|length }} estudiante(s)</strong>
+      </header>
+      {% for row in card.moved_out_rows %}
+        <p>{{ row.estudiante.nombre }} fue movido a {{ row.destino_label }}.</p>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="panel attendance-report-table-panel">
+    <header>
+      <div>
+        <span>Fichas</span>
+        <h2>Detalle de asistencia</h2>
+      </div>
+      <strong>{{ card.total_estudiantes }} estudiante(s)</strong>
+    </header>
+
+    {% if card.fichas %}
+      <div class="table-responsive list-table-responsive">
+        <table class="table align-middle app-table attendance-report-table">
+          <thead>
+            <tr>
+              <th>S.L</th>
+              <th>Ficha</th>
+              <th>Estudiante</th>
+              <th>Estado</th>
+              <th>Observacion</th>
+              <th>Movimiento</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ficha in card.fichas %}
+              <tr>
+                <td>{{ forloop.counter|stringformat:"02d" }}</td>
+                <td><strong>{{ ficha.ficha.numero }}</strong></td>
+                <td>{{ ficha.estudiante.nombre }}</td>
+                <td><span class="attendance-state-pill state-{{ ficha.estado }}">{{ ficha.estado_label }}</span></td>
+                <td>{{ ficha.observacion|default:"Sin observacion" }}</td>
+                <td>
+                  {% if ficha.incoming %}
+                    <span class="movement-pill">Movimiento activo</span>
+                  {% else %}
+                    <span class="text-muted">-</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="academic-empty-state">Sin estudiantes asignados a este grupo.</div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .attendance-report-hero {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .attendance-report-title {
+      align-items: center;
+      display: flex;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .subject-color {
+      border-radius: 8px;
+      flex: 0 0 auto;
+      height: 54px;
+      width: 10px;
+    }
+
+    .attendance-report-title span,
+    .attendance-report-meta span,
+    .attendance-report-table-panel header span,
+    .attendance-report-moved header span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .attendance-report-title h2 {
+      color: #111827;
+      font-size: 26px;
+      font-weight: 800;
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .attendance-report-title p {
+      color: #667085;
+      font-weight: 700;
+      margin: 2px 0 0;
+    }
+
+    .attendance-report-status {
+      border-radius: 8px;
+      min-width: 132px;
+      padding: 12px 14px;
+      text-align: right;
+    }
+
+    .attendance-report-status span,
+    .attendance-report-status strong {
+      display: block;
+    }
+
+    .attendance-report-status span {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .attendance-report-status strong {
+      font-size: 26px;
+      line-height: 1;
+      margin-top: 6px;
+    }
+
+    .attendance-report-status.status-cerrada {
+      background: #f1f5f9;
+      border: 1px solid #d7dee8;
+      color: #334155;
+    }
+
+    .attendance-report-status.status-completa {
+      background: #dcfce7;
+      border: 1px solid #bbf7d0;
+      color: #166534;
+    }
+
+    .attendance-report-status.status-pendiente {
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+
+    .attendance-report-status.status-sin-estudiantes {
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
+      color: #075985;
+    }
+
+    .attendance-report-meta,
+    .attendance-report-counts {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .attendance-report-meta {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .attendance-report-counts {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .attendance-report-meta > div,
+    .attendance-report-count {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .attendance-report-meta strong {
+      color: #111827;
+      display: block;
+      font-size: 15px;
+      margin-top: 6px;
+      overflow-wrap: anywhere;
+    }
+
+    .attendance-report-count {
+      align-items: center;
+      color: #475467;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      min-height: 68px;
+    }
+
+    .attendance-report-count i {
+      font-size: 20px;
+    }
+
+    .attendance-report-count span {
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.15;
+      overflow-wrap: anywhere;
+      text-transform: uppercase;
+    }
+
+    .attendance-report-count strong {
+      color: #111827;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .attendance-report-count.state-presente strong {
+      color: #15803d;
+    }
+
+    .attendance-report-count.state-ausente strong {
+      color: #b42318;
+    }
+
+    .attendance-report-count.state-atraso strong,
+    .attendance-report-count.state-pendiente strong {
+      color: #b45309;
+    }
+
+    .attendance-report-count.state-justificado strong {
+      color: #0369a1;
+    }
+
+    .attendance-report-moved {
+      margin-bottom: 14px;
+    }
+
+    .attendance-report-moved header,
+    .attendance-report-table-panel header {
+      align-items: center;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .attendance-report-moved header strong,
+    .attendance-report-table-panel header > strong {
+      color: #475467;
+      font-size: 13px;
+    }
+
+    .attendance-report-moved p {
+      color: #475467;
+      margin: 0;
+    }
+
+    .attendance-report-moved p + p {
+      margin-top: 6px;
+    }
+
+    .attendance-report-table-panel h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .attendance-report-table th,
+    .attendance-report-table td {
+      vertical-align: middle;
+    }
+
+    .attendance-state-pill,
+    .movement-pill {
+      align-items: center;
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      justify-content: center;
+      min-height: 30px;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+
+    .attendance-state-pill.state-presente {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .attendance-state-pill.state-ausente {
+      background: #fee4e2;
+      color: #b42318;
+    }
+
+    .attendance-state-pill.state-atraso {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .attendance-state-pill.state-justificado {
+      background: #e0f2fe;
+      color: #075985;
+    }
+
+    .attendance-state-pill.state-pendiente {
+      background: #f1f5f9;
+      color: #334155;
+    }
+
+    .movement-pill {
+      background: #eef6ff;
+      color: #1e40af;
+    }
+
+    @media (max-width: 1100px) {
+      .attendance-report-meta,
+      .attendance-report-counts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 768px) {
+      .attendance-report-hero,
+      .attendance-report-moved header,
+      .attendance-report-table-panel header {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .attendance-report-meta,
+      .attendance-report-counts {
+        grid-template-columns: 1fr;
+      }
+
+      .attendance-report-status {
+        text-align: left;
+      }
+    }
+  </style>
+{% endblock %}

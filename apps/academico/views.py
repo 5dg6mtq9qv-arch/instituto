@@ -2935,6 +2935,255 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
         )
 
 
+class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
+    template_name = "academico/coordinacion_revision_asistencia.html"
+    status_filters = (
+        {"key": "todas", "label": "Todas", "icon": "ri-list-check-3"},
+        {"key": "pendientes", "label": "Pendientes", "icon": "ri-time-line"},
+        {"key": "ausentes", "label": "Con ausentes", "icon": "ri-user-unfollow-line"},
+        {"key": "observaciones", "label": "Observaciones", "icon": "ri-chat-3-line"},
+        {"key": "cerradas", "label": "Cerradas", "icon": "ri-lock-2-line"},
+    )
+    attendance_state_labels = {**dict(ClaseAsistencia.ESTADO_CHOICES), "pendiente": "Pendiente"}
+
+    def get(self, request):
+        selected_grupo = self.get_selected_grupo()
+        selected_docente = self.get_selected_docente()
+        requested_estado = request.GET.get("estado", "")
+        clases_queryset = self.get_clases_queryset()
+
+        if selected_grupo:
+            clases_queryset = clases_queryset.filter(materia_curso__grupo=selected_grupo)
+        if selected_docente:
+            clases_queryset = clases_queryset.filter(materia_curso__profesor_materia_cursos__partner=selected_docente)
+
+        cards = [self.build_attendance_card(clase) for clase in clases_queryset.distinct()]
+        stats = self.get_attendance_stats(cards)
+        selected_estado = self.get_selected_filter(requested_estado)
+        attendance_cards = self.filter_cards(cards, selected_estado)
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Revision de asistencia",
+                "attendance_cards": attendance_cards,
+                "attendance_stats": stats,
+                "grupos": Curso.objects.filter(activo=True).order_by("nombre"),
+                "docentes": Partner.objects.filter(es_docente=True, activo=True).order_by("nombre"),
+                "selected_grupo": selected_grupo,
+                "selected_grupo_id": str(selected_grupo.pk) if selected_grupo else "",
+                "selected_docente": selected_docente,
+                "selected_docente_id": str(selected_docente.pk) if selected_docente else "",
+                "selected_estado": selected_estado,
+                "selected_estado_label": self.get_filter_label(selected_estado),
+                "status_tabs": self.get_status_tabs(selected_estado, selected_grupo, selected_docente, stats),
+            },
+        )
+
+    def get_clases_queryset(self):
+        return (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "asistencia_cerrada_por",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
+            .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio", "materia_curso__grupo__nombre")
+        )
+
+    def get_selected_grupo(self):
+        grupo_id = self.request.GET.get("grupo") or ""
+        if not grupo_id:
+            return None
+        try:
+            return Curso.objects.filter(pk=grupo_id, activo=True).first()
+        except (TypeError, ValueError):
+            return None
+
+    def get_selected_docente(self):
+        docente_id = self.request.GET.get("docente") or ""
+        if not docente_id:
+            return None
+        try:
+            return Partner.objects.filter(pk=docente_id, es_docente=True, activo=True).first()
+        except (TypeError, ValueError):
+            return None
+
+    def build_attendance_card(self, clase):
+        rows, moved_out_rows = DocenteClaseAsistenciaView().get_roster_rows(clase)
+        horario = clase.horario_aula_curso.horario_dia.horario
+        counts = {key: 0 for key, _ in ClaseAsistencia.ESTADO_CHOICES}
+        counts["pendiente"] = 0
+        fichas = []
+        observation_rows = []
+        for row in rows:
+            attendance = row["attendance"]
+            estado = attendance.estado if attendance else "pendiente"
+            counts[estado] = counts.get(estado, 0) + 1
+            observacion = row["observacion"] or ""
+            ficha_row = {
+                "ficha": row["ficha"],
+                "estudiante": row["estudiante"],
+                "estado": estado,
+                "estado_label": self.attendance_state_labels.get(estado, estado),
+                "observacion": observacion,
+                "incoming": row["incoming"],
+            }
+            fichas.append(ficha_row)
+            if observacion:
+                observation_rows.append(ficha_row)
+
+        pending_count = counts.get("pendiente", 0)
+        saved_count = len(rows) - pending_count
+        status_key, status_label = self.get_card_status(clase, len(rows), pending_count)
+        return {
+            "clase": clase,
+            "horario": horario,
+            "grupo": clase.materia_curso.grupo,
+            "materia": clase.materia_curso.materia,
+            "aula": clase.horario_aula_curso.aula_curso.aula,
+            "docentes": [item.partner for item in clase.materia_curso.profesor_materia_cursos.all()],
+            "counts": counts,
+            "count_items": self.get_count_items(counts),
+            "fichas": fichas,
+            "moved_out_rows": moved_out_rows,
+            "observation_rows": observation_rows,
+            "observation_count": len(observation_rows),
+            "total_estudiantes": len(rows),
+            "saved_count": saved_count,
+            "pending_count": pending_count,
+            "status_key": status_key,
+            "status_label": status_label,
+            "is_today": clase.fecha == timezone.localdate(),
+            "report_url": reverse_lazy("academico:coordinacion_reporte_asistencia_clase", kwargs={"pk": clase.pk}),
+        }
+
+    def get_count_items(self, counts):
+        return (
+            {"key": "presente", "label": "Presentes", "count": counts.get("presente", 0), "icon": "ri-user-follow-line"},
+            {"key": "ausente", "label": "Ausentes", "count": counts.get("ausente", 0), "icon": "ri-user-unfollow-line"},
+            {"key": "atraso", "label": "Atrasos", "count": counts.get("atraso", 0), "icon": "ri-time-line"},
+            {"key": "justificado", "label": "Justificados", "count": counts.get("justificado", 0), "icon": "ri-file-check-line"},
+            {"key": "pendiente", "label": "Pendientes", "count": counts.get("pendiente", 0), "icon": "ri-checkbox-blank-circle-line"},
+        )
+
+    def get_card_status(self, clase, total_estudiantes, pending_count):
+        if not total_estudiantes:
+            return "sin-estudiantes", "Sin estudiantes"
+        if clase.asistencia_cerrada:
+            return "cerrada", "Cerrada"
+        if pending_count:
+            return "pendiente", "Pendiente"
+        return "completa", "Completa"
+
+    def get_attendance_stats(self, cards):
+        stats = {
+            "total": len(cards),
+            "estudiantes": 0,
+            "presentes": 0,
+            "ausentes": 0,
+            "atrasos": 0,
+            "justificados": 0,
+            "pendientes_registro": 0,
+            "observaciones": 0,
+            "cerradas": 0,
+            "clases_pendientes": 0,
+            "con_ausentes": 0,
+            "con_observaciones": 0,
+        }
+        for card in cards:
+            counts = card["counts"]
+            stats["estudiantes"] += card["total_estudiantes"]
+            stats["presentes"] += counts.get("presente", 0)
+            stats["ausentes"] += counts.get("ausente", 0)
+            stats["atrasos"] += counts.get("atraso", 0)
+            stats["justificados"] += counts.get("justificado", 0)
+            stats["pendientes_registro"] += card["pending_count"]
+            stats["observaciones"] += card["observation_count"]
+            if card["clase"].asistencia_cerrada:
+                stats["cerradas"] += 1
+            if card["pending_count"]:
+                stats["clases_pendientes"] += 1
+            if counts.get("ausente", 0):
+                stats["con_ausentes"] += 1
+            if card["observation_count"]:
+                stats["con_observaciones"] += 1
+        return stats
+
+    def get_selected_filter(self, requested_filter):
+        valid_filters = {item["key"] for item in self.status_filters}
+        return requested_filter if requested_filter in valid_filters else "todas"
+
+    def get_filter_label(self, selected_filter):
+        filter_item = next((item for item in self.status_filters if item["key"] == selected_filter), None)
+        return filter_item["label"] if filter_item else ""
+
+    def get_status_tabs(self, selected_filter, selected_grupo, selected_docente, stats):
+        base_url = reverse_lazy("academico:coordinacion_revision_asistencia")
+        count_map = {
+            "todas": stats["total"],
+            "pendientes": stats["clases_pendientes"],
+            "ausentes": stats["con_ausentes"],
+            "observaciones": stats["con_observaciones"],
+            "cerradas": stats["cerradas"],
+        }
+        tabs = []
+        for item in self.status_filters:
+            params = {"estado": item["key"]}
+            if selected_grupo:
+                params["grupo"] = selected_grupo.pk
+            if selected_docente:
+                params["docente"] = selected_docente.pk
+            tabs.append(
+                {
+                    **item,
+                    "count": count_map.get(item["key"], 0),
+                    "url": f"{base_url}?{urlencode(params)}",
+                    "is_active": item["key"] == selected_filter,
+                }
+            )
+        return tabs
+
+    def filter_cards(self, cards, selected_filter):
+        if selected_filter == "pendientes":
+            return [card for card in cards if card["pending_count"]]
+        if selected_filter == "ausentes":
+            return [card for card in cards if card["counts"].get("ausente", 0)]
+        if selected_filter == "observaciones":
+            return [card for card in cards if card["observation_count"]]
+        if selected_filter == "cerradas":
+            return [card for card in cards if card["clase"].asistencia_cerrada]
+        return cards
+
+
+class CoordinacionReporteAsistenciaClaseView(CoordinacionRevisionAsistenciaView):
+    template_name = "academico/coordinacion_reporte_asistencia_clase.html"
+
+    def get(self, request, pk):
+        clase = self.get_clase()
+        card = self.build_attendance_card(clase)
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Reporte de asistencia",
+                "card": card,
+                "clase": clase,
+                "list_url": reverse_lazy("academico:coordinacion_revision_asistencia"),
+            },
+        )
+
+    def get_clase(self):
+        return get_object_or_404(
+            self.get_clases_queryset().prefetch_related(
+                Prefetch("asistencias_clase", queryset=ClaseAsistencia.objects.select_related("estudiante", "registrado_por")),
+            ),
+            pk=self.kwargs["pk"],
+        )
+
+
 class DocenteClasePlanificacionView(LoginRequiredMixin, View):
     template_name = "academico/docente_clase_planificacion.html"
 
