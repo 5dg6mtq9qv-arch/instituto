@@ -94,7 +94,7 @@ def home(request):
             "meta": f"Vence {cuota.fecha_pago_debito:%d/%m/%Y} · saldo {cuota.saldo():.2f}",
             "note": str(cuota.plan_pago.ficha_inscripcion.estudiante),
             "badge": cuota.get_estado_display(),
-            "url": reverse("cartera:cuota_list"),
+            "url": reverse("cartera:alumno_pendientes", kwargs={"pk": cuota.plan_pago.ficha_inscripcion_id}),
             "icon": "ri-bill-line",
             "accent": "danger",
         }
@@ -114,7 +114,14 @@ def home(request):
             metric("Empresas", Empresa.objects.count(), "ri-building-4-line", "warning", "Configuracion institucional", "core:empresa_list"),
             metric("Estudiantes", Partner.objects.filter(es_estudiante=True).count(), "ri-graduation-cap-line", "blue", "Matriculados registrados", "core:estudiante_list"),
             metric("Fichas", FichaInscripcion.objects.count(), "ri-file-list-3-line", "purple", "Inscripciones registradas", "matricula:ficha_list"),
-            metric("Cuotas pendientes", Cuota.objects.filter(estado__in=["pendiente", "parcial", "vencida"]).count(), "ri-bill-line", "primary", "Valores por cobrar", "cartera:cuota_list"),
+            metric(
+                "Cuotas pendientes",
+                Cuota.objects.filter(estado__in=["pendiente", "parcial", "vencida"]).count(),
+                "ri-bill-line",
+                "primary",
+                "Valores por cobrar",
+                url=f"{reverse('cartera:alumno_cartera_list')}?estado=pendientes",
+            ),
         ]
 
     def build_docente_dashboard(docente):
@@ -269,14 +276,21 @@ def home(request):
             "metrics": [
                 metric("Sin docente", sin_docente.count(), "ri-user-unfollow-line", "warning", "Proximos 30 dias", "academico:planificacion_docente"),
                 metric("Por revisar", revisiones.count(), "ri-search-eye-line", "blue", "Planificaciones enviadas", "academico:coordinacion_revision_planificaciones"),
-                metric("Cuotas pendientes", cuotas_pendientes.count(), "ri-bill-line", "danger", f"{cuotas_vencidas.count()} vencida(s)", "cartera:cuota_list"),
+                metric(
+                    "Cuotas pendientes",
+                    cuotas_pendientes.count(),
+                    "ri-bill-line",
+                    "danger",
+                    f"{cuotas_vencidas.count()} vencida(s)",
+                    url=f"{reverse('cartera:alumno_cartera_list')}?estado=pendientes",
+                ),
                 metric("Clases futuras", clases.filter(fecha__gte=today).count(), "ri-calendar-check-line", "primary", "Planificacion academica activa", "academico:planificacion_academica"),
             ],
             "actions": [
                 action("Planificacion academica", "academico:planificacion_academica", "ri-calendar-check-line"),
                 action("Asignar docentes", "academico:planificacion_docente", "ri-user-add-line", "secondary"),
                 action("Revision docente", "academico:coordinacion_revision_planificaciones", "ri-search-eye-line", "secondary"),
-                action("Cartera", "cartera:cuota_list", "ri-bill-line", "secondary"),
+                action("Cartera", "cartera:alumno_cartera_list", "ri-bill-line", "secondary"),
             ],
             "priority_sections": [
                 priority_section(
@@ -374,8 +388,8 @@ def home(request):
             "description": "Cuotas, pagos y seguimiento de saldos.",
             "cards": visible_cards(
                 [
-                    card("Cuotas pendientes", "Valores por cobrar y vencimientos.", Cuota.objects.exclude(estado="pagada").count(), "cartera:cuota_list", "ri-bill-line", "danger", "cartera.view_cuota", "cartera:cuota_nueva"),
-                    card("Pagos", "Abonos y comprobantes registrados.", Pago.objects.count(), "cartera:pago_list", "ri-bank-card-line", "success", "cartera.view_pago", "cartera:pago_nuevo"),
+                    card("Cobros por alumno", "Buscar estudiante y registrar abonos.", Cuota.objects.exclude(estado="pagada").count(), "cartera:alumno_cartera_list", "ri-bill-line", "danger", "cartera.view_cuota"),
+                    card("Pagos registrados", "Historial de abonos y comprobantes.", Pago.objects.count(), "cartera:pago_list", "ri-bank-card-line", "success", "cartera.view_pago"),
                 ]
             ),
         },

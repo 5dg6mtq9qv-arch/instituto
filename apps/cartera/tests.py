@@ -173,6 +173,27 @@ class FormaPagoFormTests(TestCase):
         self.assertContains(response, "data-payment-modal-list")
         self.assertContains(response, "Fecha registro")
 
+    def test_student_wallet_list_renders_status_filters_and_payment_links(self):
+        self.client.force_login(self.user)
+        ficha, _, _, _, _ = self.create_payment_flow_data()
+
+        response = self.client.get(reverse("cartera:alumno_cartera_list"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["student_payment_summary"]["pendientes"], 1)
+        self.assertEqual(response.context["student_payment_summary"]["vencidos"], 1)
+        self.assertContains(response, "Cobros por alumno")
+        self.assertContains(response, "Vencidos")
+        self.assertContains(response, "Pendientes")
+        self.assertContains(response, reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}))
+
+    def test_payment_create_redirects_to_student_wallet_flow(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("cartera:pago_nuevo"), HTTP_HOST="localhost")
+
+        self.assertRedirects(response, reverse("cartera:alumno_cartera_list"), fetch_redirect_response=False)
+
     def test_student_payment_amount_is_applied_to_overdue_then_next_installment(self):
         self.client.force_login(self.user)
         ficha, plan, cuota_atrasada, cuota_proxima, forma_pago = self.create_payment_flow_data()

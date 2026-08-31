@@ -16,7 +16,7 @@ MENU_ITEMS = [
     },
     {"label": "Aulas", "url_name": "matricula:aula_list", "perm": "matricula.view_aula", "icon": "ri-door-open-line"},
     {"label": "Cuotas", "url_name": "cartera:cuota_list", "perm": "cartera.view_cuota", "icon": "ri-bill-line"},
-    {"label": "Pagos", "url_name": "cartera:pago_list", "perm": "cartera.view_pago", "icon": "ri-bank-card-line"},
+    {"label": "Pagos registrados", "url_name": "cartera:pago_list", "perm": "cartera.view_pago", "icon": "ri-bank-card-line"},
     {
         "label": "Cursos academicos",
         "url_name": "academico:curso_list",
@@ -121,9 +121,9 @@ MENU_GROUPS = [
         "label": "Cartera",
         "icon": "ri-money-dollar-circle-line",
         "items": [
-            {"label": "Alumnos", "url_name": "cartera:alumno_cartera_list", "perm": "cartera.view_cuota"},
+            {"label": "Cobros por alumno", "url_name": "cartera:alumno_cartera_list", "perm": "cartera.view_cuota"},
             {"label": "Cuotas", "url_name": "cartera:cuota_list", "perm": "cartera.view_cuota"},
-            {"label": "Pagos", "url_name": "cartera:pago_list", "perm": "cartera.view_pago"},
+            {"label": "Pagos registrados", "url_name": "cartera:pago_list", "perm": "cartera.view_pago"},
             {"label": "Planes de pago", "url_name": "cartera:plan_pago_list", "perm": "cartera.view_planpago"},
             {"label": "Formas de pago", "url_name": "cartera:forma_pago_list", "perm": "cartera.view_formapago"},
         ],

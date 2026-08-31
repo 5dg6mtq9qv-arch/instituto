@@ -12,7 +12,7 @@
     <div class="topbar-actions">
       <a class="btn btn-outline-secondary" href="{% url 'cartera:alumno_cartera_list' %}">
         <i class="ri-arrow-left-line"></i>
-        Alumnos
+        Cobros por alumno
       </a>
       <a class="btn btn-outline-primary" href="{% url 'cartera:pago_list' %}">
         <i class="ri-bank-card-line"></i>
@@ -141,45 +141,13 @@
             </div>
           {% endif %}
         </section>
-      </main>
 
-      <aside class="panel payment-side-panel">
-        <section class="payment-selected-summary">
-          <span>Valor a registrar</span>
-          <strong>$<span data-payment-selected>0.00</span></strong>
-          <p data-payment-target-label>Selecciona cuotas o ingresa un abono</p>
-          <div class="payment-abono-field">
-            <label class="form-label" for="{{ form.valor.id_for_label }}">{{ form.valor.label }}</label>
-            {{ form.valor }}
-            {% for error in form.valor.errors %}
-              <div class="invalid-feedback d-block">{{ error }}</div>
-            {% endfor %}
-            <small>Vacio paga el total seleccionado. Sin seleccionar, se aplica a la cuota vencida o mas proxima.</small>
-          </div>
-          <button class="btn btn-primary-600 w-100" type="button" data-open-payment-modal disabled>
-            <i class="ri-secure-payment-line"></i>
-            Registrar pago
-          </button>
-        </section>
-
-        <section class="payment-side-breakdown">
-          <div>
-            <span>Saldo plan</span>
-            <strong>${{ ficha.plan_pago.saldo|floatformat:2 }}</strong>
-          </div>
-          <div>
-            <span>Total pendiente</span>
-            <strong>${{ total_pendiente|floatformat:2 }}</strong>
-          </div>
-          <div>
-            <span>Cuotas vencidas</span>
-            <strong>{{ cuotas_vencidas_count }}</strong>
-          </div>
-        </section>
-
-        <section class="payment-history-mini">
-          <header>
-            <span>Ultimos pagos</span>
+        <section class="panel payment-history-mini">
+          <header class="payment-section-header">
+            <div>
+              <span>Ultimos pagos</span>
+              <h2>Historial reciente</h2>
+            </div>
           </header>
           {% for pago in pagos_recientes %}
             <div class="payment-history-item">
@@ -199,6 +167,26 @@
           {% empty %}
             <p>Sin pagos registrados.</p>
           {% endfor %}
+        </section>
+      </main>
+
+      <aside class="panel payment-side-panel">
+        <section class="payment-selected-summary">
+          <span>Valor a registrar</span>
+          <strong>$<span data-payment-selected>0.00</span></strong>
+          <p data-payment-target-label>Selecciona cuotas o ingresa un abono</p>
+          <div class="payment-abono-field">
+            <label class="form-label" for="{{ form.valor.id_for_label }}">{{ form.valor.label }}</label>
+            {{ form.valor }}
+            {% for error in form.valor.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+            <small>Vacio paga el total seleccionado. Sin seleccionar, se aplica a la cuota vencida o mas proxima.</small>
+          </div>
+          <button class="btn btn-primary-600 w-100" type="button" data-open-payment-modal disabled>
+            <i class="ri-secure-payment-line"></i>
+            Registrar pago
+          </button>
         </section>
       </aside>
     </div>

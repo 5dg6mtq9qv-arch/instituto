@@ -1,0 +1,488 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Cartera</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-primary" href="{% url 'cartera:pago_list' %}">
+        <i class="ri-bank-card-line"></i>
+        Pagos registrados
+      </a>
+    </div>
+  </header>
+
+  <section class="student-payment-summary">
+    <div class="student-payment-stat is-balance">
+      <span>Saldo por cobrar</span>
+      <strong>${{ student_payment_summary.saldo|floatformat:2 }}</strong>
+    </div>
+    <div class="student-payment-stat is-overdue">
+      <span>Vencidos</span>
+      <strong>{{ student_payment_summary.vencidos }}</strong>
+    </div>
+    <div class="student-payment-stat is-pending">
+      <span>Pendientes</span>
+      <strong>{{ student_payment_summary.pendientes }}</strong>
+    </div>
+    <div class="student-payment-stat is-ok">
+      <span>Al dia</span>
+      <strong>{{ student_payment_summary.al_dia }}</strong>
+    </div>
+  </section>
+
+  <section class="panel student-payment-filter-panel">
+    <form class="student-payment-filter" method="get">
+      <input type="hidden" name="estado" value="{{ selected_estado }}">
+      <div class="student-payment-search">
+        <i class="ri-search-line"></i>
+        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar alumno, ficha, identificacion o representante">
+      </div>
+      <button class="btn btn-primary-600" type="submit">
+        <i class="ri-search-line"></i>
+        Buscar
+      </button>
+      <a class="btn btn-outline-secondary" href="{% url 'cartera:alumno_cartera_list' %}">Limpiar</a>
+    </form>
+
+    <nav class="student-payment-tabs" aria-label="Estados de cartera">
+      {% for tab in status_tabs %}
+        <a class="student-payment-tab{% if tab.is_active %} is-active{% endif %}" href="{{ tab.url }}">
+          <i class="{{ tab.icon }}"></i>
+          <span>{{ tab.label }}</span>
+          <strong>{{ tab.count }}</strong>
+        </a>
+      {% endfor %}
+    </nav>
+  </section>
+
+  <section class="panel student-payment-panel">
+    <header class="student-payment-panel-header">
+      <div>
+        <span>{{ selected_estado_label }}</span>
+        <h2>Alumnos para cobro</h2>
+      </div>
+      <strong>{{ page_obj.paginator.count }} registro(s)</strong>
+    </header>
+
+    {% if student_payment_cards %}
+      <div class="student-payment-list">
+        {% for card in student_payment_cards %}
+          <a class="student-payment-card status-{{ card.status_key }}" href="{{ card.url }}" aria-label="Abrir cobro de {{ card.ficha.estudiante }}">
+            <div class="student-payment-card-main">
+              <span class="student-payment-avatar"><i class="ri-graduation-cap-line"></i></span>
+              <div>
+                <h3>{{ card.ficha.estudiante }}</h3>
+                <p>Ficha {{ card.ficha.numero }} · {{ card.ficha.aula|default:"Sin aula" }}</p>
+                <small>{{ card.representante|default:"Sin representante" }}</small>
+              </div>
+            </div>
+
+            <div class="student-payment-card-state">
+              <span class="status-badge status-{{ card.status_key }}">{{ card.status_label }}</span>
+              {% if card.next_cuota %}
+                <small>Proxima cuota {{ card.next_cuota.numero }} · {{ card.next_cuota.fecha_pago_debito|date:"d M Y" }}</small>
+              {% else %}
+                <small>Sin cuotas pendientes</small>
+              {% endif %}
+            </div>
+
+            <div class="student-payment-card-numbers">
+              <div>
+                <span>Saldo</span>
+                <strong>${{ card.ficha.plan_pago.saldo|floatformat:2 }}</strong>
+              </div>
+              <div>
+                <span>Vencido</span>
+                <strong>${{ card.overdue_balance|floatformat:2 }}</strong>
+              </div>
+              <div>
+                <span>Cuotas</span>
+                <strong>{{ card.pending_count }}</strong>
+              </div>
+            </div>
+
+            <span class="student-payment-action">
+              Cobrar
+              <i class="ri-arrow-right-line"></i>
+            </span>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="academic-empty-state">
+        Sin alumnos para este filtro.
+      </div>
+    {% endif %}
+
+    {% if is_paginated %}
+      <div class="list-pagination student-payment-pagination">
+        <span>Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+        <nav aria-label="Paginacion">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-left-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-left-s-line"></i></span>
+          {% endif %}
+          {% for number in page_obj.paginator.page_range %}
+            {% if number == page_obj.number %}
+              <span class="active">{{ number }}</span>
+            {% elif number >= page_obj.number|add:-2 and number <= page_obj.number|add:2 %}
+              <a href="?page={{ number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}">{{ number }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-right-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-right-s-line"></i></span>
+          {% endif %}
+        </nav>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .student-payment-summary {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .student-payment-stat {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-height: 92px;
+      padding: 14px;
+    }
+
+    .student-payment-stat span,
+    .student-payment-panel-header span,
+    .student-payment-card-numbers span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .student-payment-stat strong {
+      color: #111827;
+      display: block;
+      font-size: 30px;
+      line-height: 1;
+      margin-top: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .student-payment-stat.is-balance strong {
+      color: #0f766e;
+    }
+
+    .student-payment-stat.is-overdue strong {
+      color: #b42318;
+    }
+
+    .student-payment-stat.is-pending strong {
+      color: #b45309;
+    }
+
+    .student-payment-stat.is-ok strong {
+      color: #15803d;
+    }
+
+    .student-payment-filter-panel {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 16px;
+      overflow: visible;
+    }
+
+    .student-payment-filter {
+      align-items: center;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: minmax(260px, 1fr) auto auto;
+    }
+
+    .student-payment-search {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      display: flex;
+      gap: 10px;
+      min-height: 44px;
+      min-width: 0;
+      padding: 0 12px;
+    }
+
+    .student-payment-search i {
+      color: #667085;
+      flex: 0 0 auto;
+      font-size: 18px;
+    }
+
+    .student-payment-search input {
+      border: 0;
+      color: #111827;
+      flex: 1;
+      font-weight: 700;
+      min-width: 0;
+      outline: 0;
+    }
+
+    .student-payment-filter .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 44px;
+      white-space: nowrap;
+    }
+
+    .student-payment-tabs {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+
+    .student-payment-tab {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      color: #475467;
+      display: grid;
+      gap: 4px;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      min-height: 48px;
+      padding: 10px;
+      text-decoration: none;
+    }
+
+    .student-payment-tab i {
+      font-size: 18px;
+    }
+
+    .student-payment-tab span {
+      font-weight: 800;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .student-payment-tab strong {
+      background: #ffffff;
+      border-radius: 999px;
+      color: #111827;
+      font-size: 12px;
+      min-width: 30px;
+      padding: 4px 8px;
+      text-align: center;
+    }
+
+    .student-payment-tab:hover,
+    .student-payment-tab.is-active {
+      border-color: #0f766e;
+      color: #0f766e;
+    }
+
+    .student-payment-panel {
+      display: grid;
+      gap: 14px;
+      overflow: visible;
+    }
+
+    .student-payment-panel-header {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+    }
+
+    .student-payment-panel-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .student-payment-panel-header > strong {
+      color: #475467;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .student-payment-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .student-payment-card {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-left: 5px solid #94a3b8;
+      border-radius: 8px;
+      color: inherit;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(240px, 1.1fr) minmax(190px, 0.8fr) minmax(270px, 1fr) auto;
+      min-width: 0;
+      padding: 14px;
+      text-decoration: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .student-payment-card:hover {
+      border-color: #0f766e;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    .student-payment-card.status-vencido {
+      border-left-color: #b42318;
+    }
+
+    .student-payment-card.status-pendiente {
+      border-left-color: #b45309;
+    }
+
+    .student-payment-card.status-cerrado {
+      border-left-color: #15803d;
+    }
+
+    .student-payment-card-main {
+      align-items: center;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 44px minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .student-payment-avatar {
+      align-items: center;
+      background: #eef6ff;
+      border-radius: 8px;
+      color: #1d4ed8;
+      display: inline-flex;
+      font-size: 22px;
+      height: 44px;
+      justify-content: center;
+      width: 44px;
+    }
+
+    .student-payment-card h3 {
+      color: #111827;
+      font-size: 17px;
+      line-height: 1.2;
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .student-payment-card p,
+    .student-payment-card small {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      margin: 3px 0 0;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .student-payment-card-state {
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .student-payment-card-numbers {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      min-width: 0;
+    }
+
+    .student-payment-card-numbers div {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      min-width: 0;
+      padding: 9px;
+    }
+
+    .student-payment-card-numbers strong {
+      color: #111827;
+      display: block;
+      font-size: 17px;
+      line-height: 1.1;
+      margin-top: 5px;
+      overflow-wrap: anywhere;
+    }
+
+    .student-payment-action {
+      align-items: center;
+      color: #0f766e;
+      display: inline-flex;
+      font-weight: 900;
+      gap: 6px;
+      justify-content: flex-end;
+      white-space: nowrap;
+    }
+
+    .student-payment-pagination {
+      margin-top: 0;
+    }
+
+    @media (max-width: 1399.98px) {
+      .student-payment-card {
+        grid-template-columns: minmax(240px, 1fr) minmax(180px, 0.7fr) auto;
+      }
+
+      .student-payment-card-numbers {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 991.98px) {
+      .student-payment-summary,
+      .student-payment-tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .student-payment-filter,
+      .student-payment-card {
+        grid-template-columns: 1fr;
+      }
+
+      .student-payment-action {
+        justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .student-payment-summary,
+      .student-payment-tabs,
+      .student-payment-card-numbers {
+        grid-template-columns: 1fr;
+      }
+
+      .student-payment-panel-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+{% endblock %}
