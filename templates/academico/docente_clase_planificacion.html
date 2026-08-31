@@ -785,6 +785,7 @@
     .teacher-resource-grid {
       display: grid;
       gap: 12px;
+      min-width: 0;
     }
 
     .teacher-side-column {
@@ -793,7 +794,8 @@
     }
 
     .teacher-resource-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: start;
+      grid-template-columns: 1fr;
     }
 
     .teacher-editor-card {
@@ -802,6 +804,7 @@
       border-radius: 8px;
       display: grid;
       gap: 14px;
+      min-width: 0;
       padding: 16px;
     }
 
@@ -818,8 +821,9 @@
     }
 
     .teacher-card-header {
-      align-items: center;
+      align-items: flex-start;
       display: flex;
+      flex-wrap: wrap;
       gap: 12px;
       justify-content: space-between;
     }
@@ -827,6 +831,7 @@
     .teacher-card-header > div {
       align-items: center;
       display: flex;
+      flex: 1 1 220px;
       gap: 10px;
       min-width: 0;
     }
@@ -899,7 +904,10 @@
       background: #f1f5f9;
       border-radius: 8px;
       display: inline-flex;
+      flex: 0 1 auto;
+      flex-wrap: wrap;
       gap: 3px;
+      max-width: 100%;
       padding: 3px;
     }
 
@@ -910,12 +918,16 @@
       border-radius: 6px;
       color: #475569;
       display: inline-flex;
+      flex: 1 1 110px;
       font-size: 12px;
       font-weight: 800;
       gap: 5px;
+      justify-content: center;
+      line-height: 1.15;
       min-height: 32px;
+      min-width: 0;
       padding: 6px 9px;
-      white-space: nowrap;
+      white-space: normal;
     }
 
     .teacher-tag-switch button.is-active {
@@ -943,6 +955,10 @@
       grid-template-columns: minmax(0, 1fr) auto;
     }
 
+    .teacher-picker-row .form-select {
+      min-width: 0;
+    }
+
     .teacher-picker-row .btn {
       justify-content: center;
       min-width: 98px;
@@ -961,6 +977,7 @@
       display: grid;
       gap: 8px;
       grid-template-columns: minmax(0, 1fr) auto;
+      min-width: 0;
       padding: 10px;
     }
 
@@ -1222,12 +1239,6 @@
       margin: 0;
     }
 
-    @media (max-width: 1399.98px) {
-      .teacher-resource-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
     @media (max-width: 1199.98px) {
       .teacher-plan-layout {
         grid-template-columns: 1fr;
@@ -1235,6 +1246,18 @@
 
       .teacher-side-column {
         position: static;
+      }
+    }
+
+    @media (max-width: 991.98px) {
+      .teacher-resource-grid,
+      .teacher-picker-row,
+      .teacher-new-row {
+        grid-template-columns: 1fr;
+      }
+
+      .teacher-tag-card .btn {
+        width: 100%;
       }
     }
 

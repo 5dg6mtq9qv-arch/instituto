@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from django import forms
+from django.utils import timezone
+from django.utils.html import format_html
 from django.db.models import Max
 from django.utils.text import slugify
 
@@ -7,9 +11,111 @@ from apps.core.forms import BootstrapFormMixin
 from .models import Cuota, FormaPago, Pago, PlanPago
 
 
+def get_pago_file_owner_label(pago):
+    try:
+        estudiante = pago.cuota.plan_pago.ficha_inscripcion.estudiante
+    except Exception:
+        estudiante = None
+    if estudiante and estudiante.nombre:
+        return estudiante.nombre
+
+    user = getattr(pago, "usuario", None) or getattr(pago, "usuario_updated", None)
+    if not user:
+        return "usuario"
+    try:
+        partner = user.partner
+    except Exception:
+        partner = None
+    if partner and partner.nombre:
+        return partner.nombre
+    return user.get_full_name() or user.get_username()
+
+
+def build_pago_comprobante_filename(pago, original_name):
+    extension = Path(original_name or "").suffix.lower()
+    fecha = pago.fecha_registro or timezone.now()
+    if timezone.is_aware(fecha):
+        fecha = timezone.localtime(fecha)
+    usuario = slugify(get_pago_file_owner_label(pago)) or "usuario"
+    cuota = f"cuota_{pago.cuota_id}" if pago.cuota_id else "cuota"
+    return f"{usuario}_{fecha:%Y%m%d_%H%M}_{cuota}{extension}"
+
+
+def prepare_pago_comprobante_file(uploaded_file, pago, original_name=None):
+    if not uploaded_file or not hasattr(uploaded_file, "name") or not hasattr(uploaded_file, "chunks"):
+        return uploaded_file
+    uploaded_file.name = build_pago_comprobante_filename(pago, original_name or uploaded_file.name)
+    return uploaded_file
+
+
+class ComprobantePagoFileInput(forms.ClearableFileInput):
+    def get_file_icon(self, file_name):
+        extension = Path(file_name).suffix.lower()
+        if extension == ".pdf":
+            return "ri-file-pdf-2-line"
+        if extension in {".xls", ".xlsx", ".csv"}:
+            return "ri-file-excel-2-line"
+        if extension in {".doc", ".docx"}:
+            return "ri-file-word-2-line"
+        if extension in {".jpg", ".jpeg", ".png", ".webp"}:
+            return "ri-image-line"
+        return "ri-attachment-2"
+
+    def render(self, name, value, attrs=None, renderer=None):
+        input_html = forms.FileInput.render(self, name, None, attrs=attrs, renderer=renderer)
+        if not value:
+            return input_html
+        try:
+            file_url = value.url
+        except ValueError:
+            return input_html
+
+        file_name = Path(getattr(value, "name", "") or "").name
+        icon = self.get_file_icon(file_name)
+        clear_html = ""
+        if not self.is_required:
+            clear_html = format_html(
+                '<label class="payment-file-clear" for="{}">'
+                '<input type="checkbox" name="{}" id="{}"> Limpiar archivo'
+                "</label>",
+                self.clear_checkbox_id(name),
+                self.clear_checkbox_name(name),
+                self.clear_checkbox_id(name),
+            )
+        return format_html(
+            '<div class="payment-file-widget">'
+            '<a class="payment-file-link" href="{}" target="_blank" rel="noopener">'
+            '<i class="{}"></i><span>{}</span><strong>Descargar</strong>'
+            "</a>{}</div>"
+            '<span class="payment-file-change-label">Modificar comprobante</span>{}',
+            file_url,
+            icon,
+            file_name or value,
+            clear_html,
+            input_html,
+        )
+
+
 class RegistrarPagoCuotasForm(BootstrapFormMixin, forms.Form):
-    cuotas = forms.ModelMultipleChoiceField(queryset=Cuota.objects.none(), widget=forms.CheckboxSelectMultiple)
+    cuotas = forms.ModelMultipleChoiceField(
+        queryset=Cuota.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    valor = forms.DecimalField(
+        label="Valor a abonar",
+        required=False,
+        min_value=0.01,
+        max_digits=12,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={"step": "0.01", "min": "0.01", "placeholder": "0.00", "data-payment-amount": ""}),
+    )
     forma_pago = forms.ModelChoiceField(queryset=FormaPago.objects.none(), label="Forma de pago")
+    fecha_registro = forms.DateTimeField(
+        label="Fecha registro",
+        input_formats=["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"],
+        widget=forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local"}),
+    )
     numero_documento = forms.CharField(label="No. comprobante / referencia", max_length=60, required=False)
     comprobante = forms.FileField(required=False)
     comentario = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
@@ -19,10 +125,26 @@ class RegistrarPagoCuotasForm(BootstrapFormMixin, forms.Form):
         empresa = kwargs.pop("empresa", None)
         super().__init__(*args, **kwargs)
         self.fields["cuotas"].queryset = cuotas_queryset
+        self.fields["fecha_registro"].initial = timezone.localtime().strftime("%Y-%m-%dT%H:%M")
         formas_pago = FormaPago.objects.filter(activo=True, es_pago=True)
         if empresa:
             formas_pago = formas_pago.filter(empresa=empresa)
         self.fields["forma_pago"].queryset = formas_pago.order_by("orden", "nombre")
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cuotas = cleaned_data.get("cuotas")
+        valor = cleaned_data.get("valor")
+        if not cuotas and not valor:
+            raise forms.ValidationError("Selecciona cuotas o ingresa un valor a abonar.")
+
+        target_cuotas = cuotas or self.fields["cuotas"].queryset
+        target_saldo = sum((cuota.saldo() for cuota in target_cuotas), 0)
+        if valor and target_saldo <= 0:
+            self.add_error("valor", "No hay saldo pendiente para registrar este abono.")
+        elif valor and valor > target_saldo:
+            self.add_error("valor", f"El abono no puede superar el saldo disponible: {target_saldo:.2f}.")
+        return cleaned_data
 
 
 class FormaPagoForm(BootstrapFormMixin, forms.ModelForm):
@@ -128,6 +250,16 @@ class PagoForm(BootstrapFormMixin, forms.ModelForm):
             "comentario",
         ]
         widgets = {
-            "fecha_registro": forms.DateTimeInput(attrs={"type": "datetime-local"}),
+            "fecha_registro": forms.DateTimeInput(format="%Y-%m-%dT%H:%M", attrs={"type": "datetime-local"}),
+            "comprobante": ComprobantePagoFileInput(),
             "comentario": forms.Textarea(attrs={"rows": 3}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["fecha_registro"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+
+    def save(self, commit=True):
+        comprobante = self.cleaned_data.get("comprobante")
+        prepare_pago_comprobante_file(comprobante, self.instance)
+        return super().save(commit=commit)

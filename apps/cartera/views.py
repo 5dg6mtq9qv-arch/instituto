@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+from django.db import transaction
 from django.db.models import Q
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
@@ -9,7 +12,14 @@ from django.views import View
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 from apps.matricula.models import FichaInscripcion
 
-from .forms import CuotaForm, FormaPagoForm, PagoForm, PlanPagoForm, RegistrarPagoCuotasForm
+from .forms import (
+    CuotaForm,
+    FormaPagoForm,
+    PagoForm,
+    PlanPagoForm,
+    RegistrarPagoCuotasForm,
+    prepare_pago_comprobante_file,
+)
 from .models import Cuota, FormaPago, Pago, PlanPago
 
 
@@ -72,11 +82,112 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "fecha_pago_debito", "numero"
         )
 
+    def get_context(self, ficha, cuotas, form):
+        today = timezone.localdate()
+        cuota_items = []
+        total_pendiente = Decimal("0")
+        total_vencido = Decimal("0")
+        total_pagado_pendientes = Decimal("0")
+
+        for cuota in cuotas:
+            saldo = cuota.saldo()
+            total_pendiente += saldo
+            total_pagado_pendientes += cuota.valor_pagado
+            is_overdue = cuota.estado == "vencida" or cuota.fecha_pago_debito < today
+            if is_overdue:
+                total_vencido += saldo
+            if cuota.valor:
+                progress = min(round((cuota.valor_pagado / cuota.valor) * 100), 100)
+            else:
+                progress = 0
+            cuota_items.append(
+                {
+                    "cuota": cuota,
+                    "saldo": saldo,
+                    "is_overdue": is_overdue,
+                    "days_overdue": max((today - cuota.fecha_pago_debito).days, 0),
+                    "progress": progress,
+                }
+            )
+
+        pagos_recientes = (
+            Pago.objects.select_related("cuota", "forma_pago")
+            .filter(cuota__plan_pago=ficha.plan_pago)
+            .order_by("-fecha_registro")[:5]
+        )
+
+        return {
+            "title": "Pagos pendientes",
+            "ficha": ficha,
+            "cuotas": cuotas,
+            "cuota_items": cuota_items,
+            "form": form,
+            "today": today,
+            "total_pendiente": total_pendiente,
+            "total_vencido": total_vencido,
+            "total_pagado_pendientes": total_pagado_pendientes,
+            "cuotas_pendientes_count": len(cuota_items),
+            "cuotas_vencidas_count": sum(1 for item in cuota_items if item["is_overdue"]),
+            "proxima_cuota": cuota_items[0] if cuota_items else None,
+            "pagos_recientes": pagos_recientes,
+        }
+
+    def get_payment_targets(self, cuotas, selected_cuotas):
+        selected_ids = {cuota.pk for cuota in selected_cuotas}
+        if selected_ids:
+            cuotas = cuotas.filter(pk__in=selected_ids)
+        return list(cuotas.order_by("fecha_pago_debito", "numero"))
+
+    def apply_payment_to_cuotas(self, request, ficha, target_cuotas, form):
+        valor_abono = form.cleaned_data.get("valor")
+        uploaded_file = form.cleaned_data.get("comprobante")
+        original_file_name = getattr(uploaded_file, "name", "")
+        remaining = valor_abono
+        total_pagado = Decimal("0")
+        cuotas_afectadas = 0
+
+        for cuota in target_cuotas:
+            saldo = cuota.saldo()
+            if saldo <= 0:
+                continue
+            valor_pago = saldo if remaining is None else min(saldo, remaining)
+            if valor_pago <= 0:
+                break
+            pago = Pago(
+                empresa=ficha.empresa,
+                cuota=cuota,
+                forma_pago=form.cleaned_data["forma_pago"],
+                fecha_registro=form.cleaned_data["fecha_registro"],
+                valor=valor_pago,
+                numero_documento=form.cleaned_data.get("numero_documento"),
+                comentario=form.cleaned_data.get("comentario"),
+                usuario=request.user,
+                usuario_updated=request.user,
+            )
+            if uploaded_file:
+                if hasattr(uploaded_file, "seek"):
+                    uploaded_file.seek(0)
+                pago.comprobante = prepare_pago_comprobante_file(uploaded_file, pago, original_file_name)
+            pago.save()
+            cuota.valor_pagado += valor_pago
+            cuota.estado = "pagada" if cuota.valor_pagado >= cuota.valor else "parcial"
+            cuota.usuario_updated = request.user
+            cuota.save(update_fields=["valor_pagado", "estado", "usuario_updated", "updated"])
+            total_pagado += valor_pago
+            cuotas_afectadas += 1
+
+            if remaining is not None:
+                remaining -= valor_pago
+                if remaining <= 0:
+                    break
+
+        return total_pagado, cuotas_afectadas
+
     def get(self, request, pk):
         ficha = self.get_ficha(pk)
         cuotas = self.get_cuotas(ficha)
         form = RegistrarPagoCuotasForm(cuotas_queryset=cuotas, empresa=ficha.empresa)
-        return render(request, self.template_name, {"title": "Pagos pendientes", "ficha": ficha, "cuotas": cuotas, "form": form})
+        return render(request, self.template_name, self.get_context(ficha, cuotas, form))
 
     def post(self, request, pk):
         ficha = self.get_ficha(pk)
@@ -84,38 +195,25 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         form = RegistrarPagoCuotasForm(request.POST, request.FILES, cuotas_queryset=cuotas, empresa=ficha.empresa)
         if form.is_valid():
             selected_cuotas = form.cleaned_data["cuotas"]
-            total_pagado = 0
-            for cuota in selected_cuotas:
-                valor_pago = cuota.saldo()
-                if valor_pago <= 0:
-                    continue
-                Pago.objects.create(
-                    empresa=ficha.empresa,
-                    cuota=cuota,
-                    forma_pago=form.cleaned_data["forma_pago"],
-                    fecha_registro=timezone.now(),
-                    valor=valor_pago,
-                    numero_documento=form.cleaned_data.get("numero_documento"),
-                    comprobante=form.cleaned_data.get("comprobante"),
-                    comentario=form.cleaned_data.get("comentario"),
-                    usuario=request.user,
-                    usuario_updated=request.user,
-                )
-                cuota.valor_pagado += valor_pago
-                cuota.estado = "pagada" if cuota.valor_pagado >= cuota.valor else "parcial"
-                cuota.usuario_updated = request.user
-                cuota.save(update_fields=["valor_pagado", "estado", "usuario_updated", "updated"])
-                total_pagado += valor_pago
-            plan = ficha.plan_pago
-            plan.abono += total_pagado
-            plan.saldo = max(plan.valor_total - plan.descuento - plan.abono, 0)
-            if plan.saldo == 0:
-                plan.estado = "cerrado"
-            plan.usuario_updated = request.user
-            plan.save(update_fields=["abono", "saldo", "estado", "usuario_updated", "updated"])
-            messages.success(request, f"Pago registrado por {total_pagado:.2f}.")
+            target_cuotas = self.get_payment_targets(cuotas, selected_cuotas)
+            with transaction.atomic():
+                total_pagado, cuotas_afectadas = self.apply_payment_to_cuotas(request, ficha, target_cuotas, form)
+                if total_pagado <= 0:
+                    form.add_error(None, "No se encontro saldo pendiente para registrar el pago.")
+                    return render(request, self.template_name, self.get_context(ficha, cuotas, form))
+                plan = ficha.plan_pago
+                plan.abono += total_pagado
+                plan.saldo = max(plan.valor_total - plan.descuento - plan.abono, Decimal("0"))
+                if plan.saldo == 0:
+                    plan.estado = "cerrado"
+                plan.usuario_updated = request.user
+                plan.save(update_fields=["abono", "saldo", "estado", "usuario_updated", "updated"])
+            if form.cleaned_data.get("valor"):
+                messages.success(request, f"Abono registrado por {total_pagado:.2f} en {cuotas_afectadas} cuota(s).")
+            else:
+                messages.success(request, f"Pago registrado por {total_pagado:.2f}.")
             return redirect("cartera:alumno_pendientes", pk=ficha.pk)
-        return render(request, self.template_name, {"title": "Pagos pendientes", "ficha": ficha, "cuotas": cuotas, "form": form})
+        return render(request, self.template_name, self.get_context(ficha, cuotas, form))
 
 
 class FormaPagoListView(InstitutoListView):

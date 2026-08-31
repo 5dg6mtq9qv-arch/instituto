@@ -1,4 +1,5 @@
 {% extends "web/base.html" %}
+{% load l10n %}
 
 {% block title %}{{ title }} | Instituto{% endblock %}
 
@@ -8,147 +9,284 @@
       <p class="eyebrow">Cartera</p>
       <h1>{{ ficha.estudiante }}</h1>
     </div>
-    <a class="btn btn-outline-secondary" href="{% url 'cartera:alumno_cartera_list' %}">Volver</a>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-secondary" href="{% url 'cartera:alumno_cartera_list' %}">
+        <i class="ri-arrow-left-line"></i>
+        Alumnos
+      </a>
+      <a class="btn btn-outline-primary" href="{% url 'cartera:pago_list' %}">
+        <i class="ri-bank-card-line"></i>
+        Pagos
+      </a>
+    </div>
   </header>
 
-  <section class="panel payment-student-panel">
-    <div class="payment-top-actions">
-      <div>
-        <span>Seleccionado</span>
-        <strong data-payment-selected>0.00</strong>
-      </div>
-      <button class="btn btn-primary-600" type="button" data-open-payment-modal>Pagar seleccionadas</button>
-    </div>
+  <form class="payment-flow" method="post" enctype="multipart/form-data" data-total-pending="{{ total_pendiente|unlocalize }}" novalidate>
+    {% csrf_token %}
 
-    <div class="form-summary-card">
-      <div>
-        <span>Ficha</span>
-        <strong>{{ ficha.numero }}</strong>
+    {% if form.non_field_errors or form.cuotas.errors or form.valor.errors or form.fecha_registro.errors %}
+      <div class="alert alert-danger payment-alert">
+        {{ form.non_field_errors }}
+        {{ form.cuotas.errors }}
+        {{ form.valor.errors }}
+        {{ form.fecha_registro.errors }}
       </div>
-      <div>
-        <span>Aula</span>
-        <strong>{{ ficha.aula|default:"-" }}</strong>
-      </div>
-      <div>
-        <span>Restante</span>
-        <strong>{{ ficha.plan_pago.saldo }}</strong>
-      </div>
-      <div>
-        <span>Estado</span>
-        <strong>{{ ficha.plan_pago.get_estado_display }}</strong>
-      </div>
-    </div>
+    {% endif %}
 
-    <form method="post" enctype="multipart/form-data" novalidate>
-      {% csrf_token %}
-      {% if form.non_field_errors %}
-        <div class="alert alert-danger">{{ form.non_field_errors }}</div>
-      {% endif %}
-
-      <div class="table-responsive list-table-responsive">
-        <table class="table table-hover align-middle app-table">
-          <thead>
-            <tr>
-              <th class="select-col"><input class="form-check-input" type="checkbox" data-select-all-payments aria-label="Seleccionar todo"></th>
-              <th>No.</th>
-              <th>Fecha</th>
-              <th>Valor</th>
-              <th>Pagado</th>
-              <th>Restante</th>
-              <th>Estado</th>
-              <th class="text-end">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for cuota in cuotas %}
-              <tr>
-                <td class="select-col">
-                  <input class="form-check-input" type="checkbox" name="cuotas" value="{{ cuota.pk }}" data-payment-checkbox data-amount="{{ cuota.saldo|stringformat:'s' }}">
-                </td>
-                <td>{{ cuota.numero }}</td>
-                <td>{{ cuota.fecha_pago_debito|date:"d M Y" }}</td>
-                <td>{{ cuota.valor }}</td>
-                <td>{{ cuota.valor_pagado }}</td>
-                <td>{{ cuota.saldo }}</td>
-                <td><span class="status-badge status-{{ cuota.get_estado_display|slugify }}">{{ cuota.get_estado_display }}</span></td>
-                <td class="text-end">
-                  <div class="dropdown table-action">
-                    <button class="table-action-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Acciones">
-                      <i class="ri-more-2-fill"></i>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                      <li><button class="dropdown-item" type="button" data-pay-single="{{ cuota.pk }}">Pagar</button></li>
-                    </ul>
-                  </div>
-                </td>
-              </tr>
-            {% empty %}
-              <tr>
-                <td colspan="8" class="text-center text-muted py-4">No hay pagos pendientes.</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-actions">
-        <a class="btn btn-outline-secondary" href="{% url 'cartera:alumno_cartera_list' %}">Cancelar</a>
-        <button class="btn btn-primary-600" type="button" data-open-payment-modal>Pagar seleccionadas</button>
-      </div>
-
-      <div class="modal fade" id="paymentModal" tabindex="-1" aria-labelledby="paymentModalTitle" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-lg">
-          <div class="modal-content">
-            <div class="modal-header">
-              <h5 class="modal-title" id="paymentModalTitle">Registrar pago</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+    <div class="payment-layout">
+      <main class="payment-main-column">
+        <section class="panel payment-hero">
+          <div class="payment-student-main">
+            <span class="payment-avatar"><i class="ri-user-smile-line"></i></span>
+            <div>
+              <span>Ficha {{ ficha.numero }}</span>
+              <h2>{{ ficha.estudiante }}</h2>
+              <p>{{ ficha.aula|default:"Sin aula asignada" }} · {{ ficha.fecha|date:"d M Y" }}</p>
             </div>
-            <div class="modal-body">
-              <div class="payment-register-grid">
+          </div>
+          <div class="payment-plan-state">
+            <span class="status-badge status-{{ ficha.plan_pago.estado }}">{{ ficha.plan_pago.get_estado_display }}</span>
+            {% if proxima_cuota %}
+              <strong>Proximo: {{ proxima_cuota.cuota.fecha_pago_debito|date:"d M Y" }}</strong>
+            {% else %}
+              <strong>Sin cuotas pendientes</strong>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="payment-metric-grid">
+          <div class="payment-metric-card is-balance">
+            <span>Saldo</span>
+            <strong>${{ ficha.plan_pago.saldo|floatformat:2 }}</strong>
+          </div>
+          <div class="payment-metric-card is-overdue">
+            <span>Vencido</span>
+            <strong>${{ total_vencido|floatformat:2 }}</strong>
+          </div>
+          <div class="payment-metric-card is-paid">
+            <span>Abonado</span>
+            <strong>${{ ficha.plan_pago.abono|floatformat:2 }}</strong>
+          </div>
+          <div class="payment-metric-card is-count">
+            <span>Cuotas</span>
+            <strong>{{ cuotas_pendientes_count }}</strong>
+          </div>
+        </section>
+
+        <section class="panel payment-installments-panel">
+          <header class="payment-section-header">
+            <div>
+              <span>Cuotas pendientes</span>
+              <h2>{{ cuotas_pendientes_count }} cuota(s)</h2>
+            </div>
+            {% if cuota_items %}
+              <label class="payment-select-all">
+                <input class="form-check-input" type="checkbox" data-select-all-payments>
+                <span>Seleccionar todas</span>
+              </label>
+            {% endif %}
+          </header>
+
+          {% if cuota_items %}
+            <div class="payment-installment-list">
+              {% for item in cuota_items %}
+                <article class="payment-installment-card{% if item.is_overdue %} is-overdue{% endif %}" data-payment-card>
+                  <div class="payment-check-column">
+                    <input
+                      class="form-check-input"
+                      id="payment-cuot-{{ item.cuota.pk }}"
+                      type="checkbox"
+                      name="cuotas"
+                      value="{{ item.cuota.pk }}"
+                      data-payment-checkbox
+                      data-amount="{{ item.saldo|unlocalize }}"
+                      data-number="{{ item.cuota.numero }}"
+                      data-date="{{ item.cuota.fecha_pago_debito|date:'d M Y' }}"
+                    >
+                  </div>
+
+                  <label class="payment-installment-main" for="payment-cuot-{{ item.cuota.pk }}">
+                    <span class="payment-installment-kicker">Cuota {{ item.cuota.numero }}</span>
+                    <strong>{{ item.cuota.fecha_pago_debito|date:"d M Y" }}</strong>
+                    <div class="payment-progress">
+                      <span style="width: {{ item.progress }}%"></span>
+                    </div>
+                    <small>${{ item.cuota.valor_pagado|floatformat:2 }} abonado de ${{ item.cuota.valor|floatformat:2 }}</small>
+                  </label>
+
+                  <div class="payment-installment-meta">
+                    <span class="status-badge status-{{ item.cuota.estado }}">{{ item.cuota.get_estado_display }}</span>
+                    {% if item.is_overdue %}
+                      <span class="payment-overdue-pill">{{ item.days_overdue }} dia(s)</span>
+                    {% endif %}
+                    {% if item.cuota.observacion %}
+                      <span class="payment-note-pill"><i class="ri-chat-3-line"></i> Observacion</span>
+                    {% endif %}
+                  </div>
+
+                  <div class="payment-installment-amount">
+                    <span>Restante</span>
+                    <strong>${{ item.saldo|floatformat:2 }}</strong>
+                    <button class="btn btn-outline-primary btn-sm" type="button" data-pay-single="{{ item.cuota.pk }}">
+                      <i class="ri-secure-payment-line"></i>
+                      Pagar
+                    </button>
+                  </div>
+                </article>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="academic-empty-state payment-empty-state">
+              No hay pagos pendientes.
+            </div>
+          {% endif %}
+        </section>
+      </main>
+
+      <aside class="panel payment-side-panel">
+        <section class="payment-selected-summary">
+          <span>Valor a registrar</span>
+          <strong>$<span data-payment-selected>0.00</span></strong>
+          <p data-payment-target-label>Selecciona cuotas o ingresa un abono</p>
+          <div class="payment-abono-field">
+            <label class="form-label" for="{{ form.valor.id_for_label }}">{{ form.valor.label }}</label>
+            {{ form.valor }}
+            {% for error in form.valor.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+            <small>Vacio paga el total seleccionado. Sin seleccionar, se aplica a la cuota vencida o mas proxima.</small>
+          </div>
+          <button class="btn btn-primary-600 w-100" type="button" data-open-payment-modal disabled>
+            <i class="ri-secure-payment-line"></i>
+            Registrar pago
+          </button>
+        </section>
+
+        <section class="payment-side-breakdown">
+          <div>
+            <span>Saldo plan</span>
+            <strong>${{ ficha.plan_pago.saldo|floatformat:2 }}</strong>
+          </div>
+          <div>
+            <span>Total pendiente</span>
+            <strong>${{ total_pendiente|floatformat:2 }}</strong>
+          </div>
+          <div>
+            <span>Cuotas vencidas</span>
+            <strong>{{ cuotas_vencidas_count }}</strong>
+          </div>
+        </section>
+
+        <section class="payment-history-mini">
+          <header>
+            <span>Ultimos pagos</span>
+          </header>
+          {% for pago in pagos_recientes %}
+            <div class="payment-history-item">
+              <div>
+                <strong>${{ pago.valor|floatformat:2 }}</strong>
+                <span>{{ pago.forma_pago }} · Cuota {{ pago.cuota.numero }}</span>
+              </div>
+              <div class="payment-history-actions">
+                <small>{{ pago.fecha_registro|date:"d/m/Y" }}</small>
+                {% if pago.comprobante %}
+                  <a href="{{ pago.comprobante.url }}" target="_blank" rel="noopener" title="Descargar comprobante" aria-label="Descargar comprobante">
+                    <i class="ri-attachment-2"></i>
+                  </a>
+                {% endif %}
+              </div>
+            </div>
+          {% empty %}
+            <p>Sin pagos registrados.</p>
+          {% endfor %}
+        </section>
+      </aside>
+    </div>
+
+    <div class="modal fade" id="paymentModal" tabindex="-1" aria-labelledby="paymentModalTitle" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content payment-modal-content">
+          <div class="modal-header">
+            <div>
+              <span class="payment-modal-kicker">Cobro</span>
+              <h5 class="modal-title" id="paymentModalTitle">Registrar pago</h5>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <div class="payment-modal-layout">
+              <section class="payment-modal-summary">
+                <span>Valor a registrar</span>
+                <strong>$<span data-payment-selected>0.00</span></strong>
+                <p data-payment-target-label>Selecciona cuotas o ingresa un abono</p>
+                <div class="payment-modal-list" data-payment-modal-list></div>
+              </section>
+
+              <section class="payment-register-grid">
                 <div>
                   <label class="form-label" for="{{ form.forma_pago.id_for_label }}">{{ form.forma_pago.label }}</label>
                   {{ form.forma_pago }}
-                  {{ form.forma_pago.errors }}
+                  {% for error in form.forma_pago.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <div>
+                  <label class="form-label" for="{{ form.fecha_registro.id_for_label }}">{{ form.fecha_registro.label }}</label>
+                  {{ form.fecha_registro }}
+                  {% for error in form.fecha_registro.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
                 </div>
                 <div>
                   <label class="form-label" for="{{ form.numero_documento.id_for_label }}">{{ form.numero_documento.label }}</label>
                   {{ form.numero_documento }}
-                  {{ form.numero_documento.errors }}
+                  {% for error in form.numero_documento.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
                 </div>
                 <div>
                   <label class="form-label" for="{{ form.comprobante.id_for_label }}">{{ form.comprobante.label }}</label>
                   {{ form.comprobante }}
-                  {{ form.comprobante.errors }}
-                </div>
-                <div class="payment-selected-box">
-                  <span>Seleccionado</span>
-                  <strong data-payment-selected>0.00</strong>
+                  {% for error in form.comprobante.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
                 </div>
                 <div class="payment-comment">
                   <label class="form-label" for="{{ form.comentario.id_for_label }}">{{ form.comentario.label }}</label>
                   {{ form.comentario }}
-                  {{ form.comentario.errors }}
+                  {% for error in form.comentario.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
                 </div>
-              </div>
+              </section>
             </div>
-            <div class="modal-footer">
-              <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
-              <button class="btn btn-primary-600" type="submit">Registrar pago</button>
-            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary-600" type="submit">
+              <i class="ri-check-line"></i>
+              Guardar pago
+            </button>
           </div>
         </div>
       </div>
-    </form>
-  </section>
+    </div>
+  </form>
 {% endblock %}
 
 {% block extra_scripts %}
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       const checkboxes = Array.from(document.querySelectorAll("[data-payment-checkbox]"));
+      const cards = Array.from(document.querySelectorAll("[data-payment-card]"));
       const selectedNodes = Array.from(document.querySelectorAll("[data-payment-selected]"));
+      const targetLabelNodes = Array.from(document.querySelectorAll("[data-payment-target-label]"));
+      const formElement = document.querySelector(".payment-flow");
+      const amountInput = document.querySelector("[data-payment-amount]");
+      const totalPending = parseAmount(formElement?.dataset.totalPending);
       const selectAll = document.querySelector("[data-select-all-payments]");
       const modalElement = document.getElementById("paymentModal");
+      const modalList = document.querySelector("[data-payment-modal-list]");
       const openButtons = Array.from(document.querySelectorAll("[data-open-payment-modal]"));
       const singlePayButtons = Array.from(document.querySelectorAll("[data-pay-single]"));
 
@@ -156,45 +294,726 @@
         return Number(String(value || "0").replace(",", "."));
       }
 
-      function updateSelectedAmount() {
-        const selectedAmount = checkboxes
-          .filter((checkbox) => checkbox.checked)
-          .reduce((sum, checkbox) => sum + parseAmount(checkbox.dataset.amount), 0);
-        selectedNodes.forEach((node) => {
-          node.textContent = selectedAmount.toFixed(2);
+      function formatAmount(value) {
+        return value.toLocaleString("es-EC", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
         });
       }
 
-      checkboxes.forEach((checkbox) => checkbox.addEventListener("change", updateSelectedAmount));
-      if (selectAll) {
-        selectAll.addEventListener("change", function () {
-          checkboxes.forEach((checkbox) => {
-            checkbox.checked = selectAll.checked;
-          });
-          updateSelectedAmount();
+      function selectedCheckboxes() {
+        return checkboxes.filter(function (checkbox) {
+          return checkbox.checked;
         });
       }
-      openButtons.forEach((button) => {
-        button.addEventListener("click", function () {
-          if (!checkboxes.some((checkbox) => checkbox.checked)) {
-            alert("Selecciona al menos una cuota pendiente.");
-            return;
+
+      function getPaymentRows(selected, customAmount) {
+        const targets = selected.length ? selected : checkboxes;
+        const rows = [];
+        let remaining = customAmount > 0 ? customAmount : null;
+        targets.forEach(function (checkbox) {
+          const saldo = parseAmount(checkbox.dataset.amount);
+          const amount = remaining === null ? saldo : Math.min(saldo, remaining);
+          if (amount <= 0) return;
+          rows.push({ checkbox: checkbox, amount: amount });
+          if (remaining !== null) {
+            remaining -= amount;
           }
+        });
+        return rows;
+      }
+
+      function renderModalList(selected, customAmount) {
+        if (!modalList) return;
+        modalList.innerHTML = "";
+        const rows = getPaymentRows(selected, customAmount);
+        rows.forEach(function (row) {
+          const checkbox = row.checkbox;
+          const item = document.createElement("div");
+          item.className = "payment-modal-item";
+          item.innerHTML = [
+            "<div>",
+            "<strong>Cuota " + checkbox.dataset.number + "</strong>",
+            "<span>" + (selected.length ? checkbox.dataset.date : "Aplicacion automatica · " + checkbox.dataset.date) + "</span>",
+            "</div>",
+            "<small>$" + formatAmount(row.amount) + "</small>"
+          ].join("");
+          modalList.appendChild(item);
+        });
+      }
+
+      function updateSelectedState() {
+        const selected = selectedCheckboxes();
+        const customAmount = parseAmount(amountInput?.value);
+        const selectedAmount = selected.reduce(function (sum, checkbox) {
+          return sum + parseAmount(checkbox.dataset.amount);
+        }, 0);
+        const payableAmount = customAmount > 0 ? customAmount : selectedAmount;
+        const availableAmount = selected.length ? selectedAmount : totalPending;
+        const amountTooHigh = customAmount > 0 && customAmount > availableAmount;
+
+        selectedNodes.forEach(function (node) {
+          node.textContent = formatAmount(payableAmount);
+        });
+        targetLabelNodes.forEach(function (node) {
+          if (amountTooHigh) {
+            node.textContent = selected.length
+              ? "El abono supera el saldo seleccionado"
+              : "El abono supera el saldo pendiente";
+          } else if (customAmount > 0 && selected.length) {
+            node.textContent = "Abono sobre " + selected.length + " cuota(s) seleccionada(s)";
+          } else if (customAmount > 0) {
+            node.textContent = "Abono automatico a cuota vencida o mas proxima";
+          } else if (selected.length) {
+            node.textContent = selected.length + " cuota(s) seleccionada(s)";
+          } else {
+            node.textContent = "Selecciona cuotas o ingresa un abono";
+          }
+        });
+        openButtons.forEach(function (button) {
+          button.disabled = payableAmount <= 0 || amountTooHigh;
+        });
+        cards.forEach(function (card) {
+          const checkbox = card.querySelector("[data-payment-checkbox]");
+          card.classList.toggle("is-selected", Boolean(checkbox && checkbox.checked));
+        });
+
+        if (selectAll) {
+          selectAll.checked = selected.length > 0 && selected.length === checkboxes.length;
+          selectAll.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
+        }
+
+        renderModalList(selected, customAmount);
+      }
+
+      checkboxes.forEach(function (checkbox) {
+        checkbox.addEventListener("change", updateSelectedState);
+      });
+
+      if (selectAll) {
+        selectAll.addEventListener("change", function () {
+          checkboxes.forEach(function (checkbox) {
+            checkbox.checked = selectAll.checked;
+          });
+          updateSelectedState();
+        });
+      }
+
+      if (amountInput) {
+        amountInput.addEventListener("input", updateSelectedState);
+      }
+
+      openButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          const hasSelectedCuotas = selectedCheckboxes().length > 0;
+          const hasPaymentAmount = parseAmount(amountInput?.value) > 0;
+          if (!hasSelectedCuotas && !hasPaymentAmount) return;
           bootstrap.Modal.getOrCreateInstance(modalElement).show();
         });
       });
-      singlePayButtons.forEach((button) => {
+
+      singlePayButtons.forEach(function (button) {
         button.addEventListener("click", function () {
-          checkboxes.forEach((checkbox) => {
+          checkboxes.forEach(function (checkbox) {
             checkbox.checked = checkbox.value === button.dataset.paySingle;
           });
-          if (selectAll) {
-            selectAll.checked = false;
+          if (amountInput) {
+            amountInput.value = "";
           }
-          updateSelectedAmount();
+          updateSelectedState();
           bootstrap.Modal.getOrCreateInstance(modalElement).show();
         });
       });
+
+      updateSelectedState();
     });
   </script>
+
+  <style>
+    .payment-flow {
+      display: grid;
+      gap: 16px;
+    }
+
+    .payment-alert {
+      margin: 0;
+    }
+
+    .payment-layout {
+      align-items: start;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    }
+
+    .payment-main-column {
+      display: grid;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .payment-hero {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+    }
+
+    .payment-student-main {
+      align-items: center;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 54px minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .payment-avatar {
+      align-items: center;
+      background: #ecfdf3;
+      border-radius: 8px;
+      color: #0f766e;
+      display: inline-flex;
+      font-size: 28px;
+      height: 54px;
+      justify-content: center;
+      width: 54px;
+    }
+
+    .payment-student-main div > span,
+    .payment-plan-state strong,
+    .payment-metric-card span,
+    .payment-section-header span,
+    .payment-selected-summary > span,
+    .payment-side-breakdown div > span,
+    .payment-history-mini header span,
+    .payment-modal-kicker,
+    .payment-modal-summary > span,
+    .payment-installment-kicker,
+    .payment-installment-amount span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .payment-student-main h2 {
+      color: #111827;
+      font-size: 28px;
+      line-height: 1.1;
+      margin: 2px 0 4px;
+    }
+
+    .payment-student-main p {
+      color: #475467;
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .payment-plan-state {
+      display: grid;
+      gap: 8px;
+      justify-items: end;
+      text-align: right;
+    }
+
+    .payment-plan-state strong {
+      text-transform: none;
+    }
+
+    .payment-metric-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .payment-metric-card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-height: 92px;
+      padding: 14px;
+    }
+
+    .payment-metric-card strong {
+      color: #111827;
+      display: block;
+      font-size: 26px;
+      line-height: 1;
+      margin-top: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .payment-metric-card.is-balance strong {
+      color: #0f766e;
+    }
+
+    .payment-metric-card.is-overdue strong {
+      color: #b42318;
+    }
+
+    .payment-metric-card.is-paid strong {
+      color: #0369a1;
+    }
+
+    .payment-installments-panel {
+      display: grid;
+      gap: 14px;
+      overflow: visible;
+    }
+
+    .payment-section-header {
+      align-items: center;
+      display: flex;
+      gap: 14px;
+      justify-content: space-between;
+    }
+
+    .payment-section-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .payment-select-all {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      color: #344054;
+      display: inline-flex;
+      font-weight: 800;
+      gap: 8px;
+      min-height: 42px;
+      padding: 8px 12px;
+      white-space: nowrap;
+    }
+
+    .payment-installment-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .payment-installment-card {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: auto minmax(220px, 1fr) minmax(150px, auto) minmax(130px, auto);
+      min-width: 0;
+      padding: 14px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .payment-installment-card:hover,
+    .payment-installment-card.is-selected {
+      border-color: #0f766e;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+
+    .payment-installment-card.is-selected {
+      background: #f0fdfa;
+    }
+
+    .payment-check-column {
+      display: grid;
+      place-items: center;
+    }
+
+    .payment-installment-main {
+      cursor: pointer;
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .payment-installment-main strong {
+      color: #111827;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .payment-installment-main small {
+      color: #667085;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .payment-progress {
+      background: #e5e7eb;
+      border-radius: 999px;
+      height: 7px;
+      overflow: hidden;
+      width: min(100%, 280px);
+    }
+
+    .payment-progress span {
+      background: #0f766e;
+      display: block;
+      height: 100%;
+    }
+
+    .payment-installment-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-start;
+      min-width: 0;
+    }
+
+    .payment-overdue-pill,
+    .payment-note-pill {
+      align-items: center;
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 4px;
+      min-height: 28px;
+      padding: 5px 9px;
+      white-space: nowrap;
+    }
+
+    .payment-overdue-pill {
+      background: #fef2f2;
+      color: #b42318;
+    }
+
+    .payment-note-pill {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .payment-installment-amount {
+      display: grid;
+      gap: 8px;
+      justify-items: end;
+      text-align: right;
+    }
+
+    .payment-installment-amount strong {
+      color: #111827;
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .payment-installment-amount .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-width: 94px;
+    }
+
+    .payment-empty-state {
+      margin: 0;
+    }
+
+    .payment-side-panel {
+      display: grid;
+      gap: 16px;
+      position: sticky;
+      top: 18px;
+    }
+
+    .payment-selected-summary {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .payment-selected-summary strong {
+      color: #0f766e;
+      font-size: 34px;
+      line-height: 1;
+      overflow-wrap: anywhere;
+    }
+
+    .payment-selected-summary p {
+      color: #475467;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .payment-abono-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .payment-abono-field .form-label {
+      color: #344054;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .payment-abono-field small {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+
+    .payment-selected-summary .btn,
+    .modal-footer .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 42px;
+    }
+
+    .payment-side-breakdown {
+      display: grid;
+      gap: 8px;
+    }
+
+    .payment-side-breakdown div,
+    .payment-history-item {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      padding: 10px;
+    }
+
+    .payment-side-breakdown strong {
+      color: #111827;
+      font-size: 16px;
+      overflow-wrap: anywhere;
+      text-align: right;
+    }
+
+    .payment-history-mini {
+      display: grid;
+      gap: 8px;
+    }
+
+    .payment-history-mini p {
+      background: #f8fafc;
+      border-radius: 8px;
+      color: #667085;
+      font-weight: 700;
+      margin: 0;
+      padding: 12px;
+    }
+
+    .payment-history-item div {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .payment-history-item strong {
+      color: #111827;
+      line-height: 1.1;
+    }
+
+    .payment-history-item span,
+    .payment-history-item small {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .payment-history-item span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .payment-history-actions {
+      align-items: center;
+      display: inline-flex;
+      flex: 0 0 auto;
+      gap: 8px;
+    }
+
+    .payment-history-actions a {
+      align-items: center;
+      background: #eff6ff;
+      border-radius: 8px;
+      color: #1d4ed8;
+      display: inline-flex;
+      height: 32px;
+      justify-content: center;
+      text-decoration: none;
+      width: 32px;
+    }
+
+    .payment-history-actions a:hover {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .payment-modal-content .modal-header {
+      align-items: flex-start;
+    }
+
+    .payment-modal-layout {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+    }
+
+    .payment-modal-summary {
+      background: #f0fdfa;
+      border: 1px solid #99f6e4;
+      border-radius: 8px;
+      align-self: start;
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .payment-modal-summary > strong {
+      color: #0f766e;
+      font-size: 32px;
+      line-height: 1;
+      overflow-wrap: anywhere;
+    }
+
+    .payment-modal-summary p {
+      color: #475467;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .payment-modal-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .payment-modal-item {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #ccfbf1;
+      border-radius: 8px;
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      padding: 9px;
+    }
+
+    .payment-modal-item div {
+      display: grid;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .payment-modal-item strong {
+      color: #111827;
+      line-height: 1.1;
+    }
+
+    .payment-modal-item span,
+    .payment-modal-item small {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .payment-register-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .payment-comment {
+      grid-column: 1 / -1;
+    }
+
+    .payment-register-grid textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+
+    @media (max-width: 1199.98px) {
+      .payment-layout,
+      .payment-modal-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .payment-side-panel {
+        position: static;
+      }
+    }
+
+    @media (max-width: 991.98px) {
+      .payment-metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .payment-installment-card {
+        align-items: start;
+        grid-template-columns: auto minmax(0, 1fr);
+      }
+
+      .payment-installment-meta,
+      .payment-installment-amount {
+        grid-column: 2;
+        justify-items: start;
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 767.98px) {
+      .payment-hero,
+      .payment-section-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .payment-plan-state {
+        justify-items: start;
+        text-align: left;
+      }
+
+      .payment-metric-grid,
+      .payment-register-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .payment-student-main {
+        grid-template-columns: 1fr;
+      }
+
+      .payment-avatar {
+        height: 48px;
+        width: 48px;
+      }
+
+      .payment-student-main h2 {
+        font-size: 24px;
+      }
+
+      .payment-installment-card {
+        grid-template-columns: 1fr;
+      }
+
+      .payment-check-column,
+      .payment-installment-meta,
+      .payment-installment-amount {
+        grid-column: 1;
+      }
+
+      .payment-installment-amount .btn,
+      .payment-select-all {
+        width: 100%;
+      }
+    }
+  </style>
 {% endblock %}

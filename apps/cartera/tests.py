@@ -1,12 +1,20 @@
+from datetime import date, datetime
+from decimal import Decimal
+from tempfile import TemporaryDirectory
+
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.core.current_user import set_current_request
-from apps.core.models import Empresa
+from apps.core.models import Empresa, Partner, TipoIdentificacion
+from apps.matricula.models import FichaInscripcion
 
 from .forms import FormaPagoForm
-from .models import FormaPago
+from .forms import PagoForm
+from .models import Cuota, FormaPago, Pago, PlanPago
 
 
 class FormaPagoFormTests(TestCase):
@@ -26,6 +34,65 @@ class FormaPagoFormTests(TestCase):
 
     def tearDown(self):
         set_current_request(None)
+
+    def create_payment_flow_data(self):
+        tipo_identificacion = TipoIdentificacion.objects.create(nombre="Cedula", codigo="CED")
+        cliente = Partner.objects.create(
+            nombre="Maria Representante",
+            tipo_identificacion=tipo_identificacion,
+            identificacion="0990000001",
+            empresa=self.empresa,
+            es_cliente=True,
+        )
+        estudiante = Partner.objects.create(
+            nombre="Juan Estudiante",
+            tipo_identificacion=tipo_identificacion,
+            identificacion="0990000002",
+            empresa=self.empresa,
+            es_estudiante=True,
+        )
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="F-001",
+            fecha=date(2026, 8, 1),
+            cliente=cliente,
+            estudiante=estudiante,
+            estado="activa",
+            activo=True,
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("500.00"),
+            abono=Decimal("100.00"),
+            saldo=Decimal("400.00"),
+            estado="activo",
+        )
+        cuota_atrasada = Cuota.objects.create(
+            plan_pago=plan,
+            numero=1,
+            fecha_pago_debito=date(2026, 8, 1),
+            valor=Decimal("250.00"),
+            valor_pagado=Decimal("50.00"),
+            estado="parcial",
+        )
+        cuota_proxima = Cuota.objects.create(
+            plan_pago=plan,
+            numero=2,
+            fecha_pago_debito=date(2026, 9, 1),
+            valor=Decimal("200.00"),
+            valor_pagado=Decimal("0.00"),
+            estado="pendiente",
+        )
+        forma_pago = FormaPago.objects.create(
+            empresa=self.empresa,
+            nombre="Efectivo",
+            tipo="efectivo",
+            activo=True,
+            es_pago=True,
+            orden=1,
+        )
+        return ficha, plan, cuota_atrasada, cuota_proxima, forma_pago
 
     def test_form_only_exposes_business_fields_and_saves_internal_defaults(self):
         form = FormaPagoForm(
@@ -90,3 +157,92 @@ class FormaPagoFormTests(TestCase):
 
         self.assertFalse(form.is_valid())
         self.assertIn("nombre", form.errors)
+
+    def test_student_pending_payments_page_renders_flow_summary(self):
+        self.client.force_login(self.user)
+        ficha, _, _, _, _ = self.create_payment_flow_data()
+
+        response = self.client.get(reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_pendiente"], Decimal("400.00"))
+        self.assertEqual(response.context["cuotas_pendientes_count"], 2)
+        self.assertContains(response, "payment-layout")
+        self.assertContains(response, "Cuotas pendientes")
+        self.assertContains(response, "Registrar pago")
+        self.assertContains(response, "data-payment-modal-list")
+        self.assertContains(response, "Fecha registro")
+
+    def test_student_payment_amount_is_applied_to_overdue_then_next_installment(self):
+        self.client.force_login(self.user)
+        ficha, plan, cuota_atrasada, cuota_proxima, forma_pago = self.create_payment_flow_data()
+
+        response = self.client.post(
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            data={
+                "valor": "220.00",
+                "forma_pago": forma_pago.pk,
+                "fecha_registro": "2026-08-30T10:15",
+                "numero_documento": "AB-001",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cuota_atrasada.refresh_from_db()
+        cuota_proxima.refresh_from_db()
+        plan.refresh_from_db()
+        self.assertEqual(cuota_atrasada.valor_pagado, Decimal("250.00"))
+        self.assertEqual(cuota_atrasada.estado, "pagada")
+        self.assertEqual(cuota_proxima.valor_pagado, Decimal("20.00"))
+        self.assertEqual(cuota_proxima.estado, "parcial")
+        self.assertEqual(plan.abono, Decimal("320.00"))
+        self.assertEqual(plan.saldo, Decimal("180.00"))
+        self.assertEqual(Cuota.objects.get(pk=cuota_atrasada.pk).pagos.first().valor, Decimal("200.00"))
+        self.assertEqual(Cuota.objects.get(pk=cuota_proxima.pk).pagos.first().valor, Decimal("20.00"))
+
+    def test_student_payment_receipt_file_uses_student_and_payment_date(self):
+        self.client.force_login(self.user)
+        ficha, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        comprobante = SimpleUploadedFile(
+            "asistencia_DMEST001.xlsx",
+            b"comprobante",
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        with TemporaryDirectory() as media_root:
+            with override_settings(MEDIA_ROOT=media_root):
+                response = self.client.post(
+                    reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+                    data={
+                        "cuotas": [cuota_atrasada.pk],
+                        "forma_pago": forma_pago.pk,
+                        "fecha_registro": "2026-08-30T10:15",
+                        "comprobante": comprobante,
+                    },
+                    HTTP_HOST="localhost",
+                )
+
+        self.assertEqual(response.status_code, 302)
+        pago = cuota_atrasada.pagos.get()
+        self.assertIn("juan-estudiante_20260830_1015_cuota_", pago.comprobante.name)
+        self.assertTrue(pago.comprobante.name.endswith(".xlsx"))
+
+    def test_payment_form_renders_date_and_existing_receipt_download(self):
+        _, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        pago = Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("10.00"),
+            comprobante="cartera/comprobantes/juan-estudiante_20260830_1015_cuota_1.xlsx",
+            usuario=self.user,
+        )
+
+        html = PagoForm(instance=pago).as_p()
+
+        self.assertIn('value="2026-08-30T10:15"', html)
+        self.assertIn("payment-file-link", html)
+        self.assertIn("ri-file-excel-2-line", html)
+        self.assertIn("Descargar", html)
