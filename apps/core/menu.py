@@ -101,6 +101,12 @@ MENU_GROUPS = [
                 "perm": None,
                 "groups": ["Coordinacion", "Direccion", "Director"],
             },
+            {
+                "label": "Asistencia alumno",
+                "url_name": "academico:coordinacion_reporte_asistencia_alumno",
+                "perm": None,
+                "groups": ["Coordinacion", "Direccion", "Director"],
+            },
         ],
     },
     {

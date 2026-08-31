@@ -3297,6 +3297,320 @@ class CoordinacionReporteAsistenciaClaseView(CoordinacionRevisionAsistenciaView)
         )
 
 
+class CoordinacionReporteAsistenciaAlumnoView(CoordinacionRequiredMixin, View):
+    template_name = "academico/coordinacion_reporte_asistencia_alumno.html"
+    attendance_state_labels = {**dict(ClaseAsistencia.ESTADO_CHOICES), "pendiente": "Pendiente"}
+
+    def get(self, request):
+        context = self.get_context()
+        if request.GET.get("export") == "excel":
+            if not context["selected_estudiante"]:
+                messages.error(request, "Selecciona un alumno para exportar el reporte.")
+                return redirect("academico:coordinacion_reporte_asistencia_alumno")
+            return self.export_excel(context)
+        return render(request, self.template_name, context)
+
+    def get_context(self):
+        selected_grupo = self.get_selected_grupo()
+        selected_estudiante = self.get_selected_estudiante(selected_grupo)
+        fecha_desde, desde_value = self.get_date_value("desde")
+        fecha_hasta, hasta_value = self.get_date_value("hasta")
+        if fecha_desde and fecha_hasta and fecha_desde > fecha_hasta:
+            fecha_desde, fecha_hasta = fecha_hasta, fecha_desde
+            desde_value, hasta_value = hasta_value, desde_value
+
+        rows = []
+        if selected_estudiante:
+            rows = self.get_attendance_rows(selected_estudiante, selected_grupo, fecha_desde, fecha_hasta)
+        stats = self.get_stats(rows)
+        return {
+            "title": "Reporte de asistencia del alumno",
+            "grupos": Curso.objects.filter(activo=True).order_by("nombre"),
+            "estudiantes": self.get_students_queryset(selected_grupo),
+            "selected_grupo": selected_grupo,
+            "selected_grupo_id": str(selected_grupo.pk) if selected_grupo else "",
+            "selected_estudiante": selected_estudiante,
+            "selected_estudiante_id": str(selected_estudiante.pk) if selected_estudiante else "",
+            "desde_value": desde_value,
+            "hasta_value": hasta_value,
+            "rows": rows,
+            "stats": stats,
+            "count_items": self.get_count_items(stats),
+            "export_url": self.get_export_url(selected_grupo, selected_estudiante, desde_value, hasta_value),
+        }
+
+    def get_selected_grupo(self):
+        grupo_id = self.request.GET.get("grupo") or ""
+        if not grupo_id:
+            return None
+        try:
+            return Curso.objects.filter(pk=grupo_id, activo=True).first()
+        except (TypeError, ValueError):
+            return None
+
+    def get_selected_estudiante(self, selected_grupo=None):
+        estudiante_id = self.request.GET.get("estudiante") or ""
+        if not estudiante_id:
+            return None
+        queryset = Partner.objects.filter(pk=estudiante_id, es_estudiante=True, activo=True)
+        if selected_grupo:
+            queryset = queryset.filter(grupo_asignaciones__grupo=selected_grupo, grupo_asignaciones__estado="activo")
+        return queryset.distinct().first()
+
+    def get_students_queryset(self, selected_grupo=None):
+        queryset = Partner.objects.filter(
+            es_estudiante=True,
+            activo=True,
+            grupo_asignaciones__estado="activo",
+        )
+        if selected_grupo:
+            queryset = queryset.filter(grupo_asignaciones__grupo=selected_grupo)
+        return queryset.distinct().order_by("nombre", "identificacion")
+
+    def get_date_value(self, field_name):
+        value = (self.request.GET.get(field_name) or "").strip()
+        if not value:
+            return None, ""
+        try:
+            return date.fromisoformat(value), value
+        except ValueError:
+            return None, ""
+
+    def get_attendance_rows(self, estudiante, selected_grupo=None, fecha_desde=None, fecha_hasta=None):
+        assignments = list(
+            GrupoEstudiante.objects.select_related("grupo", "ficha_inscripcion", "estudiante")
+            .filter(estudiante=estudiante, estado="activo")
+            .order_by("fecha_asignacion", "grupo__nombre")
+        )
+        if selected_grupo:
+            assignments = [assignment for assignment in assignments if assignment.grupo_id == selected_grupo.pk]
+        if not assignments:
+            return []
+
+        group_ids = {assignment.grupo_id for assignment in assignments}
+        movements = ClaseEstudianteMovimiento.objects.filter(asignacion__in=assignments, activo=True)
+        destination_materia_curso_ids = set(movements.values_list("clase_destino__materia_curso_id", flat=True))
+        clase_filter = Q(materia_curso__grupo_id__in=group_ids)
+        if destination_materia_curso_ids:
+            clase_filter |= Q(materia_curso_id__in=destination_materia_curso_ids)
+
+        clases = (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "docente",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
+            .filter(clase_filter)
+            .distinct()
+        )
+        if fecha_desde:
+            clases = clases.filter(fecha__gte=fecha_desde)
+        if fecha_hasta:
+            clases = clases.filter(fecha__lte=fecha_hasta)
+
+        roster_view = DocenteClaseAsistenciaView()
+        report_rows = []
+        for clase in clases.order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio", "materia_curso__materia__nombre"):
+            roster_rows, _ = roster_view.get_roster_rows(clase)
+            student_row = next((row for row in roster_rows if row["estudiante"].pk == estudiante.pk), None)
+            if not student_row:
+                continue
+            asignacion = student_row["asignacion"]
+            if asignacion.fecha_asignacion and asignacion.fecha_asignacion > clase.fecha:
+                continue
+            report_rows.append(self.build_attendance_row(clase, student_row))
+        return report_rows
+
+    def build_attendance_row(self, clase, student_row):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        attendance = student_row["attendance"]
+        estado = attendance.estado if attendance else "pendiente"
+        docentes = get_clase_docentes(clase)
+        return {
+            "clase": clase,
+            "fecha": clase.fecha,
+            "materia": clase.materia_curso.materia,
+            "grupo": clase.materia_curso.grupo,
+            "aula": clase.horario_aula_curso.aula_curso.aula,
+            "horario": horario,
+            "docente_label": ", ".join(docente.nombre for docente in docentes) if docentes else "Sin docente asignado",
+            "estado": estado,
+            "estado_label": self.attendance_state_labels.get(estado, estado),
+            "observacion": (attendance.observacion or "") if attendance else "",
+            "registrado_por": attendance.registrado_por if attendance else None,
+            "registrado_en": attendance.updated_at if attendance else None,
+            "asistencia_cerrada": clase.asistencia_cerrada,
+            "incoming": student_row["incoming"],
+        }
+
+    def get_stats(self, rows):
+        stats = {
+            "total": len(rows),
+            "presente": 0,
+            "ausente": 0,
+            "atraso": 0,
+            "justificado": 0,
+            "pendiente": 0,
+            "observaciones": 0,
+        }
+        for row in rows:
+            stats[row["estado"]] = stats.get(row["estado"], 0) + 1
+            if row["observacion"]:
+                stats["observaciones"] += 1
+        stats["registradas"] = stats["total"] - stats["pendiente"]
+        return stats
+
+    def get_count_items(self, stats):
+        return (
+            {"key": "total", "label": "Clases", "count": stats["total"], "icon": "ri-calendar-check-line"},
+            {"key": "presente", "label": "Presentes", "count": stats["presente"], "icon": "ri-user-follow-line"},
+            {"key": "ausente", "label": "Ausentes", "count": stats["ausente"], "icon": "ri-user-unfollow-line"},
+            {"key": "atraso", "label": "Atrasos", "count": stats["atraso"], "icon": "ri-time-line"},
+            {"key": "justificado", "label": "Justificados", "count": stats["justificado"], "icon": "ri-file-check-line"},
+            {"key": "pendiente", "label": "Pendientes", "count": stats["pendiente"], "icon": "ri-checkbox-blank-circle-line"},
+            {"key": "observaciones", "label": "Observaciones", "count": stats["observaciones"], "icon": "ri-chat-3-line"},
+        )
+
+    def get_export_url(self, selected_grupo, selected_estudiante, desde_value, hasta_value):
+        if not selected_estudiante:
+            return ""
+        params = {"estudiante": selected_estudiante.pk, "export": "excel"}
+        if selected_grupo:
+            params["grupo"] = selected_grupo.pk
+        if desde_value:
+            params["desde"] = desde_value
+        if hasta_value:
+            params["hasta"] = hasta_value
+        return f"{reverse_lazy('academico:coordinacion_reporte_asistencia_alumno')}?{urlencode(params)}"
+
+    def export_excel(self, context):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = safe_sheet_title("Asistencia alumno")
+        self.write_excel_sheet(sheet, context)
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        estudiante = context["selected_estudiante"]
+        filename = f"asistencia_{estudiante.identificacion or estudiante.pk}.xlsx"
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    def write_excel_sheet(self, sheet, context):
+        estudiante = context["selected_estudiante"]
+        selected_grupo = context["selected_grupo"]
+        rows = context["rows"]
+        stats = context["stats"]
+        title_fill = PatternFill("solid", fgColor="DCEBFF")
+        header_fill = PatternFill("solid", fgColor="0F766E")
+        label_fill = PatternFill("solid", fgColor="F1F5F9")
+        thin = Side(style="thin", color="D7DEE8")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left = Alignment(horizontal="left", vertical="top", wrap_text=True)
+
+        sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=9)
+        title_cell = sheet.cell(row=1, column=1, value="Reporte de asistencia del alumno")
+        title_cell.font = Font(bold=True, size=14, color="111827")
+        title_cell.fill = title_fill
+        title_cell.alignment = center
+
+        info_rows = [
+            ("Alumno", estudiante.nombre),
+            ("Identificacion", estudiante.identificacion or ""),
+            ("Grupo", selected_grupo.nombre if selected_grupo else "Todos los grupos"),
+            ("Rango", self.get_range_label(context["desde_value"], context["hasta_value"])),
+            ("Generado", timezone.localtime(timezone.now()).strftime("%d/%m/%Y %H:%M")),
+        ]
+        current_row = 3
+        for label, value in info_rows:
+            sheet.cell(row=current_row, column=1, value=label)
+            sheet.cell(row=current_row, column=2, value=value)
+            sheet.cell(row=current_row, column=1).font = Font(bold=True, color="334155")
+            sheet.cell(row=current_row, column=1).fill = label_fill
+            sheet.cell(row=current_row, column=1).border = border
+            sheet.cell(row=current_row, column=2).border = border
+            current_row += 1
+
+        current_row += 1
+        summary = [
+            ("Clases", stats["total"]),
+            ("Presentes", stats["presente"]),
+            ("Ausentes", stats["ausente"]),
+            ("Atrasos", stats["atraso"]),
+            ("Justificados", stats["justificado"]),
+            ("Pendientes", stats["pendiente"]),
+            ("Observaciones", stats["observaciones"]),
+        ]
+        for col, (label, value) in enumerate(summary, start=1):
+            label_cell = sheet.cell(row=current_row, column=col, value=label)
+            value_cell = sheet.cell(row=current_row + 1, column=col, value=value)
+            label_cell.font = Font(bold=True, color="FFFFFF")
+            label_cell.fill = header_fill
+            value_cell.font = Font(bold=True, size=13, color="111827")
+            value_cell.fill = label_fill
+            label_cell.alignment = center
+            value_cell.alignment = center
+            label_cell.border = border
+            value_cell.border = border
+
+        current_row += 4
+        headers = ["Fecha", "Materia", "Grupo", "Aula", "Horario", "Docente", "Asistencia", "Observacion", "Cierre"]
+        for col, header in enumerate(headers, start=1):
+            cell = sheet.cell(row=current_row, column=col, value=header)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = header_fill
+            cell.alignment = center
+            cell.border = border
+
+        current_row += 1
+        if rows:
+            for row in rows:
+                values = [
+                    row["fecha"].strftime("%d/%m/%Y"),
+                    row["materia"].nombre,
+                    row["grupo"].nombre,
+                    str(row["aula"]),
+                    f"{row['horario'].hora_inicio:%H:%M} - {row['horario'].hora_fin:%H:%M}",
+                    row["docente_label"],
+                    row["estado_label"],
+                    row["observacion"] or "Sin observacion",
+                    "Cerrada" if row["asistencia_cerrada"] else "Abierta",
+                ]
+                for col, value in enumerate(values, start=1):
+                    cell = sheet.cell(row=current_row, column=col, value=value)
+                    cell.border = border
+                    cell.alignment = left if col in {2, 6, 8} else center
+                current_row += 1
+        else:
+            sheet.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=9)
+            cell = sheet.cell(row=current_row, column=1, value="Sin asistencias para el filtro seleccionado.")
+            cell.alignment = center
+            cell.border = border
+
+        widths = [14, 30, 22, 18, 16, 28, 16, 42, 14]
+        for col, width in enumerate(widths, start=1):
+            sheet.column_dimensions[get_column_letter(col)].width = width
+        sheet.freeze_panes = "A12"
+
+    def get_range_label(self, desde_value, hasta_value):
+        if desde_value and hasta_value:
+            return f"{desde_value} a {hasta_value}"
+        if desde_value:
+            return f"Desde {desde_value}"
+        if hasta_value:
+            return f"Hasta {hasta_value}"
+        return "Todas las fechas"
+
+
 class DocenteClasePlanificacionView(LoginRequiredMixin, View):
     template_name = "academico/docente_clase_planificacion.html"
 

@@ -1,0 +1,393 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Coordinacion</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if export_url %}
+        <a class="btn btn-primary-600" href="{{ export_url }}">
+          <i class="ri-file-excel-2-line"></i>
+          Exportar Excel
+        </a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{% url 'academico:coordinacion_revision_asistencia' %}">Volver</a>
+    </div>
+  </header>
+
+  <section class="panel student-attendance-filter">
+    <form class="student-attendance-filter-grid" method="get">
+      <div>
+        <label class="form-label" for="student-attendance-group">Grupo</label>
+        <select class="form-select" id="student-attendance-group" name="grupo">
+          <option value="">Todos los grupos</option>
+          {% for grupo in grupos %}
+            <option value="{{ grupo.pk }}"{% if selected_grupo_id == grupo.pk|stringformat:"s" %} selected{% endif %}>{{ grupo.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="form-label" for="student-attendance-student">Alumno</label>
+        <select class="form-select" id="student-attendance-student" name="estudiante" data-student-select>
+          <option value="">Selecciona alumno</option>
+          {% for estudiante in estudiantes %}
+            <option value="{{ estudiante.pk }}"{% if selected_estudiante_id == estudiante.pk|stringformat:"s" %} selected{% endif %}>{{ estudiante.nombre }}{% if estudiante.identificacion %} - {{ estudiante.identificacion }}{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="form-label" for="student-attendance-from">Desde</label>
+        <input class="form-control" id="student-attendance-from" type="date" name="desde" value="{{ desde_value }}">
+      </div>
+
+      <div>
+        <label class="form-label" for="student-attendance-to">Hasta</label>
+        <input class="form-control" id="student-attendance-to" type="date" name="hasta" value="{{ hasta_value }}">
+      </div>
+
+      <div class="student-attendance-actions">
+        <button class="btn btn-primary-600" type="submit">
+          <i class="ri-search-line"></i>
+          Buscar
+        </button>
+        <a class="btn btn-outline-secondary" href="{% url 'academico:coordinacion_reporte_asistencia_alumno' %}">Limpiar</a>
+      </div>
+    </form>
+  </section>
+
+  {% if selected_estudiante %}
+    <section class="panel student-attendance-hero">
+      <div>
+        <span>Alumno</span>
+        <h2>{{ selected_estudiante.nombre }}</h2>
+        <p>
+          {{ selected_estudiante.identificacion|default:"Sin identificacion" }}
+          ·
+          {% if selected_grupo %}{{ selected_grupo.nombre }}{% else %}Todos los grupos{% endif %}
+        </p>
+      </div>
+      <strong>{{ stats.registradas }}/{{ stats.total }} registradas</strong>
+    </section>
+
+    <section class="student-attendance-summary">
+      {% for item in count_items %}
+        <div class="student-attendance-stat state-{{ item.key }}">
+          <i class="{{ item.icon }}"></i>
+          <span>{{ item.label }}</span>
+          <strong>{{ item.count }}</strong>
+        </div>
+      {% endfor %}
+    </section>
+
+    <section class="panel student-attendance-panel">
+      <header class="student-attendance-panel-header">
+        <div>
+          <span>Detalle</span>
+          <h2>{{ rows|length }} registro(s)</h2>
+        </div>
+        {% if export_url %}
+          <a class="btn btn-outline-primary btn-sm" href="{{ export_url }}">
+            <i class="ri-download-2-line"></i>
+            Excel
+          </a>
+        {% endif %}
+      </header>
+
+      {% if rows %}
+        <div class="table-responsive list-table-responsive">
+          <table class="table align-middle app-table student-attendance-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Materia</th>
+                <th>Grupo</th>
+                <th>Horario</th>
+                <th>Docente</th>
+                <th>Asistencia</th>
+                <th>Observacion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+                <tr>
+                  <td>
+                    <strong>{{ row.fecha|date:"d/m/Y" }}</strong>
+                    <span>{{ row.aula }}</span>
+                  </td>
+                  <td>{{ row.materia.nombre }}</td>
+                  <td>{{ row.grupo.nombre }}</td>
+                  <td>{{ row.horario.hora_inicio|time:"H:i" }} - {{ row.horario.hora_fin|time:"H:i" }}</td>
+                  <td>{{ row.docente_label }}</td>
+                  <td><span class="student-attendance-pill state-{{ row.estado }}">{{ row.estado_label }}</span></td>
+                  <td>{{ row.observacion|default:"Sin observacion" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="academic-empty-state">
+          Sin asistencias para el filtro seleccionado.
+        </div>
+      {% endif %}
+    </section>
+  {% else %}
+    <section class="academic-empty-state">
+      Selecciona un alumno para generar el reporte.
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script>
+    (function () {
+      const studentSelect = document.querySelector("[data-student-select]");
+      if (window.jQuery && jQuery.fn.select2 && studentSelect) {
+        jQuery(studentSelect).select2({
+          width: "100%",
+          placeholder: "Selecciona alumno",
+          allowClear: true,
+          language: {
+            noResults: function () {
+              return "Sin resultados";
+            }
+          }
+        });
+      }
+    })();
+  </script>
+  <style>
+    .student-attendance-filter {
+      margin-bottom: 16px;
+    }
+
+    .student-attendance-filter-grid {
+      align-items: end;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.4fr) minmax(150px, 0.7fr) minmax(150px, 0.7fr) auto;
+    }
+
+    .student-attendance-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .student-attendance-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      min-height: 44px;
+      white-space: nowrap;
+    }
+
+    .student-attendance-hero {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .student-attendance-hero span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .student-attendance-hero h2 {
+      color: #111827;
+      font-size: 24px;
+      margin: 2px 0 4px;
+    }
+
+    .student-attendance-hero p {
+      color: #667085;
+      margin: 0;
+    }
+
+    .student-attendance-hero strong {
+      color: #0f766e;
+      font-size: 18px;
+      white-space: nowrap;
+    }
+
+    .student-attendance-summary {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .student-attendance-stat {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-height: 96px;
+      padding: 14px;
+    }
+
+    .student-attendance-stat i {
+      color: #64748b;
+      font-size: 20px;
+    }
+
+    .student-attendance-stat span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      margin-top: 8px;
+      text-transform: uppercase;
+    }
+
+    .student-attendance-stat strong {
+      color: #111827;
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      margin-top: 8px;
+    }
+
+    .student-attendance-stat.state-presente strong {
+      color: #15803d;
+    }
+
+    .student-attendance-stat.state-ausente strong {
+      color: #b42318;
+    }
+
+    .student-attendance-stat.state-atraso strong,
+    .student-attendance-stat.state-pendiente strong {
+      color: #b45309;
+    }
+
+    .student-attendance-stat.state-justificado strong,
+    .student-attendance-stat.state-observaciones strong {
+      color: #0369a1;
+    }
+
+    .student-attendance-panel-header {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .student-attendance-panel-header span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .student-attendance-panel-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .student-attendance-table td:first-child span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .student-attendance-pill {
+      align-items: center;
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      justify-content: center;
+      min-height: 28px;
+      padding: 5px 10px;
+      white-space: nowrap;
+    }
+
+    .student-attendance-pill.state-presente {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .student-attendance-pill.state-ausente {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .student-attendance-pill.state-atraso {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .student-attendance-pill.state-justificado {
+      background: #e0f2fe;
+      color: #075985;
+    }
+
+    .student-attendance-pill.state-pendiente {
+      background: #f1f5f9;
+      color: #475467;
+    }
+
+    .select2-container--default .select2-selection--single {
+      align-items: center;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      display: flex;
+      min-height: 44px;
+      padding: 6px 36px 6px 12px;
+    }
+
+    .select2-container--default .select2-selection--single .select2-selection__rendered {
+      color: #1f2937;
+      line-height: 1.35;
+      padding: 0;
+    }
+
+    .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 42px;
+      right: 8px;
+    }
+
+    @media (max-width: 991.98px) {
+      .student-attendance-filter-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .student-attendance-actions {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .student-attendance-filter-grid,
+      .student-attendance-hero {
+        grid-template-columns: 1fr;
+      }
+
+      .student-attendance-hero {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+    }
+  </style>
+{% endblock %}

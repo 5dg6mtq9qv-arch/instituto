@@ -1431,6 +1431,79 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(report_response, "No asistio.")
         self.assertEqual(report_response.context["card"]["counts"]["ausente"], 1)
 
+    def test_coordinacion_student_attendance_report_exports_parent_excel(self):
+        coordinator = self.create_coordinator()
+        estudiante_uno, ficha_uno = self.create_student_ficha(
+            nombre="Ana Padres",
+            identificacion="PAD-001",
+            numero="PAD-001",
+        )
+        estudiante_dos, ficha_dos = self.create_student_ficha(
+            nombre="Luis Padres",
+            identificacion="PAD-002",
+            numero="PAD-002",
+        )
+        GrupoEstudiante.objects.create(ficha_inscripcion=ficha_uno, estudiante=estudiante_uno, grupo=self.curso)
+        GrupoEstudiante.objects.create(ficha_inscripcion=ficha_dos, estudiante=estudiante_dos, grupo=self.curso)
+        ClaseAsistencia.objects.create(
+            clase=self.revision,
+            estudiante=estudiante_uno,
+            estado="ausente",
+            observacion="No asistio por cita medica.",
+            registrado_por=self.docente,
+        )
+        ClaseAsistencia.objects.create(
+            clase=self.revision,
+            estudiante=estudiante_dos,
+            estado="presente",
+            observacion="Otro alumno.",
+            registrado_por=self.docente,
+        )
+        params = {
+            "grupo": self.curso.pk,
+            "estudiante": estudiante_uno.pk,
+            "desde": self.pendiente.fecha.isoformat(),
+            "hasta": self.revision.fecha.isoformat(),
+        }
+        self.client.force_login(coordinator)
+
+        response = self.client.get(reverse("academico:coordinacion_reporte_asistencia_alumno"), params, HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reporte de asistencia del alumno")
+        self.assertContains(response, "Ana Padres")
+        self.assertContains(response, "Matematicas")
+        self.assertContains(response, "No asistio por cita medica.")
+        self.assertNotContains(response, "Otro alumno.")
+        self.assertEqual(response.context["stats"]["total"], 2)
+        self.assertEqual(response.context["stats"]["ausente"], 1)
+        self.assertEqual(response.context["stats"]["pendiente"], 1)
+        self.assertFalse(
+            any(row["observacion"] == "Otro alumno." for row in response.context["rows"])
+        )
+
+        export_response = self.client.get(
+            reverse("academico:coordinacion_reporte_asistencia_alumno"),
+            {**params, "export": "excel"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(export_response.status_code, 200)
+        self.assertEqual(
+            export_response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        workbook = load_workbook(BytesIO(export_response.content))
+        sheet = workbook.active
+        values = [cell.value for row in sheet.iter_rows() for cell in row if cell.value]
+
+        self.assertIn("Reporte de asistencia del alumno", values)
+        self.assertIn("Ana Padres", values)
+        self.assertIn("Matematicas", values)
+        self.assertIn("Ausente", values)
+        self.assertIn("No asistio por cita medica.", values)
+        self.assertNotIn("Luis Padres", values)
+
     def test_director_attendance_review_opens_without_docente_partner(self):
         director = get_user_model().objects.create_user(username="director-asistencia", password="ClaveActual987!")
         director.groups.add(Group.objects.get_or_create(name="Director")[0])
