@@ -171,35 +171,37 @@ def can_assign_docente(user):
 
 
 def docente_responsable_filter(docente):
-    return Q(docente=docente) | Q(
-        docente__isnull=True,
+    return Q(docente_override=True, docente=docente) | Q(
+        docente_override=False,
         materia_curso__profesor_materia_cursos__partner=docente,
     )
 
 
 def docente_responsable_search_filter(query):
     return (
-        Q(docente__nombre__icontains=query)
-        | Q(docente__identificacion__icontains=query)
+        Q(docente_override=True, docente__nombre__icontains=query)
+        | Q(docente_override=True, docente__identificacion__icontains=query)
         | Q(
-            docente__isnull=True,
+            docente_override=False,
             materia_curso__profesor_materia_cursos__partner__nombre__icontains=query,
         )
         | Q(
-            docente__isnull=True,
+            docente_override=False,
             materia_curso__profesor_materia_cursos__partner__identificacion__icontains=query,
         )
     )
 
 
 def get_clase_docentes(clase):
-    if clase.docente_id:
-        return [clase.docente]
+    if clase.docente_override:
+        return [clase.docente] if clase.docente_id else []
     return [item.partner for item in clase.materia_curso.profesor_materia_cursos.all()]
 
 
 def clase_tiene_docente(clase):
-    return bool(clase.docente_id) or clase.materia_curso.profesor_materia_cursos.exists()
+    if clase.docente_override:
+        return bool(clase.docente_id)
+    return clase.materia_curso.profesor_materia_cursos.exists()
 
 
 def clases_sin_docente_queryset(curso=None, start_date=None, end_date=None):
@@ -211,7 +213,10 @@ def clases_sin_docente_queryset(curso=None, start_date=None, end_date=None):
             "horario_aula_curso__aula_curso__aula",
             "horario_aula_curso__horario_dia__horario",
         )
-        .filter(docente__isnull=True, materia_curso__profesor_materia_cursos__isnull=True)
+        .filter(
+            Q(docente_override=True, docente__isnull=True)
+            | Q(docente_override=False, materia_curso__profesor_materia_cursos__isnull=True)
+        )
         .distinct()
     )
     if curso:
@@ -1011,7 +1016,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
             materia_id = request.POST.get("materia") or ""
-            docente_id = request.POST.get("docente") or ""
+            docente_value = request.POST.get("docente") or ""
             asignar_periodo = request.POST.get("asignar_periodo") == "on" and not horario_aula_curso.fecha
             today = timezone.localdate()
             if fecha_clase < today:
@@ -1021,7 +1026,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             if selected_clase and selected_clase.estado_planificacion in CLASS_ASSIGNMENT_LOCK_STATES and not asignar_periodo:
                 messages.error(request, CLASS_ASSIGNMENT_LOCK_MESSAGE)
                 return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
-            if docente_id and not materia_id:
+            if docente_value and not materia_id:
                 messages.error(request, "Asigna una materia antes de asignar docente.")
                 return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
@@ -1033,8 +1038,9 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     grupo=curso,
                 )
             docente = None
-            if docente_id:
-                docente = get_object_or_404(Partner, pk=docente_id, es_docente=True, activo=True)
+            docente_override = bool(docente_value)
+            if docente_value and docente_value != "__none__":
+                docente = get_object_or_404(Partner, pk=docente_value, es_docente=True, activo=True)
 
             with transaction.atomic():
                 updated_count, locked_count = self.apply_clase_assignment(
@@ -1042,6 +1048,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     fecha_clase,
                     materia_grupo,
                     docente,
+                    docente_override,
                 )
                 if asignar_periodo:
                     current_date = max(fecha_clase, today)
@@ -1055,6 +1062,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 current_date,
                                 materia_grupo,
                                 docente,
+                                docente_override,
                             )
                             updated_count += updated
                             locked_count += locked
@@ -1080,7 +1088,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         messages.error(request, "Selecciona un horario del calendario para asignar la clase.")
         return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
 
-    def apply_clase_assignment(self, horario_aula_curso, fecha_clase, materia_grupo, docente=None):
+    def apply_clase_assignment(self, horario_aula_curso, fecha_clase, materia_grupo, docente=None, docente_override=False):
         clase = Clase.objects.filter(horario_aula_curso=horario_aula_curso, fecha=fecha_clase).first()
         if clase and clase.estado_planificacion in CLASS_ASSIGNMENT_LOCK_STATES:
             return 0, 1
@@ -1094,6 +1102,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 horario_aula_curso=horario_aula_curso,
                 materia_curso=materia_grupo,
                 docente=docente,
+                docente_override=docente_override,
                 fecha=fecha_clase,
             )
             return 1, 0
@@ -1106,6 +1115,9 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         if clase.docente_id != docente_id:
             clase.docente = docente
             update_fields.append("docente")
+        if clase.docente_override != docente_override:
+            clase.docente_override = docente_override
+            update_fields.append("docente_override")
         if update_fields:
             clase.save(update_fields=update_fields)
         return 1, 0
@@ -1276,7 +1288,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                         materia = next((item for item in materias if item.pk == materia_id), None)
                         clase_docentes = []
                         if clase:
-                            clase_docentes = [clase.docente] if clase.docente_id else docentes_by_materia_curso.get(clase.materia_curso_id, [])
+                            if clase.docente_override:
+                                clase_docentes = [clase.docente] if clase.docente_id else []
+                            else:
+                                clase_docentes = docentes_by_materia_curso.get(clase.materia_curso_id, [])
                         docente_label = ", ".join(docente.nombre for docente in clase_docentes)
                         sin_docente = bool(clase and materia and not clase_docentes)
                         event_color = "#fef3c7" if sin_docente else (materia.color if materia else "#dff1ff")
@@ -1336,7 +1351,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 "horaFin": f"{horario.hora_fin:%H:%M}",
                                 "materiaId": materia_id or "",
                                 "materia": getattr(materia, "nombre", "") if materia else "",
-                                "docenteId": clase.docente_id if clase and clase.docente_id else "",
+                                "docenteId": self.get_docente_field_value(clase),
                                 "docente": docente_label or ("Sin docente asignado" if sin_docente else ""),
                                 "editableDate": editable_date,
                                 "lockedReason": locked_reason,
@@ -1372,6 +1387,11 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "can_save": self.can_save_class(self.request.user),
             "can_add_schedule": self.can_add_schedule(self.request.user),
         }
+
+    def get_docente_field_value(self, clase):
+        if not clase or not clase.docente_override:
+            return ""
+        return clase.docente_id or "__none__"
 
 
 class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMixin, View):
@@ -1438,7 +1458,10 @@ class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMix
         for clase in queryset:
             horario = clase.horario_aula_curso.horario_dia.horario
             materia = clase.materia_curso.materia
-            docente_label = clase.docente.nombre if clase.docente_id else ", ".join(docentes.get(clase.materia_curso_id, []))
+            if clase.docente_override:
+                docente_label = clase.docente.nombre if clase.docente_id else ""
+            else:
+                docente_label = ", ".join(docentes.get(clase.materia_curso_id, []))
             rows.append(
                 {
                     "fecha": clase.fecha,

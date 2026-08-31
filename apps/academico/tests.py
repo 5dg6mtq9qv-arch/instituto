@@ -764,6 +764,7 @@ class DocenteHorariosPanelTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.pendiente.docente, reemplazo)
+        self.assertTrue(self.pendiente.docente_override)
         self.assertIsNone(self.revision.docente)
 
     def test_academic_planning_assigns_docente_from_selected_date_forward(self):
@@ -792,8 +793,72 @@ class DocenteHorariosPanelTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertIsNone(self.pendiente.docente)
+        self.assertFalse(self.pendiente.docente_override)
         self.assertEqual(self.rechazada.docente, reemplazo)
+        self.assertTrue(self.rechazada.docente_override)
         self.assertEqual(future_class.docente, reemplazo)
+        self.assertTrue(future_class.docente_override)
+
+    def test_academic_planning_can_leave_single_class_without_docente(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": self.materia.pk,
+                "docente": "__none__",
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(self.pendiente.docente)
+        self.assertTrue(self.pendiente.docente_override)
+
+        old_docente_response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(old_docente_response.status_code, 404)
+
+    def test_academic_planning_can_restore_materia_docente_assignment(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        self.pendiente.docente = None
+        self.pendiente.docente_override = True
+        self.pendiente.save(update_fields=["docente", "docente_override"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": self.materia.pk,
+                "docente": "",
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(self.pendiente.docente)
+        self.assertFalse(self.pendiente.docente_override)
+
+        docente_response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(docente_response.status_code, 200)
 
     def test_academic_planning_does_not_change_submitted_class_docente(self):
         self.create_periodo_for_course()
@@ -817,6 +882,7 @@ class DocenteHorariosPanelTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(self.revision.docente)
+        self.assertFalse(self.revision.docente_override)
         self.assertContains(response, "La clase no se puede modificar porque tiene una planificacion enviada o aprobada.")
 
     def test_academic_planning_adds_schedule_block(self):
@@ -1113,7 +1179,8 @@ class DocenteHorariosPanelTests(TestCase):
     def test_docente_class_planning_uses_single_class_docente_override(self):
         reemplazo, reemplazo_user = self.create_docente()
         self.pendiente.docente = reemplazo
-        self.pendiente.save(update_fields=["docente"])
+        self.pendiente.docente_override = True
+        self.pendiente.save(update_fields=["docente", "docente_override"])
 
         self.client.force_login(self.user)
         old_docente_response = self.client.get(
@@ -1274,7 +1341,8 @@ class DocenteHorariosPanelTests(TestCase):
         coordinator = self.create_coordinator()
         reemplazo, _ = self.create_docente()
         self.pendiente.docente = reemplazo
-        self.pendiente.save(update_fields=["docente"])
+        self.pendiente.docente_override = True
+        self.pendiente.save(update_fields=["docente", "docente_override"])
         self.client.force_login(coordinator)
 
         response = self.client.get(

@@ -136,7 +136,8 @@
           <div class="mb-3 planning-docente-field" data-planning-docente-container hidden>
             <label class="form-label" for="docentePlanificacion">Docente</label>
             <select class="form-select" id="docentePlanificacion" name="docente" data-planning-docente disabled>
-              <option value="">Usar asignacion general</option>
+              <option value="">Mantener docente de la materia</option>
+              <option value="__none__">Sin docente</option>
               {% for docente in docentes %}
                 <option value="{{ docente.pk }}">{{ docente.nombre }}</option>
               {% endfor %}
@@ -312,13 +313,18 @@
         }
         if (typeof docenteId !== "undefined") {
           planningDocenteInput.value = docenteId || "";
+        } else {
+          planningDocenteInput.value = "";
         }
       }
 
+      function handlePlanningMateriaChange() {
+        if (!planningMateriaInput) return;
+        setPlanningDocenteControl(planningMateriaInput.value);
+      }
+
       if (planningMateriaInput) {
-        planningMateriaInput.addEventListener("change", function () {
-          setPlanningDocenteControl(this.value);
-        });
+        planningMateriaInput.addEventListener("change", handlePlanningMateriaChange);
       }
 
       if (window.jQuery && jQuery.fn.select2 && planningMateriaInput) {
@@ -333,6 +339,7 @@
             }
           }
         });
+        jQuery(planningMateriaInput).on("change", handlePlanningMateriaChange);
       }
 
       function resetPeriodSwitch(periodAvailable) {

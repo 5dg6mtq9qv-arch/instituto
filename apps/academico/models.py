@@ -918,6 +918,7 @@ class Clase(models.Model):
         null=True,
         related_name="clases_asignadas",
     )
+    docente_override = models.BooleanField(default=False)
     fecha = models.DateField()
     tema = models.ForeignKey(
         "academico.Tema",
