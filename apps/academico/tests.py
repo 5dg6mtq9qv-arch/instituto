@@ -32,6 +32,7 @@ from apps.academico.models import (
     MateriaCurso,
     Periodo,
     PlanificacionDocente,
+    PlanificacionTema,
     ProfesorMateriaCurso,
     Recurso,
     Subtema,
@@ -69,13 +70,21 @@ class DocenteHorariosPanelTests(TestCase):
         self.horario_aula_curso = HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
         self.materia = Materia.objects.create(nombre="Matematicas", nombre_corto="MAT", color="#0f766e")
         self.materia_curso = MateriaCurso.objects.create(materia=self.materia, grupo=self.curso)
-        ProfesorMateriaCurso.objects.create(partner=self.docente, materia_curso=self.materia_curso)
+        self.profesor_materia_curso = ProfesorMateriaCurso.objects.create(
+            partner=self.docente,
+            materia_curso=self.materia_curso,
+        )
         self.planificacion = PlanificacionDocente.objects.create(
             materia_curso=self.materia_curso,
             nombre="Plan base",
         )
         self.tema = Tema.objects.create(planificacion=self.planificacion, nombre="Numeros", orden=1)
         self.subtema = Subtema.objects.create(tema=self.tema, nombre="Suma", orden=1)
+        self.planificacion_tema = PlanificacionTema.objects.create(
+            profesor_materia_curso=self.profesor_materia_curso,
+            tema=self.tema,
+            nombre="Grupo A - Matematicas - Numeros",
+        )
         self.competencia = Competencia.objects.create(nombre="Resolver problemas")
         self.estrategia = Estrategia.objects.create(nombre="Aprendizaje guiado")
         self.recurso = Recurso.objects.create(nombre="Pizarra")
@@ -594,6 +603,18 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "docente-planning-card")
         self.assertEqual(response.context["planificacion_stats"]["total"], 4)
         self.assertEqual(response.context["planificacion_stats"]["por_atender"], 3)
+
+    def test_docente_dashboard_groups_planifications_by_topic(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("academico:docente_horarios"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Planificaciones por tema")
+        self.assertContains(response, self.tema.nombre)
+        self.assertEqual(len(response.context["tema_cards"]), 1)
+        self.assertEqual(response.context["tema_cards"][0]["tema"], self.tema)
+        self.assertEqual(response.context["tema_cards"][0]["available_count"], 3)
 
     def test_docente_calendar_view_renders_week_calendar_and_export_link(self):
         self.client.force_login(self.user)
@@ -1170,11 +1191,318 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "teacher-plan-hero")
         self.assertContains(response, "teacher-submit-panel")
         self.assertContains(response, "Guardar borrador")
-        self.assertContains(response, "Usar disponible")
-        self.assertContains(response, "Crear nuevo")
-        self.assertContains(response, "data-available-select")
+        self.assertContains(response, "teacher-chip-pool")
+        self.assertContains(response, "data-available-chip")
+        self.assertContains(response, "subtemas_nuevos")
         self.assertContains(response, "data-selected-list")
-        self.assertEqual(response.context["planning_total"], 5)
+        self.assertNotContains(response, "Usar disponible")
+        self.assertNotContains(response, "Crear nuevo")
+        self.assertEqual(response.context["planning_total"], 4)
+
+    def test_docente_topic_planning_assigns_available_class(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "assign",
+                "clase_id": self.pendiente.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f"{reverse('academico:docente_tema_planificar', args=[self.planificacion_tema.pk])}#clase-{self.pendiente.pk}",
+        )
+        self.assertEqual(self.pendiente.tema, self.tema)
+        self.assertIsNone(self.pendiente.subtema)
+        self.assertEqual(self.pendiente.get_subtemas_planificados(), [])
+
+    def test_docente_topic_planning_saves_multiple_subtopics_to_assigned_class(self):
+        otro_subtema = Subtema.objects.create(tema=self.tema, nombre="Resta", orden=2)
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "save_class",
+                "clase_id": self.pendiente.pk,
+                "subtema_ids": [self.subtema.pk, otro_subtema.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f"{reverse('academico:docente_tema_planificar', args=[self.planificacion_tema.pk])}#clase-{self.pendiente.pk}",
+        )
+        self.assertEqual(self.pendiente.tema, self.tema)
+        self.assertEqual(self.pendiente.subtema, self.subtema)
+        self.assertEqual(self.pendiente.get_subtemas_planificados(), [self.subtema, otro_subtema])
+
+    def test_docente_topic_planning_renders_summary_cards_for_assigned_class(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "topic-class-summary")
+        self.assertContains(response, "topic-summary-block")
+        self.assertContains(response, "Editar clase")
+        self.assertContains(response, reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]))
+        self.assertContains(response, "from_planificacion_tema")
+        self.assertContains(response, "Envia a revision la clase agregada antes de tomar otra clase")
+        self.assertNotContains(response, "data-topic-class-inline-form")
+        self.assertNotContains(response, "data-open-class-picker")
+        self.assertNotContains(response, "data-class-picker")
+        self.assertNotContains(response, "Tomar clases para este tema")
+
+    def test_docente_topic_planning_creates_new_subtema_from_inline_class(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "save_class",
+                "clase_id": self.pendiente.pk,
+                "subtemas_nuevos": "Multiplicacion de polinomios",
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+        nuevo_subtema = Subtema.objects.get(tema=self.tema, nombre="Multiplicacion de polinomios")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(nuevo_subtema.orden, 2)
+        self.assertEqual(self.pendiente.get_subtemas_planificados(), [nuevo_subtema])
+
+    def test_docente_topic_planning_hides_subtopics_used_by_another_class(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.pendiente.sync_subtemas_planificados([self.subtema])
+        otra_clase = self.create_class_for_date(
+            self.pendiente.fecha + timedelta(days=21),
+            time(10, 0),
+            time(11, 0),
+            aula_nombre="Aula subtema disponible",
+        )
+        otra_clase.tema = self.tema
+        otra_clase.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            HTTP_HOST="localhost",
+        )
+        assigned_slots = response.context["assigned_classes"]
+        otra_clase_slot = next(item for item in assigned_slots if item["clase"] == otra_clase)
+        visible_subtemas = [item["subtema"] for item in otra_clase_slot["subtema_options"]]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(self.subtema, visible_subtemas)
+
+    def test_docente_topic_planning_hides_available_classes_when_subtopics_are_done(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.estado_planificacion = "revision"
+        self.pendiente.save(update_fields=["tema", "estado_planificacion"])
+        self.pendiente.sync_subtemas_planificados([self.subtema])
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["pending_subtema_count"], 0)
+        self.assertEqual(response.context["available_classes"], [])
+        self.assertContains(response, "Todos los subtemas del tema ya fueron planificados.")
+
+    def test_docente_topic_planning_blocks_next_class_until_current_is_sent(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        otra_clase = self.create_class_for_date(
+            self.pendiente.fecha + timedelta(days=21),
+            time(10, 0),
+            time(11, 0),
+            aula_nombre="Aula clase bloqueada",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["available_classes"], [])
+        self.assertContains(response, "Envia a revision la clase agregada antes de tomar otra clase")
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "assign",
+                "clase_id": otra_clase.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        otra_clase.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(otra_clase.tema)
+
+    def test_docente_topic_planning_does_not_assign_more_classes_when_subtopics_are_done(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.pendiente.sync_subtemas_planificados([self.subtema])
+        otra_clase = self.create_class_for_date(
+            self.pendiente.fecha + timedelta(days=21),
+            time(10, 0),
+            time(11, 0),
+            aula_nombre="Aula tema completo",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "assign",
+                "clase_id": otra_clase.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        otra_clase.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(otra_clase.tema)
+
+    def test_docente_topic_planning_does_not_reuse_subtopic_in_another_class(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.pendiente.sync_subtemas_planificados([self.subtema])
+        otra_clase = self.create_class_for_date(
+            self.pendiente.fecha + timedelta(days=21),
+            time(10, 0),
+            time(11, 0),
+            aula_nombre="Aula subtema duplicado",
+        )
+        otra_clase.tema = self.tema
+        otra_clase.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "save_class",
+                "clase_id": otra_clase.pk,
+                "subtema_ids": [self.subtema.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+        otra_clase.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(otra_clase.tema, self.tema)
+        self.assertEqual(otra_clase.get_subtemas_planificados(), [])
+
+    def test_docente_topic_planning_sends_inline_class_to_review(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "send_class",
+                "clase_id": self.pendiente.pk,
+                "subtema_ids": [self.subtema.pk],
+                "competencias_existentes": [self.competencia.pk],
+                "estrategias_existentes": [self.estrategia.pk],
+                "recursos_existentes": [self.recurso.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f"{reverse('academico:docente_tema_planificar', args=[self.planificacion_tema.pk])}#clase-{self.pendiente.pk}",
+        )
+        self.assertEqual(self.pendiente.estado_planificacion, "revision")
+        self.assertEqual(self.pendiente.get_subtemas_planificados(), [self.subtema])
+        self.assertIn(self.competencia, self.pendiente.competencias.all())
+        self.assertIn(self.estrategia, self.pendiente.estrategias.all())
+        self.assertIn(self.recurso, self.pendiente.recursos.all())
+
+    def test_docente_class_planning_from_topic_opens_class_editor(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            {"from_planificacion_tema": self.planificacion_tema.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Planificar clase")
+        self.assertContains(response, self.tema.nombre)
+
+    def test_docente_topic_planning_does_not_take_class_from_other_topic(self):
+        other_topic = Tema.objects.create(planificacion=self.planificacion, nombre="Geometria", orden=2)
+        self.pendiente.tema = other_topic
+        self.pendiente.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "assign",
+                "clase_id": self.pendiente.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.pendiente.tema, other_topic)
+
+    def test_docente_topic_planning_unassigns_draft_class(self):
+        self.pendiente.tema = self.tema
+        self.pendiente.subtema = self.subtema
+        self.pendiente.save(update_fields=["tema", "subtema"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_tema_planificar", args=[self.planificacion_tema.pk]),
+            {
+                "tema_action": "unassign",
+                "clase_id": self.pendiente.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(self.pendiente.tema)
+        self.assertIsNone(self.pendiente.subtema)
+        self.assertEqual(self.pendiente.get_subtemas_planificados(), [])
 
     def test_docente_class_planning_uses_single_class_docente_override(self):
         reemplazo, reemplazo_user = self.create_docente()
@@ -1254,9 +1582,63 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(self.pendiente.estado_planificacion, "revision")
         self.assertEqual(self.pendiente.tema, self.tema)
         self.assertEqual(self.pendiente.subtema, self.subtema)
+        self.assertEqual(self.pendiente.get_subtemas_planificados(), [self.subtema])
         self.assertIn(self.competencia, self.pendiente.competencias.all())
         self.assertIn(self.estrategia, self.pendiente.estrategias.all())
         self.assertIn(self.recurso, self.pendiente.recursos.all())
+
+    def test_docente_class_planning_creates_written_tags_and_subtopics(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            {
+                "from_planificacion_tema": self.planificacion_tema.pk,
+                "plan_action": "send",
+                "tema": self.tema.pk,
+                "subtemas_nuevos": "Terminos semejantes\nPolinomios",
+                "competencias_nuevos": "Opera polinomios con precision",
+                "estrategias_nuevos": "Ejercicios en parejas",
+                "recursos_nuevos": "Guia impresa",
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.pendiente.estado_planificacion, "revision")
+        self.assertEqual(
+            [subtema.nombre for subtema in self.pendiente.get_subtemas_planificados()],
+            ["Terminos semejantes", "Polinomios"],
+        )
+        self.assertTrue(self.pendiente.competencias.filter(nombre="Opera polinomios con precision").exists())
+        self.assertTrue(self.pendiente.estrategias.filter(nombre="Ejercicios en parejas").exists())
+        self.assertTrue(self.pendiente.recursos.filter(nombre="Guia impresa").exists())
+
+    def test_docente_class_planning_returns_to_topic_after_send(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            {
+                "from_tema": self.tema.pk,
+                "from_planificacion_tema": self.planificacion_tema.pk,
+                "plan_action": "send",
+                "tema": self.tema.pk,
+                "subtema": self.subtema.pk,
+                "descripcion": "Desarrollo completo de la clase.",
+                "competencias_existentes": [self.competencia.pk],
+                "estrategias_existentes": [self.estrategia.pk],
+                "recursos_existentes": [self.recurso.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f"{reverse('academico:docente_tema_planificar', args=[self.planificacion_tema.pk])}#clase-{self.pendiente.pk}",
+        )
 
     def test_docente_class_planning_creates_new_resource_with_file(self):
         self.client.force_login(self.user)
@@ -1336,6 +1718,34 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(response.context["selected_estado"], "revision")
         self.assertEqual(len(response.context["revision_cards"]), 1)
         self.assertEqual(response.context["revision_cards"][0]["clase"], self.revision)
+
+    def test_coordinacion_review_dashboard_shows_teacher_topic_and_subject_progress(self):
+        otro_subtema = Subtema.objects.create(tema=self.tema, nombre="Resta", orden=2)
+        self.revision.tema = self.tema
+        self.revision.save(update_fields=["tema"])
+        self.revision.sync_subtemas_planificados([self.subtema])
+        coordinator = self.create_coordinator()
+        self.client.force_login(coordinator)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_revision_planificaciones"),
+            {"docente": self.docente.pk, "estado": "revision"},
+            HTTP_HOST="localhost",
+        )
+        card = response.context["revision_cards"][0]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Historial del docente")
+        self.assertContains(response, "Avance tema")
+        self.assertContains(response, "Avance materia")
+        self.assertEqual(card["topic_progress"]["covered"], 1)
+        self.assertEqual(card["topic_progress"]["total"], 2)
+        self.assertEqual(card["topic_progress"]["progress"], 50)
+        self.assertEqual(card["materia_progress"]["covered"], 1)
+        self.assertEqual(card["materia_progress"]["total"], 2)
+        self.assertEqual(card["materia_progress"]["progress"], 50)
+        self.assertEqual(response.context["docente_history"]["progress"]["progress"], 50)
+        self.assertIn(otro_subtema, list(self.tema.subtemas_planificacion.all()))
 
     def test_coordinacion_review_dashboard_filters_by_docente_override(self):
         coordinator = self.create_coordinator()
@@ -1535,7 +1945,26 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "review-hero-panel")
         self.assertContains(response, "Checklist de revision")
         self.assertContains(response, "review-decision-panel")
-        self.assertEqual(response.context["review_total"], 5)
+        self.assertEqual(response.context["review_total"], 4)
+
+    def test_coordinacion_review_detail_shows_topic_and_subject_progress(self):
+        Subtema.objects.create(tema=self.tema, nombre="Resta", orden=2)
+        self.revision.tema = self.tema
+        self.revision.save(update_fields=["tema"])
+        self.revision.sync_subtemas_planificados([self.subtema])
+        coordinator = self.create_coordinator()
+        self.client.force_login(coordinator)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_revision_planificacion_detalle", args=[self.revision.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Avance del tema")
+        self.assertContains(response, "Avance de la materia")
+        self.assertEqual(response.context["topic_progress"]["progress"], 50)
+        self.assertEqual(response.context["materia_progress"]["progress"], 50)
 
     def test_coordinacion_review_detail_approval_requires_all_sections_checked(self):
         coordinator = self.create_coordinator()
@@ -1560,12 +1989,11 @@ class DocenteHorariosPanelTests(TestCase):
             reverse("academico:coordinacion_revision_planificacion_detalle", args=[self.revision.pk]),
             {
                 "review_action": "rechazar",
-                "notas_revision": "Corregir detalle.",
+                "notas_revision": "Corregir recursos.",
                 "revision_tema_ok": "on",
                 "revision_competencias_ok": "on",
                 "revision_estrategias_ok": "on",
-                "revision_recursos_ok": "on",
-                "observacion_detalle": "Ampliar la explicacion de la clase.",
+                "observacion_recursos": "Agregar un recurso verificable.",
             },
             HTTP_HOST="localhost",
         )
@@ -1573,8 +2001,8 @@ class DocenteHorariosPanelTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.revision.estado_planificacion, "rechazada")
-        self.assertFalse(self.revision.revision_detalle_ok)
+        self.assertFalse(self.revision.revision_recursos_ok)
         self.assertEqual(
             self.revision.observaciones_revision,
-            {"detalle": "Ampliar la explicacion de la clase."},
+            {"recursos": "Agregar un recurso verificable."},
         )

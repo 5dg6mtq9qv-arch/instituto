@@ -51,6 +51,16 @@
         <strong>{{ planning_progress }}%</strong>
       </div>
       <div class="review-meta-item">
+        <span>Avance del tema</span>
+        <strong>{{ topic_progress.progress }}%</strong>
+        <small>{{ topic_progress.covered }}/{{ topic_progress.total }} subtema(s)</small>
+      </div>
+      <div class="review-meta-item">
+        <span>Avance de la materia</span>
+        <strong>{{ materia_progress.progress }}%</strong>
+        <small>{{ materia_progress.covered }}/{{ materia_progress.total }} subtema(s)</small>
+      </div>
+      <div class="review-meta-item">
         <span>Revision marcada</span>
         <strong><span data-review-count>{{ review_checked }}</span>/{{ review_total }}</strong>
       </div>
@@ -85,7 +95,7 @@
           <article class="review-section-card" data-review-card>
             <label class="review-check">
               <input class="form-check-input" type="checkbox" name="revision_tema_ok" data-review-check="tema"{% if clase.revision_tema_ok %} checked{% endif %}>
-              <span>Tema y subtema correctos</span>
+              <span>Tema y subtemas correctos</span>
             </label>
             <div class="review-content-grid">
               <div>
@@ -93,31 +103,19 @@
                 <strong>{{ clase.tema|default:"No seleccionado" }}</strong>
               </div>
               <div>
-                <span>Subtema</span>
-                <strong>{{ clase.subtema|default:"No seleccionado" }}</strong>
+                <span>Subtemas</span>
+                <strong>
+                  {% for subtema in subtemas %}
+                    {{ subtema }}{% if not forloop.last %}, {% endif %}
+                  {% empty %}
+                    No seleccionado
+                  {% endfor %}
+                </strong>
               </div>
             </div>
             <div class="review-observation-panel" data-observation-panel>
               <label class="form-label" for="id_observacion_tema">Observacion para el docente</label>
               <textarea class="form-control" id="id_observacion_tema" name="observacion_tema" rows="3">{{ observaciones_revision.tema|default:"" }}</textarea>
-            </div>
-          </article>
-
-          <article class="review-section-card" data-review-card>
-            <label class="review-check">
-              <input class="form-check-input" type="checkbox" name="revision_detalle_ok" data-review-check="detalle"{% if clase.revision_detalle_ok %} checked{% endif %}>
-              <span>Detalle correcto</span>
-            </label>
-            <div class="review-long-content">
-              {% if clase.descripcion %}
-                {{ clase.descripcion|linebreaksbr }}
-              {% else %}
-                <span class="review-empty-text">Sin detalle registrado.</span>
-              {% endif %}
-            </div>
-            <div class="review-observation-panel" data-observation-panel>
-              <label class="form-label" for="id_observacion_detalle">Observacion para el docente</label>
-              <textarea class="form-control" id="id_observacion_detalle" name="observacion_detalle" rows="3">{{ observaciones_revision.detalle|default:"" }}</textarea>
             </div>
           </article>
 
@@ -203,8 +201,16 @@
             <span data-review-progress style="width: {{ review_progress }}%"></span>
           </div>
           <div class="review-planning-line">
-            <span>Avance del docente</span>
+            <span>Avance de clase</span>
             <strong>{{ planning_progress }}%</strong>
+          </div>
+          <div class="review-planning-line">
+            <span>Avance del tema</span>
+            <strong>{{ topic_progress.progress }}%</strong>
+          </div>
+          <div class="review-planning-line">
+            <span>Avance de materia</span>
+            <strong>{{ materia_progress.progress }}%</strong>
           </div>
           <div class="review-planning-steps">
             {% for item in planning_items %}
@@ -444,7 +450,7 @@
     .review-meta-grid {
       display: grid;
       gap: 12px;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     }
 
     .review-meta-item {
@@ -460,6 +466,13 @@
       display: block;
       font-size: 17px;
       margin-top: 8px;
+    }
+
+    .review-meta-item small {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      margin-top: 4px;
     }
 
     .review-top-alert {

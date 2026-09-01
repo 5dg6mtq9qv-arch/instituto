@@ -8,7 +8,7 @@ from django.http import HttpResponse
 from django.urls import reverse_lazy
 from django.db import connection, transaction
 from django.db.models import Prefetch
-from django.db.models import Count, Min, Q
+from django.db.models import Count, Max, Min, Q
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import ValidationError
@@ -69,6 +69,7 @@ from .models import (
     Periodo,
     PlanificacionClase,
     PlanificacionDocente,
+    PlanificacionTema,
     ProfesorMateriaCurso,
     Pregunta,
     Competencia,
@@ -76,6 +77,7 @@ from .models import (
     Recurso,
     ClaseRecurso,
     Tema,
+    Subtema,
     Temario,
 )
 
@@ -202,6 +204,102 @@ def clase_tiene_docente(clase):
     if clase.docente_override:
         return bool(clase.docente_id)
     return clase.materia_curso.profesor_materia_cursos.exists()
+
+
+def planificacion_tema_nombre(profesor_materia_curso, tema):
+    materia_curso = profesor_materia_curso.materia_curso
+    return f"{materia_curso.grupo} - {materia_curso.materia} - {tema.nombre}"
+
+
+def sync_planificaciones_tema_for_profesor(profesor_materia_curso):
+    temas = Tema.objects.filter(
+        planificacion__materia_curso=profesor_materia_curso.materia_curso
+    ).order_by("orden", "nombre")
+    for tema in temas:
+        nombre = planificacion_tema_nombre(profesor_materia_curso, tema)
+        planificacion, created = PlanificacionTema.objects.get_or_create(
+            profesor_materia_curso=profesor_materia_curso,
+            tema=tema,
+            defaults={"nombre": nombre},
+        )
+        if not created and planificacion.nombre != nombre:
+            planificacion.nombre = nombre
+            planificacion.save(update_fields=["nombre", "updated_at"])
+
+
+def sync_planificaciones_tema_for_materia_curso(materia_curso):
+    for profesor_materia_curso in ProfesorMateriaCurso.objects.select_related(
+        "materia_curso__grupo",
+        "materia_curso__materia",
+    ).filter(materia_curso=materia_curso):
+        sync_planificaciones_tema_for_profesor(profesor_materia_curso)
+
+
+def sync_planificaciones_tema_for_docente(docente):
+    for profesor_materia_curso in ProfesorMateriaCurso.objects.select_related(
+        "materia_curso__grupo",
+        "materia_curso__materia",
+    ).filter(partner=docente):
+        sync_planificaciones_tema_for_profesor(profesor_materia_curso)
+
+
+def clase_subtema_ids(clases, tema=None, exclude_clase=None):
+    ids = set()
+    for clase in clases:
+        if exclude_clase and clase.pk == exclude_clase.pk:
+            continue
+        if tema and clase.tema_id != tema.pk:
+            continue
+        for subtema in clase.get_subtemas_planificados():
+            ids.add(subtema.pk)
+    return ids
+
+
+def planning_percent(done, total):
+    return round((done / total) * 100) if total else 0
+
+
+def topic_temario_progress(materia_curso, tema, docente=None):
+    if not tema:
+        return {"progress": 0, "covered": 0, "total": 0}
+    subtema_ids = set(tema.subtemas_planificacion.values_list("id", flat=True))
+    if not subtema_ids:
+        return {"progress": 0, "covered": 0, "total": 0}
+    clases = (
+        Clase.objects.select_related("tema", "subtema")
+        .prefetch_related("clase_subtemas__subtema")
+        .filter(materia_curso=materia_curso, tema=tema)
+    )
+    if docente:
+        clases = clases.filter(docente_responsable_filter(docente))
+    covered = len(clase_subtema_ids(list(clases.distinct()), tema) & subtema_ids)
+    total = len(subtema_ids)
+    return {
+        "progress": planning_percent(covered, total),
+        "covered": covered,
+        "total": total,
+    }
+
+
+def materia_temario_progress(materia_curso, docente=None):
+    temas = Tema.objects.filter(planificacion__materia_curso=materia_curso)
+    subtema_ids = set(Subtema.objects.filter(tema__in=temas).values_list("id", flat=True))
+    if not subtema_ids:
+        return {"progress": 0, "covered": 0, "total": 0}
+    clases = (
+        Clase.objects.select_related("tema", "subtema")
+        .prefetch_related("clase_subtemas__subtema")
+        .filter(materia_curso=materia_curso, tema__in=temas)
+    )
+    if docente:
+        clases = clases.filter(docente_responsable_filter(docente))
+    covered = len(clase_subtema_ids(list(clases.distinct())) & subtema_ids)
+    total = len(subtema_ids)
+    return {
+        "progress": planning_percent(covered, total),
+        "covered": covered,
+        "total": total,
+    }
 
 
 def clases_sin_docente_queryset(curso=None, start_date=None, end_date=None):
@@ -1164,6 +1262,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         ]
 
     def clear_clase_relations(self, clase):
+        clase.clase_subtemas.all().delete()
         clase.competencias.clear()
         clase.estrategias.clear()
         ClaseRecurso.objects.filter(clase=clase).delete()
@@ -1632,7 +1731,11 @@ class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, 
             if docente_id:
                 docente = get_object_or_404(Partner, pk=docente_id, es_docente=True, activo=True)
                 ProfesorMateriaCurso.objects.filter(materia_curso=materia_curso).exclude(partner=docente).delete()
-                ProfesorMateriaCurso.objects.get_or_create(partner=docente, materia_curso=materia_curso)
+                profesor_materia_curso, _ = ProfesorMateriaCurso.objects.get_or_create(
+                    partner=docente,
+                    materia_curso=materia_curso,
+                )
+                sync_planificaciones_tema_for_profesor(profesor_materia_curso)
                 messages.success(
                     request,
                     f"{docente.nombre} asignado a {materia_curso.grupo} - {materia_curso.materia}.",
@@ -2109,7 +2212,11 @@ class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMi
                 with transaction.atomic():
                     ProfesorMateriaCurso.objects.filter(partner=docente).exclude(materia_curso_id__in=materia_ids).delete()
                     for materia_curso in rows:
-                        ProfesorMateriaCurso.objects.get_or_create(partner=docente, materia_curso=materia_curso)
+                        profesor_materia_curso, _ = ProfesorMateriaCurso.objects.get_or_create(
+                            partner=docente,
+                            materia_curso=materia_curso,
+                        )
+                        sync_planificaciones_tema_for_profesor(profesor_materia_curso)
                 messages.success(request, "Planificacion docente guardada correctamente.")
                 return redirect("academico:planificacion_docente")
 
@@ -2284,6 +2391,7 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
                     tema.subtemas_planificacion.exclude(pk__in=kept_subtema_ids).delete()
 
                 planificacion.temas_planificacion.exclude(pk__in=kept_tema_ids).delete()
+                sync_planificaciones_tema_for_materia_curso(materia_curso)
             messages.success(request, "Temas y subtemas guardados correctamente.")
             return redirect("academico:coordinacion_planificacion_editar", materia_curso_pk=materia_curso.pk)
         return render(request, self.template_name, self.get_context(form, formset, materia_curso, self.get_planificacion(materia_curso)))
@@ -2408,6 +2516,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                     "status_tabs": [],
                     "selected_filter": "trabajo",
                     "selected_filter_label": "",
+                    "tema_cards": [],
                     "planificacion_cards": [],
                 },
             )
@@ -2421,7 +2530,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                 "horario_aula_curso__aula_curso__curso",
                 "horario_aula_curso__horario_dia__horario",
             )
-            .prefetch_related("competencias", "estrategias", "recursos")
+            .prefetch_related("competencias", "estrategias", "recursos", "clase_subtemas__subtema")
             .filter(docente_responsable_filter(docente))
             .distinct()
             .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
@@ -2429,6 +2538,16 @@ class DocenteHorariosView(LoginRequiredMixin, View):
         stats = self.get_planificacion_stats(clases)
         selected_filter = self.get_selected_filter(request.GET.get("estado"), stats)
         status_tabs = self.get_status_tabs(selected_filter, stats)
+        planificaciones_tema = list(self.get_docente_planificaciones_tema_queryset(docente))
+        tema_cards = [
+            self.build_tema_card(planificacion_tema, clases)
+            for planificacion_tema in planificaciones_tema
+        ]
+        tema_cards = [
+            card
+            for card in tema_cards
+            if self.topic_matches_filter(card, selected_filter)
+        ]
         planificacion_cards = [
             self.build_planificacion_card(clase)
             for clase in self.filter_clases(clases, selected_filter)
@@ -2478,6 +2597,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                 "status_tabs": status_tabs,
                 "selected_filter": selected_filter,
                 "selected_filter_label": self.get_filter_label(selected_filter),
+                "tema_cards": tema_cards,
                 "planificacion_cards": planificacion_cards,
             },
         )
@@ -2539,15 +2659,129 @@ class DocenteHorariosView(LoginRequiredMixin, View):
         allowed_states = set(filter_item["states"])
         return [clase for clase in clases if clase.estado_planificacion in allowed_states]
 
+    def get_docente_planificaciones_tema_queryset(self, docente):
+        return (
+            PlanificacionTema.objects.select_related(
+                "profesor_materia_curso__materia_curso__materia",
+                "profesor_materia_curso__materia_curso__grupo",
+                "tema",
+                "tema__planificacion",
+            )
+            .prefetch_related("tema__subtemas_planificacion")
+            .filter(profesor_materia_curso__partner=docente)
+            .order_by(
+                "profesor_materia_curso__materia_curso__grupo__nombre",
+                "profesor_materia_curso__materia_curso__materia__nombre",
+                "tema__orden",
+                "tema__nombre",
+            )
+        )
+
+    def topic_matches_filter(self, card, selected_filter):
+        if selected_filter == "todas":
+            return True
+        if selected_filter == "trabajo":
+            return card["work_count"] > 0
+        return card["stats"].get(selected_filter, 0) > 0
+
+    def build_tema_card(self, planificacion_tema, clases):
+        tema = planificacion_tema.tema
+        materia_curso = planificacion_tema.profesor_materia_curso.materia_curso
+        subtemas = list(tema.subtemas_planificacion.all())
+        topic_classes = [
+            clase
+            for clase in clases
+            if clase.materia_curso_id == materia_curso.pk and clase.tema_id == tema.pk
+        ]
+        covered_subtema_ids = clase_subtema_ids(topic_classes, tema)
+        topic_subtema_ids = {subtema.pk for subtema in subtemas}
+        covered_subtema_count = len(covered_subtema_ids & topic_subtema_ids)
+        pending_subtema_count = max(len(subtemas) - covered_subtema_count, 0)
+        available_classes = [
+            clase
+            for clase in clases
+            if (
+                clase.materia_curso_id == materia_curso.pk
+                and not clase.tema_id
+                and clase.estado_planificacion not in CLASS_ASSIGNMENT_LOCK_STATES
+            )
+        ]
+        assignable_classes = available_classes if not subtemas or pending_subtema_count else []
+        stats = self.empty_topic_stats()
+        stats["total"] = len(topic_classes)
+        for clase in topic_classes:
+            if clase.estado_planificacion in stats:
+                stats[clase.estado_planificacion] += 1
+        work_count = stats["pendiente"] + stats["rechazada"] + len(assignable_classes)
+        status = self.get_topic_status(stats, assignable_classes)
+        upcoming_classes = sorted(
+            assignable_classes + [clase for clase in topic_classes if clase.estado_planificacion in {"pendiente", "rechazada"}],
+            key=lambda item: (item.fecha, item.horario_aula_curso.horario_dia.horario.hora_inicio),
+        )[:3]
+        return {
+            "tema": tema,
+            "planificacion_tema": planificacion_tema,
+            "materia": materia_curso.materia,
+            "grupo": materia_curso.grupo,
+            "detalle": tema.detalle,
+            "subtemas": subtemas,
+            "covered_subtema_count": covered_subtema_count,
+            "pending_subtema_count": pending_subtema_count,
+            "temario_progress": round((covered_subtema_count / len(subtemas)) * 100) if subtemas else 0,
+            "available_count": len(assignable_classes),
+            "assigned_count": len(topic_classes),
+            "work_count": work_count,
+            "stats": stats,
+            "status": status,
+            "status_label": self.get_topic_status_label(status),
+            "progress": round((stats["aprobada"] / stats["total"]) * 100) if stats["total"] else 0,
+            "upcoming_classes": [
+                {
+                    "clase": clase,
+                    "horario": clase.horario_aula_curso.horario_dia.horario,
+                    "aula": clase.horario_aula_curso.aula_curso.aula,
+                    "is_available": not clase.tema_id,
+                }
+                for clase in upcoming_classes
+            ],
+            "url": reverse_lazy("academico:docente_tema_planificar", kwargs={"pk": planificacion_tema.pk}),
+        }
+
+    def empty_topic_stats(self):
+        return {
+            "total": 0,
+            "pendiente": 0,
+            "revision": 0,
+            "rechazada": 0,
+            "aprobada": 0,
+        }
+
+    def get_topic_status(self, stats, available_classes):
+        if stats["rechazada"]:
+            return "rechazada"
+        if stats["revision"]:
+            return "revision"
+        if stats["pendiente"] or available_classes:
+            return "pendiente"
+        if stats["aprobada"]:
+            return "aprobada"
+        return "pendiente"
+
+    def get_topic_status_label(self, status):
+        labels = dict(Clase.ESTADO_PLANIFICACION_CHOICES)
+        if status == "pendiente":
+            return "Por planificar"
+        return labels.get(status, status)
+
     def build_planificacion_card(self, clase):
         horario = clase.horario_aula_curso.horario_dia.horario
         competencias = list(clase.competencias.all())
         estrategias = list(clase.estrategias.all())
         recursos = list(clase.recursos.all())
+        subtemas = clase.get_subtemas_planificados()
         observaciones = clase.observaciones_revision or {}
         steps = [
-            {"label": "Tema", "done": bool(clase.tema_id), "note": observaciones.get("tema", "")},
-            {"label": "Detalle", "done": bool(clase.descripcion), "note": observaciones.get("detalle", "")},
+            {"label": "Tema", "done": bool(clase.tema_id and (subtemas or not clase.tema.subtemas_planificacion.exists())), "note": observaciones.get("tema", "")},
             {"label": "Competencias", "done": bool(competencias), "note": observaciones.get("competencias", "")},
             {"label": "Estrategias", "done": bool(estrategias), "note": observaciones.get("estrategias", "")},
             {"label": "Recursos", "done": bool(recursos), "note": observaciones.get("recursos", "")},
@@ -2569,6 +2803,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             "materia": clase.materia_curso.materia,
             "tema": clase.tema,
             "subtema": clase.subtema,
+            "subtemas": subtemas,
             "steps": steps,
             "completed_steps": completed_steps,
             "progress": round((completed_steps / len(steps)) * 100),
@@ -2616,6 +2851,7 @@ class DocenteCalendarioMixin:
                 "horario_aula_curso__horario_dia__dia",
                 "horario_aula_curso__horario_dia__horario",
             )
+            .prefetch_related("clase_subtemas__subtema")
             .filter(docente_responsable_filter(docente))
             .distinct()
             .order_by(
@@ -2642,7 +2878,7 @@ class DocenteCalendarioMixin:
             "grupo": grupo.nombre,
             "aula": str(aula),
             "tema": str(clase.tema) if clase.tema else "",
-            "subtema": str(clase.subtema) if clase.subtema else "",
+            "subtema": clase.get_subtemas_label(),
             "estado": clase.get_estado_planificacion_display(),
             "color": materia.color,
             "url": str(reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk})),
@@ -2825,6 +3061,489 @@ class DocenteCalendarioExportView(LoginRequiredMixin, DocenteCalendarioMixin, Vi
         if row["subtema"]:
             parts.append(row["subtema"])
         return "\n".join(parts)
+
+
+class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
+    template_name = "academico/docente_tema_planificacion.html"
+
+    def get_docente(self):
+        docente = getattr(self.request.user, "partner", None)
+        if docente and docente.es_docente:
+            return docente
+        return None
+
+    def get_planificacion_tema(self):
+        docente = self.get_docente()
+        if not docente:
+            return get_object_or_404(PlanificacionTema.objects.none(), pk=self.kwargs["pk"])
+        return get_object_or_404(
+            PlanificacionTema.objects.select_related(
+                "profesor_materia_curso__materia_curso__materia",
+                "profesor_materia_curso__materia_curso__grupo",
+                "tema",
+                "tema__planificacion",
+            ).prefetch_related("tema__subtemas_planificacion"),
+            pk=self.kwargs["pk"],
+            profesor_materia_curso__partner=docente,
+        )
+
+    def get(self, request, pk):
+        docente = self.get_docente()
+        planificacion_tema = self.get_planificacion_tema()
+        return render(request, self.template_name, self.get_context(docente, planificacion_tema))
+
+    def post(self, request, pk):
+        docente = self.get_docente()
+        planificacion_tema = self.get_planificacion_tema()
+        action = request.POST.get("tema_action")
+        if action == "assign":
+            return self.assign_class(request, docente, planificacion_tema)
+        if action == "unassign":
+            return self.unassign_class(request, docente, planificacion_tema)
+        if action in {"save_class", "send_class"}:
+            return self.save_class_plan(request, docente, planificacion_tema, send=action == "send_class")
+        messages.error(request, "Accion no valida.")
+        return self.redirect_to_topic(planificacion_tema)
+
+    def redirect_to_topic(self, planificacion_tema, clase=None):
+        url = str(reverse_lazy("academico:docente_tema_planificar", kwargs={"pk": planificacion_tema.pk}))
+        if clase:
+            url = f"{url}#clase-{clase.pk}"
+        return redirect(url)
+
+    def assign_class(self, request, docente, planificacion_tema):
+        tema = planificacion_tema.tema
+        clase = self.get_topic_class(request.POST.get("clase_id"), docente, planificacion_tema)
+        if not clase:
+            messages.error(request, "La clase seleccionada no esta disponible para este tema.")
+            return self.redirect_to_topic(planificacion_tema)
+        if clase.estado_planificacion in CLASS_ASSIGNMENT_LOCK_STATES:
+            messages.error(request, "La clase ya fue enviada o aprobada y no se puede reasignar.")
+            return self.redirect_to_topic(planificacion_tema)
+        if clase.tema_id and clase.tema_id != tema.pk:
+            messages.error(request, "La clase ya esta asignada a otro tema.")
+            return self.redirect_to_topic(planificacion_tema)
+
+        current_assigned_classes = [
+            item
+            for item in self.get_clases_queryset(docente, planificacion_tema)
+            if item.tema_id == tema.pk and item.pk != clase.pk
+        ]
+        used_subtema_ids = self.get_used_subtema_ids(docente, planificacion_tema, exclude_clase=clase)
+        assignment_blocker = self.get_assignment_blocker(tema, current_assigned_classes, used_subtema_ids)
+        if assignment_blocker:
+            messages.info(request, assignment_blocker)
+            return self.redirect_to_topic(planificacion_tema)
+
+        selected_subtemas, invalid_subtemas = self.get_subtemas_from_request(request, tema)
+        if invalid_subtemas:
+            messages.error(request, "Uno o mas subtemas seleccionados no pertenecen al tema.")
+            return self.redirect_to_topic(planificacion_tema)
+        if any(subtema.pk in used_subtema_ids for subtema in selected_subtemas):
+            messages.error(request, "Uno o mas subtemas ya estan asignados a otra clase del tema.")
+            return self.redirect_to_topic(planificacion_tema)
+
+        clase.tema = tema
+        clase.save(update_fields=["tema"])
+        clase.sync_subtemas_planificados(selected_subtemas)
+        messages.success(request, "Clase agregada al tema. Ahora completa su planificacion.")
+        return self.redirect_to_topic(planificacion_tema, clase)
+
+    def unassign_class(self, request, docente, planificacion_tema):
+        tema = planificacion_tema.tema
+        clase = self.get_topic_class(request.POST.get("clase_id"), docente, planificacion_tema)
+        if not clase or clase.tema_id != tema.pk:
+            messages.error(request, "La clase no pertenece a este tema.")
+            return self.redirect_to_topic(planificacion_tema)
+        if clase.estado_planificacion in CLASS_ASSIGNMENT_LOCK_STATES:
+            messages.error(request, "La clase ya fue enviada o aprobada y no se puede liberar.")
+            return self.redirect_to_topic(planificacion_tema, clase)
+        clase.tema = None
+        clase.save(update_fields=["tema"])
+        clase.sync_subtemas_planificados([])
+        messages.success(request, "La clase quedo disponible para otro tema.")
+        return self.redirect_to_topic(planificacion_tema)
+
+    def save_class_plan(self, request, docente, planificacion_tema, send=False):
+        tema = planificacion_tema.tema
+        clase = self.get_topic_class(request.POST.get("clase_id"), docente, planificacion_tema)
+        if not clase or clase.tema_id != tema.pk:
+            messages.error(request, "La clase no pertenece a este tema.")
+            return self.redirect_to_topic(planificacion_tema)
+        if clase.estado_planificacion == "aprobada":
+            messages.error(request, "La planificacion aprobada no se puede editar desde el perfil docente.")
+            return self.redirect_to_topic(planificacion_tema, clase)
+
+        selected_subtemas, invalid_subtemas = self.get_subtemas_from_request(request, tema)
+        if invalid_subtemas:
+            messages.error(request, "Uno o mas subtemas seleccionados no pertenecen al tema.")
+            return self.redirect_to_topic(planificacion_tema, clase)
+        used_subtema_ids = self.get_used_subtema_ids(docente, planificacion_tema, exclude_clase=clase)
+        if any(subtema.pk in used_subtema_ids for subtema in selected_subtemas):
+            messages.error(request, "Uno o mas subtemas ya estan asignados a otra clase del tema.")
+            return self.redirect_to_topic(planificacion_tema, clase)
+
+        selected_subtemas, new_subtema_names = self.resolve_inline_subtemas(
+            tema,
+            selected_subtemas,
+            self.get_inline_new_subtema_names(request),
+        )
+        if any(subtema.pk in used_subtema_ids for subtema in selected_subtemas):
+            messages.error(request, "Uno o mas subtemas ya estan asignados a otra clase del tema.")
+            return self.redirect_to_topic(planificacion_tema, clase)
+
+        ready_errors = self.get_inline_ready_errors(request, tema, selected_subtemas, new_subtema_names) if send else []
+        if ready_errors:
+            for error in ready_errors:
+                messages.error(request, error)
+            return self.redirect_to_topic(planificacion_tema, clase)
+
+        with transaction.atomic():
+            created_subtemas = self.create_inline_subtemas(tema, new_subtema_names)
+            clase.tema = tema
+            clase.save(update_fields=["tema"])
+            clase.sync_subtemas_planificados([*selected_subtemas, *created_subtemas])
+            self.sync_inline_tags(clase.competencias, Competencia, "competencias")
+            self.sync_inline_tags(clase.estrategias, Estrategia, "estrategias")
+            self.sync_inline_tags(clase.recursos, Recurso, "recursos")
+            if send:
+                clase.estado_planificacion = "revision"
+                clase.notas_revision = ""
+                clase.observaciones_revision = {}
+                clase.revisado_por = None
+                clase.fecha_revision = None
+                clase.revision_tema_ok = False
+                clase.revision_detalle_ok = False
+                clase.revision_competencias_ok = False
+                clase.revision_estrategias_ok = False
+                clase.revision_recursos_ok = False
+                clase.save(update_fields=[
+                    "estado_planificacion",
+                    "notas_revision",
+                    "observaciones_revision",
+                    "revisado_por",
+                    "fecha_revision",
+                    "revision_tema_ok",
+                    "revision_detalle_ok",
+                    "revision_competencias_ok",
+                    "revision_estrategias_ok",
+                    "revision_recursos_ok",
+                ])
+            elif clase.estado_planificacion == "revision":
+                clase.estado_planificacion = "pendiente"
+                clase.save(update_fields=["estado_planificacion"])
+
+        if send:
+            messages.success(request, "Planificacion de la clase enviada a revision.")
+        else:
+            messages.success(request, "Planificacion de la clase guardada.")
+        return self.redirect_to_topic(planificacion_tema, clase)
+
+    def get_inline_ready_errors(self, request, tema, selected_subtemas, new_subtema_names=None):
+        new_subtema_names = new_subtema_names or []
+        errors = []
+        if tema.subtemas_planificacion.exists() and not selected_subtemas and not new_subtema_names:
+            errors.append("Selecciona al menos un subtema de la clase.")
+        if not self.has_inline_tag_items(request, "competencias"):
+            errors.append("Selecciona o agrega al menos una competencia.")
+        if not self.has_inline_tag_items(request, "estrategias"):
+            errors.append("Selecciona o agrega al menos una estrategia.")
+        if not self.has_inline_tag_items(request, "recursos"):
+            errors.append("Selecciona o agrega al menos un recurso.")
+        return errors
+
+    def has_inline_tag_items(self, request, prefix):
+        return bool(self.get_inline_selected_ids(request, prefix) or self.get_inline_new_names(request, prefix))
+
+    def get_inline_selected_ids(self, request, prefix):
+        return {
+            int(value)
+            for value in request.POST.getlist(f"{prefix}_existentes")
+            if str(value).isdigit()
+        }
+
+    def get_inline_new_names(self, request, prefix):
+        raw_value = request.POST.get(f"{prefix}_nuevos") or ""
+        names = []
+        for value in raw_value.replace("\n", ",").split(","):
+            name = value.strip()
+            if name and name not in names:
+                names.append(name)
+        return names
+
+    def get_inline_new_subtema_names(self, request):
+        raw_value = request.POST.get("subtemas_nuevos") or ""
+        names = []
+        for value in raw_value.replace("\n", ",").split(","):
+            name = value.strip()
+            if name and name.lower() not in [item.lower() for item in names]:
+                names.append(name)
+        return names
+
+    def resolve_inline_subtemas(self, tema, selected_subtemas, new_subtema_names):
+        resolved = []
+        resolved_ids = set()
+        pending_names = []
+        for subtema in selected_subtemas:
+            if subtema.pk not in resolved_ids:
+                resolved.append(subtema)
+                resolved_ids.add(subtema.pk)
+        for name in new_subtema_names:
+            existing = Subtema.objects.filter(tema=tema, nombre__iexact=name).first()
+            if existing:
+                if existing.pk not in resolved_ids:
+                    resolved.append(existing)
+                    resolved_ids.add(existing.pk)
+                continue
+            if name.lower() not in [item.lower() for item in pending_names]:
+                pending_names.append(name)
+        return resolved, pending_names
+
+    def create_inline_subtemas(self, tema, names):
+        if not names:
+            return []
+        next_order = (Subtema.objects.filter(tema=tema).aggregate(max_order=Max("orden"))["max_order"] or 0) + 1
+        created = []
+        for offset, name in enumerate(names):
+            created.append(Subtema.objects.create(tema=tema, nombre=name, orden=next_order + offset))
+        return created
+
+    def sync_inline_tags(self, relation, model, prefix):
+        selected_ids = self.get_inline_selected_ids(self.request, prefix)
+        for name in self.get_inline_new_names(self.request, prefix):
+            obj, _ = model.objects.get_or_create(nombre=name)
+            selected_ids.add(obj.pk)
+        relation.set(selected_ids)
+
+    def get_topic_class(self, clase_id, docente, planificacion_tema):
+        if not str(clase_id or "").isdigit():
+            return None
+        return self.get_clases_queryset(docente, planificacion_tema).filter(pk=clase_id).first()
+
+    def get_subtemas_from_request(self, request, tema):
+        subtema_ids = request.POST.getlist("subtema_ids")
+        legacy_subtema_id = request.POST.get("subtema_id")
+        if not subtema_ids and legacy_subtema_id:
+            subtema_ids = [legacy_subtema_id]
+        parsed_ids = []
+        for value in subtema_ids:
+            if not str(value or "").isdigit():
+                return [], True
+            subtema_id = int(value)
+            if subtema_id not in parsed_ids:
+                parsed_ids.append(subtema_id)
+        if not parsed_ids:
+            return [], False
+        subtemas = Subtema.objects.filter(pk__in=parsed_ids, tema=tema)
+        subtemas_by_id = {subtema.pk: subtema for subtema in subtemas}
+        if len(subtemas_by_id) != len(parsed_ids):
+            return [], True
+        return [subtemas_by_id[subtema_id] for subtema_id in parsed_ids], False
+
+    def get_used_subtema_ids(self, docente, planificacion_tema, exclude_clase=None):
+        clases = self.get_clases_queryset(docente, planificacion_tema)
+        return clase_subtema_ids(clases, planificacion_tema.tema, exclude_clase=exclude_clase)
+
+    def get_clases_queryset(self, docente, planificacion_tema):
+        materia_curso = planificacion_tema.profesor_materia_curso.materia_curso
+        return (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "docente",
+                "tema",
+                "subtema",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .prefetch_related("competencias", "estrategias", "recursos", "clase_subtemas__subtema")
+            .filter(materia_curso=materia_curso)
+            .filter(docente_responsable_filter(docente))
+            .distinct()
+            .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
+        )
+
+    def get_context(self, docente, planificacion_tema):
+        tema = planificacion_tema.tema
+        materia_curso = planificacion_tema.profesor_materia_curso.materia_curso
+        periodo = self.get_planificacion_periodo(materia_curso)
+        clases = list(self.get_clases_queryset(docente, planificacion_tema)) if docente else []
+        assigned_classes = [clase for clase in clases if clase.tema_id == tema.pk]
+        available_classes = [
+            clase
+            for clase in clases
+            if not clase.tema_id and clase.estado_planificacion not in CLASS_ASSIGNMENT_LOCK_STATES
+        ]
+        occupied_classes = [
+            clase
+            for clase in clases
+            if clase.tema_id and clase.tema_id != tema.pk
+        ]
+        status_counts = {
+            "pendiente": 0,
+            "revision": 0,
+            "rechazada": 0,
+            "aprobada": 0,
+        }
+        for clase in assigned_classes:
+            if clase.estado_planificacion in status_counts:
+                status_counts[clase.estado_planificacion] += 1
+        subtemas = list(tema.subtemas_planificacion.all().order_by("orden", "nombre"))
+        subtema_ids = {subtema.pk for subtema in subtemas}
+        covered_subtema_ids = clase_subtema_ids(assigned_classes, tema) & subtema_ids
+        available_subtemas = [subtema for subtema in subtemas if subtema.pk not in covered_subtema_ids]
+        pending_subtema_count = max(len(subtemas) - len(covered_subtema_ids), 0)
+        assignment_blocker = self.get_assignment_blocker(tema, assigned_classes, covered_subtema_ids)
+        assignable_classes = available_classes if not assignment_blocker else []
+        tag_catalogs = self.get_inline_tag_catalogs()
+        return {
+            "title": "Planificar tema",
+            "docente": docente,
+            "planificacion_tema": planificacion_tema,
+            "tema": tema,
+            "materia_curso": materia_curso,
+            "periodo": periodo,
+            "subtemas": subtemas,
+            "available_subtemas": available_subtemas,
+            "covered_subtema_count": len(covered_subtema_ids),
+            "pending_subtema_count": pending_subtema_count,
+            "temario_progress": round((len(covered_subtema_ids) / len(subtemas)) * 100) if subtemas else 0,
+            "available_classes": [self.build_class_slot(clase, tema, subtemas, covered_subtema_ids, tag_catalogs) for clase in assignable_classes],
+            "assigned_classes": [self.build_class_slot(clase, tema, subtemas, covered_subtema_ids, tag_catalogs) for clase in assigned_classes],
+            "occupied_classes": [self.build_class_slot(clase, tema, subtemas, covered_subtema_ids, tag_catalogs) for clase in occupied_classes],
+            "status_counts": status_counts,
+            "assigned_count": len(assigned_classes),
+            "available_count": len(assignable_classes),
+            "raw_available_count": len(available_classes),
+            "occupied_count": len(occupied_classes),
+            "assignment_blocker": assignment_blocker,
+            "can_add_class": not assignment_blocker and bool(assignable_classes),
+            "approved_progress": round((status_counts["aprobada"] / len(assigned_classes)) * 100) if assigned_classes else 0,
+            "list_url": reverse_lazy("academico:docente_horarios"),
+        }
+
+    def get_assignment_blocker(self, tema, assigned_classes, covered_subtema_ids):
+        unfinished = [
+            clase
+            for clase in assigned_classes
+            if clase.estado_planificacion in {"pendiente", "rechazada"}
+        ]
+        if unfinished:
+            return "Envia a revision la clase agregada antes de tomar otra clase para este tema."
+        subtema_ids = set(tema.subtemas_planificacion.values_list("id", flat=True))
+        if subtema_ids and not (subtema_ids - set(covered_subtema_ids)):
+            return "Todos los subtemas del tema ya fueron planificados."
+        return ""
+
+    def get_inline_tag_catalogs(self):
+        return {
+            "competencias": list(Competencia.objects.order_by("nombre")),
+            "estrategias": list(Estrategia.objects.order_by("nombre")),
+            "recursos": list(Recurso.objects.order_by("nombre")),
+        }
+
+    def get_planificacion_periodo(self, materia_curso):
+        periodos = CursoPeriodo.objects.select_related("periodo").filter(curso=materia_curso.grupo)
+        today = timezone.localdate()
+        active = periodos.filter(periodo__fecha_inicio__lte=today, periodo__fecha_fin__gte=today).order_by(
+            "-periodo__fecha_inicio"
+        ).first()
+        if active:
+            return active.periodo
+        latest = periodos.order_by("-periodo__fecha_inicio").first()
+        return latest.periodo if latest else None
+
+    def build_class_slot(self, clase, tema, subtemas=None, covered_subtema_ids=None, tag_catalogs=None):
+        subtemas = subtemas or []
+        covered_subtema_ids = covered_subtema_ids or set()
+        tag_catalogs = tag_catalogs or self.get_inline_tag_catalogs()
+        horario = clase.horario_aula_curso.horario_dia.horario
+        competencias = list(clase.competencias.all())
+        estrategias = list(clase.estrategias.all())
+        recursos = list(clase.recursos.all())
+        selected_subtemas = clase.get_subtemas_planificados()
+        selected_subtema_ids = {subtema.pk for subtema in selected_subtemas}
+        visible_subtemas = [
+            subtema
+            for subtema in subtemas
+            if subtema.pk in selected_subtema_ids or subtema.pk not in covered_subtema_ids
+        ]
+        observaciones = clase.observaciones_revision or {}
+        steps = [
+            {"label": "Tema", "done": bool(clase.tema_id and (selected_subtemas or not subtemas)), "note": observaciones.get("tema", "")},
+            {"label": "Competencias", "done": bool(competencias), "note": observaciones.get("competencias", "")},
+            {"label": "Estrategias", "done": bool(estrategias), "note": observaciones.get("estrategias", "")},
+            {"label": "Recursos", "done": bool(recursos), "note": observaciones.get("recursos", "")},
+        ]
+        completed_steps = sum(1 for step in steps if step["done"])
+        url = str(reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}))
+        if clase.tema_id == tema.pk:
+            url = f"{url}?{urlencode({'from_planificacion_tema': self.kwargs['pk']})}"
+        return {
+            "clase": clase,
+            "horario": horario,
+            "aula": clase.horario_aula_curso.aula_curso.aula,
+            "estado": clase.estado_planificacion,
+            "estado_label": clase.get_estado_planificacion_display(),
+            "tema": clase.tema,
+            "subtema": clase.subtema,
+            "subtemas": selected_subtemas,
+            "subtemas_label": clase.get_subtemas_label(),
+            "subtema_options": [
+                {
+                    "subtema": subtema,
+                    "selected": subtema.pk in selected_subtema_ids,
+                    "available": True,
+                }
+                for subtema in visible_subtemas
+            ],
+            "tag_groups": self.build_inline_tag_groups(clase, tag_catalogs),
+            "steps": steps,
+            "progress": round((completed_steps / len(steps)) * 100),
+            "url": url,
+            "action_label": self.get_class_action_label(clase),
+            "is_late": clase.fecha < timezone.localdate() and clase.estado_planificacion in {"pendiente", "rechazada"},
+            "is_locked": clase.estado_planificacion in CLASS_ASSIGNMENT_LOCK_STATES,
+            "can_edit": clase.estado_planificacion != "aprobada",
+            "can_unassign": clase.tema_id == tema.pk and clase.estado_planificacion not in CLASS_ASSIGNMENT_LOCK_STATES,
+            "revision_note": clase.notas_revision if clase.estado_planificacion == "rechazada" else "",
+        }
+
+    def build_inline_tag_groups(self, clase, tag_catalogs):
+        specs = (
+            ("Competencias", "competencias", "ri-medal-line", set(clase.competencias.values_list("id", flat=True)), "Nueva competencia"),
+            ("Estrategias", "estrategias", "ri-route-line", set(clase.estrategias.values_list("id", flat=True)), "Nueva estrategia"),
+            ("Recursos", "recursos", "ri-attachment-2", set(clase.recursos.values_list("id", flat=True)), "Nuevo recurso"),
+        )
+        groups = []
+        for title, prefix, icon, selected_ids, placeholder in specs:
+            options = [
+                {
+                    "obj": item,
+                    "selected": item.pk in selected_ids,
+                }
+                for item in tag_catalogs[prefix]
+            ]
+            groups.append(
+                {
+                    "title": title,
+                    "prefix": prefix,
+                    "icon": icon,
+                    "placeholder": placeholder,
+                    "selected_count": len(selected_ids),
+                    "options": options,
+                    "selected_options": [item for item in options if item["selected"]],
+                }
+            )
+        return groups
+
+    def get_class_action_label(self, clase):
+        return {
+            "pendiente": "Editar clase",
+            "revision": "Ver clase",
+            "rechazada": "Corregir clase",
+            "aprobada": "Ver clase",
+        }.get(clase.estado_planificacion, "Abrir")
 
 
 class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
@@ -3632,6 +4351,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                 "competencias",
                 "estrategias",
                 "recursos",
+                "clase_subtemas__subtema",
                 Prefetch("clase_recursos", queryset=ClaseRecurso.objects.select_related("recurso")),
             )
             .filter(docente_responsable_filter(docente)),
@@ -3640,13 +4360,26 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         clase = self.get_clase()
-        form = DocenteClasePlanificacionForm(instance=clase, clase=clase)
+        form = DocenteClasePlanificacionForm(
+            instance=clase,
+            clase=clase,
+            unavailable_subtema_ids=self.get_unavailable_subtema_ids_by_tema(clase),
+        )
+        topic_initial = self.get_topic_initial_from_request(clase)
+        if topic_initial:
+            form.initial.update(topic_initial)
         return render(request, self.template_name, self.get_context(form, clase))
 
     def post(self, request, pk):
         clase = self.get_clase()
         action = request.POST.get("plan_action", "send")
-        form = DocenteClasePlanificacionForm(request.POST, request.FILES, instance=clase, clase=clase)
+        form = DocenteClasePlanificacionForm(
+            request.POST,
+            request.FILES,
+            instance=clase,
+            clase=clase,
+            unavailable_subtema_ids=self.get_unavailable_subtema_ids_by_tema(clase),
+        )
         if action not in {"draft", "send"}:
             messages.error(request, "Accion no valida.")
             return render(request, self.template_name, self.get_context(form, clase))
@@ -3654,6 +4387,17 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             messages.error(request, "La planificacion aprobada no se puede editar desde el perfil docente.")
             return render(request, self.template_name, self.get_context(form, clase))
         if form.is_valid():
+            return_planificacion_tema = self.get_return_planificacion_tema(clase)
+            if return_planificacion_tema and form.cleaned_data.get("tema") != return_planificacion_tema.tema:
+                form.add_error("tema", "Esta clase debe mantenerse dentro del tema de la planificacion abierta.")
+                return render(request, self.template_name, self.get_context(form, clase))
+            new_existing_subtemas, new_subtema_names, subtema_error = self.resolve_class_new_subtemas(
+                form.cleaned_data.get("tema"),
+                clase,
+            )
+            if subtema_error:
+                form.add_error("subtemas_seleccionados", subtema_error)
+                return render(request, self.template_name, self.get_context(form, clase))
             if action == "send":
                 ready_errors = self.get_ready_errors(form)
                 if ready_errors:
@@ -3662,6 +4406,16 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                     return render(request, self.template_name, self.get_context(form, clase))
             with transaction.atomic():
                 clase = form.save()
+                created_subtemas = self.create_class_subtemas(form.cleaned_data.get("tema"), new_subtema_names)
+                extra_subtemas = [*new_existing_subtemas, *created_subtemas]
+                if extra_subtemas:
+                    selected_subtemas = list(clase.get_subtemas_planificados())
+                    selected_subtema_ids = {subtema.pk for subtema in selected_subtemas}
+                    for subtema in extra_subtemas:
+                        if subtema.pk not in selected_subtema_ids:
+                            selected_subtemas.append(subtema)
+                            selected_subtema_ids.add(subtema.pk)
+                    clase.sync_subtemas_planificados(selected_subtemas)
                 self.sync_tags(clase.competencias, Competencia, "competencias")
                 self.sync_tags(clase.estrategias, Estrategia, "estrategias")
                 recurso_ids, new_resources_by_index = self.sync_tags(clase.recursos, Recurso, "recursos")
@@ -3694,22 +4448,153 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                     clase.save(update_fields=["estado_planificacion"])
             if action == "draft":
                 messages.success(request, "Borrador guardado correctamente.")
-                return redirect("academico:docente_clase_planificar", pk=clase.pk)
+                class_url = reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk})
+                return_planificacion_tema = self.get_return_planificacion_tema(clase)
+                if return_planificacion_tema:
+                    topic_url = reverse_lazy("academico:docente_tema_planificar", kwargs={"pk": return_planificacion_tema.pk})
+                    return redirect(f"{topic_url}#clase-{clase.pk}")
+                return redirect(class_url)
             messages.success(request, "Planificacion enviada a revision.")
+            return_planificacion_tema = self.get_return_planificacion_tema(clase)
+            if return_planificacion_tema:
+                topic_url = reverse_lazy("academico:docente_tema_planificar", kwargs={"pk": return_planificacion_tema.pk})
+                return redirect(f"{topic_url}#clase-{clase.pk}")
             return redirect("academico:docente_horarios")
         return render(request, self.template_name, self.get_context(form, clase))
+
+    def get_topic_initial_from_request(self, clase):
+        if clase.tema_id or clase.estado_planificacion == "aprobada":
+            return {}
+        planificacion_tema = self.get_return_planificacion_tema(clase)
+        tema = planificacion_tema.tema if planificacion_tema else None
+        if not tema:
+            tema_id = self.request.GET.get("tema") or self.request.GET.get("from_tema")
+            if not str(tema_id or "").isdigit():
+                return {}
+            tema = Tema.objects.filter(pk=tema_id, planificacion__materia_curso=clase.materia_curso).first()
+        if not tema:
+            return {}
+        initial = {"tema": tema.pk}
+        subtema_ids = self.request.GET.getlist("subtema_ids")
+        legacy_subtema_id = self.request.GET.get("subtema")
+        if not subtema_ids and legacy_subtema_id:
+            subtema_ids = [legacy_subtema_id]
+        parsed_ids = []
+        for subtema_id in subtema_ids:
+            if str(subtema_id or "").isdigit():
+                parsed_ids.append(int(subtema_id))
+        if parsed_ids:
+            subtemas = Subtema.objects.filter(pk__in=parsed_ids, tema=tema)
+            subtemas_by_id = {subtema.pk: subtema for subtema in subtemas}
+            selected = [subtemas_by_id[subtema_id] for subtema_id in parsed_ids if subtema_id in subtemas_by_id]
+            if selected:
+                initial["subtema"] = selected[0].pk
+                initial["subtemas_seleccionados"] = [subtema.pk for subtema in selected]
+        return initial
+
+    def get_return_planificacion_tema(self, clase):
+        docente = getattr(self.request.user, "partner", None)
+        if not docente or not docente.es_docente:
+            return None
+        planificacion_tema_id = self.request.POST.get("from_planificacion_tema") or self.request.GET.get("from_planificacion_tema")
+        queryset = PlanificacionTema.objects.select_related(
+            "tema",
+            "profesor_materia_curso__materia_curso",
+        ).filter(
+            profesor_materia_curso__partner=docente,
+            profesor_materia_curso__materia_curso=clase.materia_curso,
+        )
+        if str(planificacion_tema_id or "").isdigit():
+            planificacion_tema = queryset.filter(pk=planificacion_tema_id).first()
+            if planificacion_tema:
+                return planificacion_tema
+        return_tema = self.get_return_tema(clase)
+        if return_tema:
+            planificacion_tema = queryset.filter(tema=return_tema).first()
+            if planificacion_tema:
+                return planificacion_tema
+        if clase.tema_id:
+            return queryset.filter(tema_id=clase.tema_id).first()
+        return None
+
+    def get_return_tema(self, clase):
+        tema_id = self.request.POST.get("from_tema") or self.request.GET.get("from_tema")
+        if not str(tema_id or "").isdigit():
+            planificacion_tema_id = self.request.POST.get("from_planificacion_tema") or self.request.GET.get("from_planificacion_tema")
+            if str(planificacion_tema_id or "").isdigit():
+                planificacion_tema = PlanificacionTema.objects.select_related("tema").filter(
+                    pk=planificacion_tema_id,
+                    profesor_materia_curso__materia_curso=clase.materia_curso,
+                ).first()
+                if planificacion_tema:
+                    return planificacion_tema.tema
+            return None
+        return Tema.objects.filter(pk=tema_id, planificacion__materia_curso=clase.materia_curso).first()
+
+    def get_form_selected_subtema_ids(self, form, clase):
+        values = []
+        if form.is_bound:
+            values = form.data.getlist("subtemas_seleccionados")
+            if not values:
+                values = form.data.getlist("subtema_ids")
+            legacy_subtema_id = form.data.get("subtema")
+            if not values and legacy_subtema_id:
+                values = [legacy_subtema_id]
+        else:
+            initial = form.initial.get("subtemas_seleccionados") or []
+            if initial:
+                values = initial
+            else:
+                values = [subtema.pk for subtema in clase.get_subtemas_planificados()]
+        selected = []
+        for value in values:
+            value = getattr(value, "pk", value)
+            if str(value or "").isdigit():
+                subtema_id = int(value)
+                if subtema_id not in selected:
+                    selected.append(subtema_id)
+        return selected
+
+    def get_unavailable_subtema_ids_by_tema(self, clase):
+        used_by_tema = self.get_used_subtema_ids_by_tema(clase)
+        ids = set()
+        for subtema_ids in used_by_tema.values():
+            ids.update(subtema_ids)
+        return ids
+
+    def get_used_subtema_ids_by_tema(self, clase):
+        used_by_tema = {}
+        clases = (
+            Clase.objects.select_related("tema", "subtema")
+            .prefetch_related("clase_subtemas__subtema")
+            .filter(materia_curso=clase.materia_curso, tema__isnull=False)
+            .exclude(pk=clase.pk)
+        )
+        for other_clase in clases:
+            if not other_clase.tema_id:
+                continue
+            used_by_tema.setdefault(str(other_clase.tema_id), set()).update(
+                subtema.pk for subtema in other_clase.get_subtemas_planificados()
+            )
+        return used_by_tema
+
+    def tema_requires_subtemas(self, tema):
+        return bool(tema and tema.subtemas_planificacion.exists())
+
+    def form_has_selected_subtemas(self, form):
+        subtemas = list(form.cleaned_data.get("subtemas_seleccionados") or [])
+        legacy_subtema = form.cleaned_data.get("subtema")
+        if legacy_subtema and legacy_subtema not in subtemas:
+            subtemas.append(legacy_subtema)
+        return bool(subtemas or self.get_new_subtema_names())
 
     def get_ready_errors(self, form):
         errors = []
         tema = form.cleaned_data.get("tema")
-        subtema = form.cleaned_data.get("subtema")
-        descripcion = (form.cleaned_data.get("descripcion") or "").strip()
         if not tema:
             errors.append("Selecciona el tema de la clase.")
-        elif tema.subtemas_planificacion.exists() and not subtema:
-            errors.append("Selecciona el subtema de la clase.")
-        if not descripcion:
-            errors.append("Escribe el detalle de la clase.")
+        elif self.tema_requires_subtemas(tema) and not self.form_has_selected_subtemas(form):
+            errors.append("Selecciona al menos un subtema de la clase.")
         if not self.post_has_tag_items("competencias"):
             errors.append("Selecciona o agrega al menos una competencia.")
         if not self.post_has_tag_items("estrategias"):
@@ -3720,6 +4605,51 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
 
     def post_has_tag_items(self, prefix):
         return bool(self.get_selected_tag_ids(prefix) or self.get_new_tag_names(prefix))
+
+    def parse_written_names(self, raw_value):
+        names = []
+        seen = set()
+        for value in (raw_value or "").replace("\r", "\n").replace(",", "\n").splitlines():
+            name = value.strip()
+            key = name.lower()
+            if name and key not in seen:
+                names.append(name)
+                seen.add(key)
+        return names
+
+    def get_new_subtema_names(self):
+        return self.parse_written_names(self.request.POST.get("subtemas_nuevos") or "")
+
+    def resolve_class_new_subtemas(self, tema, clase):
+        names = self.get_new_subtema_names()
+        if not names:
+            return [], [], ""
+        if not tema:
+            return [], [], "Selecciona el tema para crear subtemas nuevos."
+        unavailable_subtema_ids = self.get_unavailable_subtema_ids_by_tema(clase)
+        existing_subtemas = []
+        existing_ids = set()
+        new_names = []
+        for name in names:
+            existing = Subtema.objects.filter(tema=tema, nombre__iexact=name).first()
+            if existing:
+                if existing.pk in unavailable_subtema_ids:
+                    return [], [], f"El subtema {existing.nombre} ya esta asignado a otra clase del tema."
+                if existing.pk not in existing_ids:
+                    existing_subtemas.append(existing)
+                    existing_ids.add(existing.pk)
+                continue
+            new_names.append(name)
+        return existing_subtemas, new_names, ""
+
+    def create_class_subtemas(self, tema, names):
+        if not tema or not names:
+            return []
+        next_order = (Subtema.objects.filter(tema=tema).aggregate(max_order=Max("orden"))["max_order"] or 0) + 1
+        created = []
+        for offset, name in enumerate(names):
+            created.append(Subtema.objects.create(tema=tema, nombre=name, orden=next_order + offset))
+        return created
 
     def get_selected_tag_ids(self, prefix):
         return {
@@ -3767,6 +4697,12 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             delete = self.request.POST.get(f"{prefix}-{index}-DELETE") == "on"
             if name and not delete:
                 items.append({"index": index, "nombre": name})
+        existing_names = {item["nombre"].lower() for item in items}
+        for index, name in enumerate(self.parse_written_names(self.request.POST.get(f"{prefix}_nuevos") or "")):
+            if name.lower() in existing_names:
+                continue
+            items.append({"index": f"typed-{index}", "nombre": name})
+            existing_names.add(name.lower())
         return items
 
     def get_context(self, form, clase):
@@ -3774,9 +4710,14 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
         temas = Tema.objects.filter(planificacion__materia_curso=clase.materia_curso).prefetch_related(
             "subtemas_planificacion"
         ).order_by("orden", "nombre")
+        used_subtema_ids_by_tema = self.get_used_subtema_ids_by_tema(clase)
         subtemas_by_tema = {
             str(tema.pk): [
-                {"id": subtema.pk, "nombre": subtema.nombre}
+                {
+                    "id": subtema.pk,
+                    "nombre": subtema.nombre,
+                    "available": subtema.pk not in used_subtema_ids_by_tema.get(str(tema.pk), set()),
+                }
                 for subtema in tema.subtemas_planificacion.order_by("orden", "nombre")
             ]
             for tema in temas
@@ -3829,6 +4770,11 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                 clase_recursos_by_id,
             ),
         )
+        return_planificacion_tema = self.get_return_planificacion_tema(clase)
+        return_tema = return_planificacion_tema.tema if return_planificacion_tema else self.get_return_tema(clase)
+        cancel_url = reverse_lazy("academico:docente_horarios")
+        if return_planificacion_tema:
+            cancel_url = reverse_lazy("academico:docente_tema_planificar", kwargs={"pk": return_planificacion_tema.pk})
         return {
             "title": "Planificar clase",
             "form": form,
@@ -3836,6 +4782,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             "horario": horario,
             "temas": temas,
             "subtemas_by_tema_json": json.dumps(subtemas_by_tema),
+            "selected_subtema_ids_json": json.dumps(self.get_form_selected_subtema_ids(form, clase)),
             "tag_groups": tag_groups,
             "clase_recursos_by_id": clase_recursos_by_id,
             "observaciones_revision": observaciones,
@@ -3847,27 +4794,38 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             "is_observed": clase.estado_planificacion == "rechazada",
             "is_submitted": clase.estado_planificacion == "revision",
             "can_edit": can_edit,
-            "cancel_url": reverse_lazy("academico:docente_horarios"),
+            "return_tema": return_tema,
+            "return_planificacion_tema": return_planificacion_tema,
+            "cancel_url": cancel_url,
             "attendance_url": reverse_lazy("academico:docente_clase_asistencia", kwargs={"pk": clase.pk}),
         }
 
     def get_planning_items(self, clase, form):
         if form.is_bound:
-            tema_done = bool((form.data.get("tema") or "").strip())
-            descripcion_done = bool((form.data.get("descripcion") or "").strip())
+            tema_id = (form.data.get("tema") or "").strip()
+            tema_has_subtemas = str(tema_id).isdigit() and Tema.objects.filter(
+                pk=tema_id,
+                subtemas_planificacion__isnull=False,
+            ).exists()
+            tema_done = bool(tema_id) and bool(
+                form.data.getlist("subtemas_seleccionados")
+                or form.data.getlist("subtema_ids")
+                or form.data.get("subtema")
+                or self.get_new_subtema_names()
+                or not tema_has_subtemas
+            )
             competencias_done = self.post_has_tag_items("competencias")
             estrategias_done = self.post_has_tag_items("estrategias")
             recursos_done = self.post_has_tag_items("recursos")
         else:
-            tema_done = bool(clase.tema_id)
-            descripcion_done = bool(clase.descripcion)
+            subtemas = clase.get_subtemas_planificados()
+            tema_done = bool(clase.tema_id and (subtemas or not clase.tema.subtemas_planificacion.exists()))
             competencias_done = clase.competencias.exists()
             estrategias_done = clase.estrategias.exists()
             recursos_done = clase.recursos.exists()
         observaciones = clase.observaciones_revision or {}
         return [
             {"key": "tema", "label": "Tema", "done": tema_done, "note": observaciones.get("tema", "")},
-            {"key": "detalle", "label": "Detalle", "done": descripcion_done, "note": observaciones.get("detalle", "")},
             {"key": "competencias", "label": "Competencias", "done": competencias_done, "note": observaciones.get("competencias", "")},
             {"key": "estrategias", "label": "Estrategias", "done": estrategias_done, "note": observaciones.get("estrategias", "")},
             {"key": "recursos", "label": "Recursos", "done": recursos_done, "note": observaciones.get("recursos", "")},
@@ -3909,6 +4867,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             "placeholder": placeholder,
             "revision_note": revision_note,
             "new_entries": self.get_posted_new_tags(prefix) if self.request.method == "POST" else [],
+            "new_text": "\n".join(self.get_new_tag_names(prefix)) if self.request.method == "POST" else "",
             "icon": icon,
             "count_label": count_label,
         }
@@ -3970,15 +4929,17 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
                 | Q(materia_curso__grupo__nombre__icontains=q)
                 | Q(tema__nombre__icontains=q)
                 | Q(subtema__nombre__icontains=q)
+                | Q(clase_subtemas__subtema__nombre__icontains=q)
                 | docente_responsable_search_filter(q)
             )
         clases = list(clases_queryset.distinct())
         stats = self.get_revision_stats(clases)
         selected_estado = self.get_selected_filter(estado, stats)
         revision_cards = [
-            self.build_revision_card(clase)
+            self.build_revision_card(clase, selected_docente)
             for clase in self.filter_clases(clases, selected_estado)
         ]
+        docente_history = self.build_docente_history(clases, selected_docente)
         return render(
             request,
             self.template_name,
@@ -3995,6 +4956,7 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
                 "estado_choices": Clase.ESTADO_PLANIFICACION_CHOICES,
                 "selected_estado": selected_estado,
                 "search_query": q,
+                "docente_history": docente_history,
                 "unassigned_alert": clases_sin_docente_alert(),
             },
         )
@@ -4015,6 +4977,7 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
                 "estrategias",
                 "recursos",
                 "materia_curso__profesor_materia_cursos__partner",
+                "clase_subtemas__subtema",
             )
             .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio", "materia_curso__grupo__nombre")
         )
@@ -4098,16 +5061,19 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
         allowed_states = set(filter_item["states"] or [])
         return [clase for clase in clases if clase.estado_planificacion in allowed_states]
 
-    def build_revision_card(self, clase):
+    def build_revision_card(self, clase, selected_docente=None):
         horario = clase.horario_aula_curso.horario_dia.horario
         docentes = get_clase_docentes(clase)
+        metric_docente = selected_docente if selected_docente in docentes else None
         competencias = list(clase.competencias.all())
         estrategias = list(clase.estrategias.all())
         recursos = list(clase.recursos.all())
+        subtemas = clase.get_subtemas_planificados()
+        topic_progress = topic_temario_progress(clase.materia_curso, clase.tema, metric_docente)
+        materia_progress = materia_temario_progress(clase.materia_curso, metric_docente)
         observaciones = clase.observaciones_revision or {}
         steps = [
-            {"label": "Tema", "done": bool(clase.tema_id), "note": observaciones.get("tema", "")},
-            {"label": "Detalle", "done": bool(clase.descripcion), "note": observaciones.get("detalle", "")},
+            {"label": "Tema", "done": bool(clase.tema_id and (subtemas or not clase.tema.subtemas_planificacion.exists())), "note": observaciones.get("tema", "")},
             {"label": "Competencias", "done": bool(competencias), "note": observaciones.get("competencias", "")},
             {"label": "Estrategias", "done": bool(estrategias), "note": observaciones.get("estrategias", "")},
             {"label": "Recursos", "done": bool(recursos), "note": observaciones.get("recursos", "")},
@@ -4130,6 +5096,9 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
             "docentes": docentes,
             "tema": clase.tema,
             "subtema": clase.subtema,
+            "subtemas": subtemas,
+            "topic_progress": topic_progress,
+            "materia_progress": materia_progress,
             "steps": steps,
             "progress": round((completed_steps / len(steps)) * 100),
             "is_late": self.is_late(clase),
@@ -4137,6 +5106,54 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
             "revision_note": clase.notas_revision if clase.estado_planificacion == "rechazada" else "",
             "action_label": action_labels.get(clase.estado_planificacion, "Abrir"),
             "url": reverse_lazy("academico:coordinacion_revision_planificacion_detalle", kwargs={"pk": clase.pk}),
+        }
+
+    def build_docente_history(self, clases, selected_docente):
+        if not selected_docente:
+            return None
+        materia_cursos = {}
+        for clase in clases:
+            materia_cursos[clase.materia_curso_id] = clase.materia_curso
+        rows = []
+        for materia_curso in sorted(
+            materia_cursos.values(),
+            key=lambda item: (item.grupo.nombre, item.materia.nombre),
+        ):
+            clases_materia = [clase for clase in clases if clase.materia_curso_id == materia_curso.pk]
+            state_counts = {
+                "pendiente": 0,
+                "revision": 0,
+                "rechazada": 0,
+                "aprobada": 0,
+            }
+            topic_ids = set()
+            for clase in clases_materia:
+                if clase.estado_planificacion in state_counts:
+                    state_counts[clase.estado_planificacion] += 1
+                if clase.tema_id:
+                    topic_ids.add(clase.tema_id)
+            progress = materia_temario_progress(materia_curso, selected_docente)
+            rows.append(
+                {
+                    "materia_curso": materia_curso,
+                    "progress": progress,
+                    "state_counts": state_counts,
+                    "class_count": len(clases_materia),
+                    "topic_count": len(topic_ids),
+                }
+            )
+        total_subtemas = sum(row["progress"]["total"] for row in rows)
+        covered_subtemas = sum(row["progress"]["covered"] for row in rows)
+        return {
+            "docente": selected_docente,
+            "rows": rows,
+            "class_count": len(clases),
+            "topic_count": len({clase.tema_id for clase in clases if clase.tema_id}),
+            "progress": {
+                "covered": covered_subtemas,
+                "total": total_subtemas,
+                "progress": planning_percent(covered_subtemas, total_subtemas),
+            },
         }
 
 
@@ -4157,6 +5174,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
                 "competencias",
                 "estrategias",
                 "recursos",
+                "clase_subtemas__subtema",
                 Prefetch("clase_recursos", queryset=ClaseRecurso.objects.select_related("recurso")),
                 "materia_curso__profesor_materia_cursos__partner",
             ),
@@ -4227,8 +5245,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
 
     def review_sections(self):
         return (
-            ("tema", "Tema y subtema"),
-            ("detalle", "Detalle"),
+            ("tema", "Tema y subtemas"),
             ("competencias", "Competencias"),
             ("estrategias", "Estrategias"),
             ("recursos", "Recursos"),
@@ -4247,6 +5264,8 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
     def get_context(self, clase):
         horario = clase.horario_aula_curso.horario_dia.horario
         docentes = get_clase_docentes(clase)
+        metric_docente = docentes[0] if len(docentes) == 1 else None
+        subtemas = clase.get_subtemas_planificados()
         observaciones = clase.observaciones_revision or {}
         review_items = [
             {
@@ -4258,8 +5277,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
             for key, label in self.review_sections()
         ]
         planning_items = [
-            {"label": "Tema", "done": bool(clase.tema_id)},
-            {"label": "Detalle", "done": bool(clase.descripcion)},
+            {"label": "Tema", "done": bool(clase.tema_id and (subtemas or not clase.tema.subtemas_planificacion.exists()))},
             {"label": "Competencias", "done": clase.competencias.exists()},
             {"label": "Estrategias", "done": clase.estrategias.exists()},
             {"label": "Recursos", "done": clase.recursos.exists()},
@@ -4271,6 +5289,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
             "clase": clase,
             "horario": horario,
             "docentes": docentes,
+            "subtemas": subtemas,
             "tiene_docente": bool(docentes),
             "resource_items": self.get_resource_items(clase),
             "review_items": review_items,
@@ -4279,6 +5298,8 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
             "review_progress": round((checked_review_items / len(review_items)) * 100) if review_items else 0,
             "planning_items": planning_items,
             "planning_progress": round((completed_planning_items / len(planning_items)) * 100) if planning_items else 0,
+            "topic_progress": topic_temario_progress(clase.materia_curso, clase.tema, metric_docente),
+            "materia_progress": materia_temario_progress(clase.materia_curso, metric_docente),
             "is_late": clase.fecha < timezone.localdate() and clase.estado_planificacion in {"pendiente", "rechazada"},
             "is_unsent": clase.estado_planificacion == "pendiente",
             "observaciones_revision": observaciones,

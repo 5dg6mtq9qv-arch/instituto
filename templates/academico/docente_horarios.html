@@ -51,10 +51,10 @@
     <section class="panel docente-work-panel">
       <header class="docente-panel-header">
         <div>
-          <span>Planificaciones</span>
+          <span>Planificaciones por tema</span>
           <h2>{{ selected_filter_label }}</h2>
         </div>
-        <strong>{{ planificacion_cards|length }} clase(s)</strong>
+        <strong>{{ tema_cards|length }} tema(s)</strong>
       </header>
 
       <nav class="docente-status-tabs" aria-label="Estados de planificacion">
@@ -67,75 +67,73 @@
         {% endfor %}
       </nav>
 
-      {% if planificacion_cards %}
+      {% if tema_cards %}
         <div class="docente-planning-grid">
-          {% for card in planificacion_cards %}
-            <article class="docente-planning-card estado-{{ card.estado }}{% if card.is_late %} is-late{% endif %}">
+          {% for card in tema_cards %}
+            <article class="docente-planning-card docente-topic-card estado-{{ card.status }}">
               <div class="docente-card-top">
                 <span class="subject-color" style="background: {{ card.materia.color }}"></span>
                 <div>
-                  <h3>{{ card.materia }}</h3>
-                  <p>{{ card.grupo }} · {{ card.aula }}</p>
+                  <h3>{{ card.tema.nombre }}</h3>
+                  <p>{{ card.materia }} · {{ card.grupo }}</p>
                 </div>
-                <span class="status-badge status-{{ card.estado }}">{{ card.estado_label }}</span>
+                <span class="status-badge status-{{ card.status }}">{{ card.status_label }}</span>
               </div>
 
-              <div class="docente-card-meta">
-                <span><i class="ri-calendar-line"></i>{{ card.clase.fecha|date:"d M Y" }}</span>
-                <span><i class="ri-time-line"></i>{{ card.horario.hora_inicio|time:"H:i" }} - {{ card.horario.hora_fin|time:"H:i" }}</span>
-              </div>
-
-              {% if card.tema or card.subtema %}
-                <div class="docente-topic">
-                  {% if card.tema %}<strong>{{ card.tema }}</strong>{% endif %}
-                  {% if card.subtema %}<span>{{ card.subtema }}</span>{% endif %}
-                </div>
+              {% if card.detalle %}
+                <p class="docente-topic-detail">{{ card.detalle }}</p>
               {% endif %}
 
-              <div class="docente-progress-line">
-                <span style="width: {{ card.progress }}%"></span>
+              <div class="docente-card-meta">
+                <span><i class="ri-calendar-check-line"></i>{{ card.assigned_count }} tomada(s)</span>
+                <span><i class="ri-calendar-line"></i>{{ card.available_count }} disponible(s)</span>
+                <span><i class="ri-node-tree"></i>{{ card.covered_subtema_count }}/{{ card.subtemas|length }} subtema(s)</span>
+              </div>
+
+              <div class="docente-topic-compliance">
+                <span>Cumplimiento temario</span>
+                <strong>{{ card.temario_progress }}%</strong>
               </div>
 
               <div class="docente-step-list">
-                {% for step in card.steps %}
-                  <span class="{% if step.done %}is-done{% endif %}{% if step.note %} has-note{% endif %}">
-                    {% if step.done %}
-                      <i class="ri-check-line"></i>
-                    {% elif step.note %}
-                      <i class="ri-error-warning-line"></i>
-                    {% else %}
-                      <i class="ri-close-line"></i>
-                    {% endif %}
-                    {{ step.label }}
-                  </span>
-                {% endfor %}
+                <span class="{% if card.stats.pendiente %}has-note{% endif %}">
+                  <i class="ri-draft-line"></i>
+                  Borrador {{ card.stats.pendiente }}
+                </span>
+                <span class="{% if card.stats.revision %}has-note{% endif %}">
+                  <i class="ri-send-plane-line"></i>
+                  Revision {{ card.stats.revision }}
+                </span>
+                <span class="{% if card.stats.rechazada %}has-note{% endif %}">
+                  <i class="ri-error-warning-line"></i>
+                  Observadas {{ card.stats.rechazada }}
+                </span>
+                <span class="{% if card.stats.aprobada %}is-done{% endif %}">
+                  <i class="ri-checkbox-circle-line"></i>
+                  Aprobadas {{ card.stats.aprobada }}
+                </span>
               </div>
 
-              {% if card.revision_note %}
-                <div class="docente-revision-note">
-                  <strong>Observacion</strong>
-                  <p>{{ card.revision_note }}</p>
+              <div class="docente-progress-line">
+                <span style="width: {{ card.temario_progress }}%"></span>
+              </div>
+
+              {% if card.upcoming_classes %}
+                <div class="docente-topic">
+                  <strong>Proximas clases para trabajar</strong>
+                  {% for item in card.upcoming_classes %}
+                    <span>
+                      {{ item.clase.fecha|date:"d M Y" }} · {{ item.horario.hora_inicio|time:"H:i" }} - {{ item.horario.hora_fin|time:"H:i" }} · {{ item.aula }}
+                      {% if item.is_available %}· libre{% endif %}
+                    </span>
+                  {% endfor %}
                 </div>
               {% endif %}
 
               <div class="docente-card-actions">
-                {% if card.is_late %}
-                  <span class="docente-late-label">Atrasada</span>
-                {% endif %}
-                {% if card.can_take_attendance %}
-                  <a class="btn btn-outline-primary" href="{{ card.attendance_url }}">
-                    <i class="ri-list-check-3"></i>
-                    Asistencia
-                  </a>
-                {% elif card.attendance_closed %}
-                  <span class="docente-closed-label">
-                    <i class="ri-lock-2-line"></i>
-                    Cerrada
-                  </span>
-                {% endif %}
                 <a class="btn btn-primary-600" href="{{ card.url }}">
-                  <i class="ri-edit-2-line"></i>
-                  {{ card.action_label }}
+                  <i class="ri-node-tree"></i>
+                  Abrir planificacion
                 </a>
               </div>
             </article>
@@ -146,7 +144,7 @@
           {% if has_events %}
             Sin clases para este estado.
           {% else %}
-            No tienes clases asignadas.
+            No tienes clases asignadas o temas creados.
           {% endif %}
         </div>
       {% endif %}
@@ -409,6 +407,29 @@
       font-weight: 700;
       gap: 6px;
       padding: 6px 10px;
+    }
+
+    .docente-topic-compliance {
+      align-items: center;
+      background: #ecfdf3;
+      border: 1px solid #86efac;
+      border-radius: 8px;
+      color: #166534;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+      padding: 9px 10px;
+    }
+
+    .docente-topic-compliance span {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .docente-topic-compliance strong {
+      font-size: 18px;
+      line-height: 1;
     }
 
     .docente-topic {

@@ -1,0 +1,1226 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Docente</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-secondary" href="{{ list_url }}">Volver</a>
+    </div>
+  </header>
+
+  {% include "academico/includes/docente_tabs.html" with active_tab="planificaciones" %}
+
+  <div data-topic-planner>
+  <section class="panel topic-plan-hero">
+    <div class="topic-plan-title">
+      <span class="topic-subject-color" style="background: {{ materia_curso.materia.color }}"></span>
+      <div>
+        <span>Tema principal</span>
+        <h2>{{ tema.nombre }}</h2>
+        <div class="topic-fixed-meta">
+          <span><i class="ri-book-open-line"></i>{{ materia_curso.materia }}</span>
+          <span><i class="ri-group-line"></i>{{ materia_curso.grupo }}</span>
+          <span><i class="ri-calendar-event-line"></i>{% if periodo %}{{ periodo.nombre }}{% else %}Sin periodo{% endif %}</span>
+        </div>
+        {% if tema.detalle %}<p>{{ tema.detalle }}</p>{% endif %}
+      </div>
+    </div>
+    <div class="topic-plan-progress">
+      <span>Cumplimiento temario</span>
+      <strong>{{ temario_progress }}%</strong>
+    </div>
+  </section>
+
+  <section class="topic-stats-grid">
+    <div>
+      <span>Clases disponibles</span>
+      <strong>{{ available_count }}</strong>
+    </div>
+    <div>
+      <span>Tomadas por el tema</span>
+      <strong>{{ assigned_count }}</strong>
+    </div>
+    <div>
+      <span>Subtemas cubiertos</span>
+      <strong>{{ covered_subtema_count }}</strong>
+    </div>
+    <div>
+      <span>Subtemas pendientes</span>
+      <strong>{{ pending_subtema_count }}</strong>
+    </div>
+    <div>
+      <span>En revision</span>
+      <strong>{{ status_counts.revision }}</strong>
+    </div>
+    <div>
+      <span>Observadas</span>
+      <strong>{{ status_counts.rechazada }}</strong>
+    </div>
+  </section>
+
+  {% if not subtemas %}
+    <div class="alert alert-warning topic-alert">
+      Este tema no tiene subtemas registrados.
+    </div>
+  {% endif %}
+
+  <section class="panel topic-work-panel topic-classes-panel">
+    <header class="topic-section-header">
+      <div>
+        <span>Clases de esta planificacion</span>
+        <h2>Clases agregadas</h2>
+      </div>
+      <div class="topic-section-actions">
+        <strong>{{ assigned_count }} clase(s)</strong>
+        {% if subtemas and pending_subtema_count == 0 %}
+          <span class="topic-complete-label">
+            <i class="ri-checkbox-circle-line"></i>
+            Tema completo
+          </span>
+        {% elif can_add_class %}
+          <button class="btn btn-primary-600" type="button" data-scroll-to-available>
+            <i class="ri-add-line"></i>
+            Agregar clase a la planificacion
+          </button>
+        {% elif assignment_blocker %}
+          <button class="btn btn-outline-secondary" type="button" disabled>
+            <i class="ri-lock-2-line"></i>
+            Bloqueado
+          </button>
+        {% else %}
+          <button class="btn btn-outline-secondary" type="button" disabled>
+            <i class="ri-calendar-line"></i>
+            Sin clases disponibles
+          </button>
+        {% endif %}
+      </div>
+    </header>
+
+    {% if assigned_classes %}
+      <div class="topic-assigned-grid" data-topic-drop-zone>
+        {% for item in assigned_classes %}
+          <article id="clase-{{ item.clase.pk }}" class="topic-class-card estado-{{ item.estado }}{% if item.is_late %} is-late{% endif %}">
+            <div class="topic-class-summary">
+              <div class="topic-class-time">
+                <span>Clase {{ forloop.counter }}</span>
+                <h3>{{ item.clase.fecha|date:"d M Y" }} · {{ item.horario.hora_inicio|time:"H:i" }}-{{ item.horario.hora_fin|time:"H:i" }}</h3>
+                <p><i class="ri-map-pin-line"></i>{{ item.aula }}</p>
+              </div>
+              <div class="topic-class-state">
+                <span class="status-badge status-{{ item.estado }}">{{ item.estado_label }}</span>
+                <div class="docente-progress-line">
+                  <span style="width: {{ item.progress }}%"></span>
+                </div>
+                <small>{{ item.progress }}% completo</small>
+              </div>
+            </div>
+
+            {% if item.revision_note %}
+              <div class="docente-revision-note">
+                <strong>Observacion</strong>
+                <p>{{ item.revision_note }}</p>
+              </div>
+            {% endif %}
+
+            <div class="topic-class-content-grid">
+              <section class="topic-summary-block is-wide">
+                <span>Subtemas</span>
+                <div class="topic-pill-list">
+                  {% for subtema in item.subtemas %}
+                    <strong>{{ subtema }}</strong>
+                  {% empty %}
+                    <em>Pendiente</em>
+                  {% endfor %}
+                </div>
+              </section>
+              {% for group in item.tag_groups %}
+                <section class="topic-summary-block">
+                  <span>{{ group.title }}</span>
+                  <div class="topic-pill-list">
+                    {% for tag in group.selected_options %}
+                      <strong>{{ tag.obj.nombre }}</strong>
+                    {% empty %}
+                      <em>Pendiente</em>
+                    {% endfor %}
+                  </div>
+                </section>
+              {% endfor %}
+            </div>
+
+            <div class="topic-class-footer">
+              <div class="docente-step-list">
+                {% for step in item.steps %}
+                  <span class="{% if step.done %}is-done{% endif %}{% if step.note %} has-note{% endif %}">
+                    {% if step.done %}
+                      <i class="ri-check-line"></i>
+                    {% elif step.note %}
+                      <i class="ri-error-warning-line"></i>
+                    {% else %}
+                      <i class="ri-close-line"></i>
+                    {% endif %}
+                    {{ step.label }}
+                  </span>
+                {% endfor %}
+              </div>
+            </div>
+
+            <div class="topic-card-actions">
+              <a class="btn btn-outline-primary btn-sm" href="{{ item.url }}">
+                <i class="ri-edit-2-line"></i>
+                {{ item.action_label }}
+              </a>
+              {% if item.can_unassign or item.is_locked %}
+                {% if item.can_unassign %}
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="tema_action" value="unassign">
+                    <input type="hidden" name="clase_id" value="{{ item.clase.pk }}">
+                    <button class="btn btn-outline-danger btn-sm" type="submit">
+                      <i class="ri-close-line"></i>
+                      Liberar
+                    </button>
+                  </form>
+                {% elif item.is_locked %}
+                  <span class="topic-locked-label">
+                    <i class="ri-lock-2-line"></i>
+                    Bloqueada
+                  </span>
+                {% endif %}
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="academic-empty-state" data-topic-drop-zone>Todavia no agregaste clases a esta planificacion.</div>
+    {% endif %}
+
+    {% if subtemas and pending_subtema_count > 0 %}
+      <div class="topic-pending-note">
+        <span>Aun quedan {{ pending_subtema_count }} subtema(s) por distribuir.</span>
+        <div class="topic-pending-chips">
+          {% for subtema in available_subtemas %}
+            <strong>{{ subtema.nombre }}</strong>
+          {% endfor %}
+        </div>
+      </div>
+    {% elif subtemas and pending_subtema_count == 0 %}
+      <div class="topic-pending-note is-complete">
+        Todos los subtemas del tema ya fueron planificados.
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="panel topic-work-panel topic-available-panel" id="clases-disponibles">
+    <header class="topic-section-header">
+      <div>
+        <span>Horario disponible</span>
+        <h2>Clases disponibles</h2>
+      </div>
+      <strong>{{ raw_available_count }} libre(s)</strong>
+    </header>
+
+    {% if assignment_blocker %}
+      <div class="topic-lock-banner">
+        <i class="ri-lock-2-line"></i>
+        <span>{{ assignment_blocker }}</span>
+      </div>
+    {% elif available_classes %}
+      <div class="topic-slot-rail">
+        {% for item in available_classes %}
+          <article class="topic-slot-card is-horizontal" draggable="true" data-topic-slot-card data-clase-id="{{ item.clase.pk }}">
+            <div class="topic-slot-main">
+              <span class="topic-slot-date">Clase disponible</span>
+              <strong>{{ item.clase.fecha|date:"d M Y" }} · {{ item.horario.hora_inicio|time:"H:i" }} - {{ item.horario.hora_fin|time:"H:i" }}</strong>
+              <p>{{ item.aula }}</p>
+            </div>
+            <form method="post" class="topic-slot-form" data-topic-slot-form>
+              {% csrf_token %}
+              <input type="hidden" name="tema_action" value="assign">
+              <input type="hidden" name="clase_id" value="{{ item.clase.pk }}">
+              <button class="btn btn-primary btn-sm" type="submit">
+                <i class="ri-add-line"></i>
+                Agregar clase
+              </button>
+            </form>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="academic-empty-state">No hay clases libres de esta materia en tu horario.</div>
+    {% endif %}
+  </section>
+
+  {% if occupied_classes %}
+    <section class="panel topic-work-panel">
+      <header class="topic-section-header">
+        <div>
+          <span>Otras planificaciones</span>
+          <h2>Clases ocupadas por otros temas</h2>
+        </div>
+        <strong>{{ occupied_count }} clase(s)</strong>
+      </header>
+      <div class="topic-occupied-list">
+        {% for item in occupied_classes %}
+          <div>
+            <span>{{ item.clase.fecha|date:"d M Y" }} · {{ item.horario.hora_inicio|time:"H:i" }} - {{ item.horario.hora_fin|time:"H:i" }}</span>
+            <strong>{{ item.tema }}</strong>
+            {% if item.subtemas %}
+              <em>
+                {% for subtema in item.subtemas %}
+                  {{ subtema }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+              </em>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script>
+    (function () {
+      const planner = document.querySelector("[data-topic-planner]");
+      if (!planner) return;
+
+      const availableSection = planner.querySelector("#clases-disponibles");
+      const scrollButton = planner.querySelector("[data-scroll-to-available]");
+      const dropZones = Array.from(planner.querySelectorAll("[data-topic-drop-zone]"));
+      let draggedCard = null;
+
+      if (scrollButton && availableSection) {
+        scrollButton.addEventListener("click", function () {
+          availableSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
+
+      planner.querySelectorAll("[data-topic-slot-card]").forEach(function (card) {
+        card.addEventListener("dragstart", function (event) {
+          draggedCard = card;
+          card.classList.add("is-dragging");
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", card.dataset.claseId || "");
+        });
+
+        card.addEventListener("dragend", function () {
+          card.classList.remove("is-dragging");
+          dropZones.forEach(function (zone) {
+            zone.classList.remove("is-drop-over");
+          });
+          draggedCard = null;
+        });
+      });
+
+      dropZones.forEach(function (zone) {
+        zone.addEventListener("dragover", function (event) {
+          if (!draggedCard) return;
+          event.preventDefault();
+          zone.classList.add("is-drop-over");
+          event.dataTransfer.dropEffect = "move";
+        });
+
+        zone.addEventListener("dragleave", function (event) {
+          if (!zone.contains(event.relatedTarget)) {
+            zone.classList.remove("is-drop-over");
+          }
+        });
+
+        zone.addEventListener("drop", function (event) {
+          event.preventDefault();
+          zone.classList.remove("is-drop-over");
+          if (!draggedCard) return;
+          const form = draggedCard.querySelector("[data-topic-slot-form]");
+          if (form) form.submit();
+        });
+      });
+    })();
+  </script>
+  <style>
+    .topic-plan-hero {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .topic-plan-title {
+      align-items: center;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 14px minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .topic-subject-color {
+      border-radius: 999px;
+      height: 70px;
+      width: 14px;
+    }
+
+    .topic-plan-title span,
+    .topic-plan-progress span,
+    .topic-stats-grid span,
+    .topic-section-header span,
+    .topic-slot-date,
+    .topic-class-top span,
+    .topic-class-time span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .topic-plan-title h2 {
+      color: #111827;
+      font-size: 30px;
+      line-height: 1.1;
+      margin: 2px 0 6px;
+    }
+
+    .topic-fixed-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 8px 0;
+    }
+
+    .topic-plan-title .topic-fixed-meta span {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 999px;
+      color: #475467;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 700;
+      gap: 6px;
+      padding: 5px 9px;
+      text-transform: none;
+    }
+
+    .topic-plan-title p {
+      color: #475467;
+      margin: 0;
+    }
+
+    .topic-plan-progress {
+      text-align: right;
+    }
+
+    .topic-plan-progress strong {
+      color: #111827;
+      display: block;
+      font-size: 30px;
+      line-height: 1;
+      margin-top: 8px;
+    }
+
+    .topic-stats-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .topic-stats-grid div {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-height: 86px;
+      padding: 14px;
+    }
+
+    .topic-stats-grid strong {
+      color: #111827;
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      margin-top: 12px;
+    }
+
+    .topic-alert {
+      margin-bottom: 16px;
+    }
+
+    .topic-work-panel {
+      margin-bottom: 16px;
+      overflow: visible;
+    }
+
+    .topic-section-header {
+      align-items: center;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .topic-section-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .topic-section-header > strong {
+      color: #475467;
+      font-size: 14px;
+    }
+
+    .topic-section-actions {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .topic-section-actions > strong {
+      color: #475467;
+      font-size: 14px;
+    }
+
+    .topic-section-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 40px;
+    }
+
+    .topic-complete-label {
+      align-items: center;
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      border-radius: 999px;
+      color: #166534;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 6px;
+      padding: 7px 10px;
+      text-transform: uppercase;
+    }
+
+    .topic-slot-grid,
+    .topic-assigned-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .topic-available-panel {
+      background: #ffffff;
+    }
+
+    .topic-slot-rail {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 1fr;
+    }
+
+    .topic-slot-grid {
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    }
+
+    .topic-assigned-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .topic-assigned-grid.is-drop-over,
+    .academic-empty-state.is-drop-over {
+      outline: 2px dashed #0f766e;
+      outline-offset: 4px;
+    }
+
+    .topic-slot-card,
+    .topic-class-card {
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .topic-slot-card.is-horizontal {
+      align-items: center;
+      cursor: grab;
+      grid-template-columns: minmax(0, 1fr) auto;
+      min-height: 82px;
+    }
+
+    .topic-slot-card.is-horizontal:active,
+    .topic-slot-card.is-horizontal.is-dragging {
+      cursor: grabbing;
+    }
+
+    .topic-slot-card.is-dragging {
+      opacity: 0.55;
+    }
+
+    .topic-class-card.estado-pendiente {
+      border-color: #f59e0b;
+    }
+
+    .topic-class-card.estado-rechazada {
+      border-color: #f04438;
+    }
+
+    .topic-class-card.estado-revision {
+      border-color: #38bdf8;
+    }
+
+    .topic-class-card.estado-aprobada {
+      border-color: #22c55e;
+    }
+
+    .topic-slot-main strong,
+    .topic-class-top h3,
+    .topic-class-time h3 {
+      color: #111827;
+      display: block;
+      font-size: 20px;
+      margin: 2px 0 4px;
+    }
+
+    .topic-slot-main p,
+    .topic-class-top p,
+    .topic-class-time p {
+      color: #667085;
+      margin: 0;
+    }
+
+    .topic-slot-form {
+      display: grid;
+      gap: 10px;
+    }
+
+    .topic-slot-card.is-horizontal .topic-slot-form {
+      justify-items: end;
+    }
+
+    .topic-slot-form .btn,
+    .topic-card-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      min-height: 38px;
+    }
+
+    .topic-class-top {
+      align-items: start;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+    }
+
+    .topic-class-summary {
+      align-items: start;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
+    }
+
+    .topic-class-time p {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+    }
+
+    .topic-class-state {
+      display: grid;
+      gap: 8px;
+      justify-items: end;
+      min-width: 0;
+    }
+
+    .topic-class-state .docente-progress-line {
+      width: 100%;
+    }
+
+    .topic-class-state small {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .topic-class-content-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .topic-summary-block {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+      padding: 10px;
+    }
+
+    .topic-summary-block.is-wide {
+      grid-column: span 1;
+    }
+
+    .topic-summary-block > span {
+      color: #667085;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .topic-pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .topic-pill-list strong {
+      background: #ecfdf3;
+      border-radius: 999px;
+      color: #047857;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.2;
+      padding: 5px 8px;
+    }
+
+    .topic-pill-list em {
+      color: #94a3b8;
+      font-size: 12px;
+      font-style: normal;
+      font-weight: 800;
+    }
+
+    .topic-class-footer {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+    }
+
+    .topic-class-editor {
+      border-top: 1px solid #e5e7eb;
+      padding-top: 10px;
+    }
+
+    .topic-class-editor summary {
+      cursor: pointer;
+      display: flex;
+      justify-content: flex-end;
+      list-style: none;
+    }
+
+    .topic-class-editor summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .topic-class-editor summary span {
+      align-items: center;
+      border: 1px solid #2563eb;
+      border-radius: 8px;
+      color: #1d4ed8;
+      display: inline-flex;
+      font-size: 13px;
+      font-weight: 800;
+      gap: 6px;
+      min-height: 38px;
+      padding: 8px 12px;
+    }
+
+    .topic-class-editor[open] summary {
+      margin-bottom: 12px;
+    }
+
+    .topic-class-editor[open] summary span {
+      background: #eff6ff;
+    }
+
+    .topic-class-subtopic {
+      align-items: center;
+      background: #f0fdfa;
+      border: 1px solid #ccfbf1;
+      border-radius: 8px;
+      color: #0f766e;
+      display: flex;
+      font-weight: 800;
+      gap: 8px;
+      padding: 8px 10px;
+    }
+
+    .topic-class-subtopic div {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .topic-class-subtopic span {
+      background: #ffffff;
+      border: 1px solid #99f6e4;
+      border-radius: 999px;
+      color: #0f766e;
+      font-size: 12px;
+      padding: 3px 7px;
+    }
+
+    .topic-class-inline-form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .topic-inline-section {
+      display: grid;
+      gap: 8px;
+    }
+
+    .topic-inline-label,
+    .topic-inline-group header span {
+      color: #475467;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.2;
+      margin: 0;
+      text-transform: uppercase;
+    }
+
+    .topic-inline-check-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .topic-inline-check-grid.is-tags {
+      grid-template-columns: 1fr;
+      max-height: 170px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .topic-inline-check {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      color: #344054;
+      display: flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 8px;
+      line-height: 1.25;
+      min-height: 38px;
+      padding: 8px 10px;
+    }
+
+    .topic-inline-check input {
+      flex: 0 0 auto;
+    }
+
+    .topic-inline-check span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .topic-inline-check.is-selected {
+      background: #ecfdf3;
+      border-color: #86efac;
+      color: #166534;
+    }
+
+    .topic-inline-check.is-unavailable {
+      background: #eef2f7;
+      color: #94a3b8;
+    }
+
+    .topic-inline-empty,
+    .topic-inline-lock {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      color: #64748b;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .topic-inline-lock {
+      align-items: center;
+      border-style: solid;
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      text-align: left;
+    }
+
+    .topic-inline-group-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .topic-inline-group {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 10px;
+      min-width: 0;
+      padding: 10px;
+    }
+
+    .topic-inline-group header {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+    }
+
+    .topic-inline-group header span {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+    }
+
+    .topic-inline-group header strong {
+      background: #eef2ff;
+      border-radius: 999px;
+      color: #3730a3;
+      font-size: 12px;
+      min-width: 24px;
+      padding: 3px 7px;
+      text-align: center;
+    }
+
+    .topic-inline-new-input {
+      min-height: 36px;
+    }
+
+    .topic-pending-note {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      color: #475467;
+      display: grid;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      margin-top: 12px;
+      padding: 12px;
+    }
+
+    .topic-pending-note > span {
+      font-weight: 800;
+    }
+
+    .topic-pending-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .topic-pending-chips strong {
+      background: #ffffff;
+      border: 1px solid #dbe4f0;
+      border-radius: 999px;
+      color: #344054;
+      font-size: 12px;
+      line-height: 1.2;
+      padding: 5px 8px;
+    }
+
+    .topic-pending-note.is-complete {
+      background: #ecfdf3;
+      border-color: #86efac;
+      color: #166534;
+    }
+
+    .topic-lock-banner {
+      align-items: center;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #92400e;
+      display: flex;
+      font-weight: 800;
+      gap: 10px;
+      padding: 12px 14px;
+    }
+
+    .topic-picker-backdrop {
+      background: rgba(15, 23, 42, 0.35);
+      inset: 0;
+      position: fixed;
+      z-index: 1050;
+    }
+
+    .topic-class-picker {
+      background: #ffffff;
+      border-left: 1px solid #d7dee8;
+      box-shadow: -24px 0 40px rgba(15, 23, 42, 0.18);
+      display: grid;
+      gap: 14px;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 100vh;
+      max-width: 430px;
+      overflow: auto;
+      padding: 18px;
+      position: fixed;
+      right: 0;
+      top: 0;
+      width: min(430px, 92vw);
+      z-index: 1060;
+    }
+
+    .topic-class-picker[hidden],
+    .topic-picker-backdrop[hidden] {
+      display: none;
+    }
+
+    .topic-class-picker header {
+      align-items: center;
+      display: flex;
+      gap: 12px;
+      justify-content: space-between;
+    }
+
+    .topic-class-picker header span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .topic-class-picker header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .topic-class-picker .topic-slot-grid {
+      align-content: start;
+      grid-template-columns: 1fr;
+    }
+
+    .topic-picker-close {
+      align-items: center;
+      display: inline-flex;
+      height: 38px;
+      justify-content: center;
+      padding: 0;
+      width: 38px;
+    }
+
+    body.topic-picker-open {
+      overflow: hidden;
+    }
+
+    .docente-progress-line {
+      background: #e5e7eb;
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+    }
+
+    .docente-progress-line span {
+      background: #0f766e;
+      display: block;
+      height: 100%;
+    }
+
+    .docente-step-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .docente-step-list span {
+      align-items: center;
+      background: #f1f5f9;
+      border-radius: 999px;
+      color: #64748b;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 4px;
+      padding: 5px 8px;
+    }
+
+    .docente-step-list span.is-done {
+      background: #ecfdf3;
+      color: #15803d;
+    }
+
+    .docente-step-list span.has-note {
+      background: #fef3c7;
+      color: #b45309;
+    }
+
+    .docente-revision-note {
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      color: #92400e;
+      padding: 10px;
+    }
+
+    .docente-revision-note strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .docente-revision-note p {
+      margin: 0;
+    }
+
+    .topic-card-actions {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: auto;
+    }
+
+    .topic-card-actions.is-secondary {
+      justify-content: flex-start;
+      margin-top: 0;
+    }
+
+    .topic-card-actions form {
+      margin: 0;
+    }
+
+    .topic-locked-label {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #d7dee8;
+      border-radius: 999px;
+      color: #344054;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 6px;
+      padding: 5px 10px;
+    }
+
+    .topic-occupied-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .topic-occupied-list div {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 6px;
+      grid-template-columns: minmax(180px, 0.8fr) minmax(0, 1fr) minmax(0, 1fr);
+      padding: 10px 12px;
+    }
+
+    .topic-occupied-list span {
+      color: #475467;
+      font-weight: 800;
+    }
+
+    .topic-occupied-list strong {
+      color: #111827;
+    }
+
+    .topic-occupied-list em {
+      color: #667085;
+      font-style: normal;
+    }
+
+    .academic-empty-state {
+      background: #ffffff;
+      color: #667085;
+      margin-top: 8px;
+      padding: 28px;
+      text-align: center;
+    }
+
+    @media (max-width: 991.98px) {
+      .topic-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .topic-plan-hero,
+      .topic-section-header,
+      .topic-class-top {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .topic-class-summary,
+      .topic-class-content-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .topic-class-state {
+        justify-items: start;
+        width: 100%;
+      }
+
+      .topic-inline-group-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .topic-section-actions {
+        justify-content: flex-start;
+      }
+
+      .topic-plan-progress {
+        text-align: left;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .topic-stats-grid,
+      .topic-occupied-list div {
+        grid-template-columns: 1fr;
+      }
+
+      .topic-card-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .topic-card-actions form,
+      .topic-card-actions .btn,
+      .topic-section-actions,
+      .topic-section-actions .btn {
+        width: 100%;
+      }
+
+      .topic-slot-card.is-horizontal {
+        align-items: stretch;
+        grid-template-columns: 1fr;
+      }
+
+      .topic-slot-card.is-horizontal .topic-slot-form {
+        justify-items: stretch;
+      }
+
+      .topic-class-picker {
+        max-width: none;
+        width: 100vw;
+      }
+    }
+  </style>
+{% endblock %}

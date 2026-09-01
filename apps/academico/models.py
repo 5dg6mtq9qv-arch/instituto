@@ -936,6 +936,12 @@ class Clase(models.Model):
         null=True,
         related_name="clases",
     )
+    subtemas = models.ManyToManyField(
+        "academico.Subtema",
+        through="academico.ClaseSubtema",
+        blank=True,
+        related_name="clases_asignadas",
+    )
     descripcion = models.TextField(blank=True, null=True)
     competencias = models.ManyToManyField(
         "academico.Competencia",
@@ -992,6 +998,73 @@ class Clase(models.Model):
 
     def __str__(self):
         return f"{self.fecha} - {self.horario_aula_curso} - {self.materia_curso}"
+
+    def get_subtemas_planificados(self):
+        if not self.pk:
+            return []
+        subtemas = [
+            item.subtema
+            for item in self.clase_subtemas.select_related("subtema").order_by(
+                "orden",
+                "subtema__orden",
+                "subtema__nombre",
+            )
+        ]
+        if not subtemas and self.subtema_id:
+            return [self.subtema]
+        return subtemas
+
+    def get_subtemas_label(self):
+        subtemas = self.get_subtemas_planificados()
+        return ", ".join(str(subtema) for subtema in subtemas)
+
+    def sync_subtemas_planificados(self, subtemas):
+        selected = {}
+        for subtema in subtemas:
+            if subtema and subtema.pk not in selected:
+                selected[subtema.pk] = subtema
+        selected_subtemas = list(selected.values())
+        selected_ids = list(selected.keys())
+
+        self.clase_subtemas.exclude(subtema_id__in=selected_ids).delete()
+        for order, subtema in enumerate(selected_subtemas, start=1):
+            relation, created = self.clase_subtemas.get_or_create(
+                subtema=subtema,
+                defaults={"orden": order},
+            )
+            if not created and relation.orden != order:
+                relation.orden = order
+                relation.save(update_fields=["orden"])
+
+        first_subtema_id = selected_ids[0] if selected_ids else None
+        if self.subtema_id != first_subtema_id:
+            self.subtema_id = first_subtema_id
+            self.save(update_fields=["subtema"])
+
+
+class ClaseSubtema(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    clase = models.ForeignKey(
+        Clase,
+        db_column="id_clase",
+        on_delete=models.CASCADE,
+        related_name="clase_subtemas",
+    )
+    subtema = models.ForeignKey(
+        "academico.Subtema",
+        db_column="id_subtema",
+        on_delete=models.CASCADE,
+        related_name="clase_subtemas",
+    )
+    orden = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."clase_subtema"'
+        unique_together = (("clase", "subtema"),)
+        ordering = ["clase", "orden", "subtema"]
+
+    def __str__(self):
+        return f"{self.clase} - {self.subtema}"
 
 
 class ClaseRecurso(models.Model):
@@ -1232,6 +1305,34 @@ class PlanificacionDocente(models.Model):
     class Meta:
         db_table = '"academico"."planificacion"'
         ordering = ["materia_curso", "nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
+class PlanificacionTema(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    profesor_materia_curso = models.ForeignKey(
+        ProfesorMateriaCurso,
+        db_column="id_profesor_materia_curso",
+        on_delete=models.CASCADE,
+        related_name="planificaciones_tema",
+    )
+    tema = models.ForeignKey(
+        "academico.Tema",
+        db_column="id_tema",
+        on_delete=models.CASCADE,
+        related_name="planificaciones_tema",
+    )
+    nombre = models.CharField(max_length=220)
+    descripcion = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = '"academico"."planificacion_tema"'
+        unique_together = (("profesor_materia_curso", "tema"),)
+        ordering = ["profesor_materia_curso", "tema__orden", "tema__nombre"]
 
     def __str__(self):
         return self.nombre

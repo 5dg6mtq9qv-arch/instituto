@@ -19,6 +19,12 @@
 
   <form class="teacher-plan-form" method="post" enctype="multipart/form-data" data-plan-form data-can-edit="{{ can_edit|yesno:'true,false' }}" novalidate>
     {% csrf_token %}
+    {% if return_planificacion_tema %}
+      <input type="hidden" name="from_planificacion_tema" value="{{ return_planificacion_tema.pk }}">
+    {% elif return_tema %}
+      <input type="hidden" name="from_tema" value="{{ return_tema.pk }}">
+    {% endif %}
+    {{ form.descripcion }}
 
     <section class="panel teacher-plan-hero">
       <div class="teacher-plan-title">
@@ -27,6 +33,12 @@
           <span class="teacher-plan-kicker">{{ clase.materia_curso.grupo }}</span>
           <h2>{{ clase.materia_curso.materia }}</h2>
           <p>{{ clase.horario_aula_curso.aula_curso.aula }} · {{ clase.fecha|date:"d M Y" }} · {{ horario.hora_inicio|time:"H:i" }} - {{ horario.hora_fin|time:"H:i" }}</p>
+          {% if return_tema %}
+            <p class="teacher-return-topic">
+              <i class="ri-node-tree"></i>
+              {{ return_tema.nombre }}
+            </p>
+          {% endif %}
         </div>
       </div>
       <div class="teacher-plan-status">
@@ -89,23 +101,45 @@
             <div>
               <span class="teacher-card-icon"><i class="ri-book-open-line"></i></span>
               <div>
-                <h2>Tema y subtema</h2>
+                <h2>Tema y subtemas</h2>
                 <p>Seleccion academica</p>
               </div>
             </div>
             <span class="teacher-step-pill" data-step-state="tema">Pendiente</span>
           </header>
           <div class="teacher-field-grid">
+            {% if return_planificacion_tema %}
+              <div>
+                <label class="form-label">Tema</label>
+                <div class="teacher-fixed-topic">
+                  <i class="ri-node-tree"></i>
+                  <span>{{ return_tema.nombre }}</span>
+                </div>
+                <div class="d-none">{{ form.tema }}</div>
+                {% for error in form.tema.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div>
+                <label class="form-label" for="{{ form.tema.id_for_label }}">Tema</label>
+                {{ form.tema }}
+                {% for error in form.tema.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
             <div>
-              <label class="form-label" for="{{ form.tema.id_for_label }}">Tema</label>
-              {{ form.tema }}
-              {% for error in form.tema.errors %}
+              <label class="form-label">Subtemas</label>
+              {{ form.subtema }}
+              <div class="teacher-subtopic-picker" data-subtopic-picker>
+                <div class="teacher-subtopic-list" data-subtopic-list></div>
+                <p class="teacher-empty-text" data-subtopic-empty>Sin subtemas para seleccionar.</p>
+              </div>
+              <textarea class="form-control teacher-written-tags" name="subtemas_nuevos" data-new-subtopics-textarea placeholder="Nuevo subtema por linea"{% if not can_edit %} disabled{% endif %}>{% if request.method == "POST" %}{{ request.POST.subtemas_nuevos }}{% endif %}</textarea>
+              {% for error in form.subtemas_seleccionados.errors %}
                 <div class="invalid-feedback d-block">{{ error }}</div>
               {% endfor %}
-            </div>
-            <div>
-              <label class="form-label" for="{{ form.subtema.id_for_label }}">Subtema</label>
-              {{ form.subtema }}
               {% for error in form.subtema.errors %}
                 <div class="invalid-feedback d-block">{{ error }}</div>
               {% endfor %}
@@ -115,30 +149,6 @@
             <div class="teacher-review-note">
               <strong>Corregir</strong>
               <p>{{ observaciones_revision.tema }}</p>
-            </div>
-          {% endif %}
-        </section>
-
-        <section class="teacher-editor-card {% if is_observed and observaciones_revision.detalle %}has-review-note{% endif %}" data-plan-step="detalle">
-          <header class="teacher-card-header">
-            <div>
-              <span class="teacher-card-icon"><i class="ri-file-text-line"></i></span>
-              <div>
-                <h2>Detalle de clase</h2>
-                <p>Desarrollo</p>
-              </div>
-            </div>
-            <span class="teacher-step-pill" data-step-state="detalle">Pendiente</span>
-          </header>
-          <label class="form-label" for="{{ form.descripcion.id_for_label }}">Detalle</label>
-          {{ form.descripcion }}
-          {% for error in form.descripcion.errors %}
-            <div class="invalid-feedback d-block">{{ error }}</div>
-          {% endfor %}
-          {% if is_observed and observaciones_revision.detalle %}
-            <div class="teacher-review-note">
-              <strong>Corregir</strong>
-              <p>{{ observaciones_revision.detalle }}</p>
             </div>
           {% endif %}
         </section>
@@ -154,95 +164,57 @@
                     <p><span data-group-count>{{ group.selected_count }}</span> {{ group.count_label }}</p>
                   </div>
                 </div>
-                <div class="teacher-tag-switch" role="group" aria-label="{{ group.title }}">
-                  <button type="button" class="{% if not group.new_entries %}is-active{% endif %}" data-tag-view-trigger="available">
-                    <i class="ri-list-check-2"></i>
-                    Usar disponible
-                  </button>
-                  <button type="button" class="{% if group.new_entries %}is-active{% endif %}" data-tag-view-trigger="new">
-                    <i class="ri-add-line"></i>
-                    Crear nuevo
-                  </button>
-                </div>
+                <span class="teacher-step-pill" data-step-state="{{ group.prefix }}">Pendiente</span>
               </header>
 
-              <div class="teacher-tag-pane {% if not group.new_entries %}is-active{% endif %}" data-tag-pane="available">
-                <div class="teacher-picker-row">
-                  <select class="form-select" data-available-select{% if not can_edit %} disabled{% endif %}>
-                    <option value="">Buscar disponible...</option>
-                    {% for item in group.items %}
-                      <option value="{{ item.obj.pk }}"{% if item.selected %} disabled{% endif %}>{{ item.obj.nombre }}</option>
-                    {% endfor %}
-                  </select>
-                  <button class="btn btn-outline-primary btn-sm" type="button" data-add-existing{% if not can_edit %} disabled{% endif %}>
-                    <i class="ri-add-line"></i>
-                    Agregar
+              <div class="teacher-chip-pool" data-chip-pool>
+                {% for item in group.items %}
+                  <button class="teacher-pool-chip{% if item.selected %} is-selected{% endif %}" type="button" draggable="{% if can_edit %}true{% else %}false{% endif %}" data-available-chip data-tag-id="{{ item.obj.pk }}" data-tag-name="{{ item.obj.nombre }}"{% if not can_edit %} disabled{% endif %}>
+                    <i class="{% if item.selected %}ri-check-line{% else %}ri-add-line{% endif %}"></i>
+                    <span>{{ item.obj.nombre }}</span>
                   </button>
-                </div>
-
-                <div class="teacher-selected-list" data-selected-list>
-                  {% for item in group.items %}
-                    {% if item.selected %}
-                      <div class="teacher-selected-tag" data-selected-tag data-tag-id="{{ item.obj.pk }}">
-                        <input type="checkbox" class="d-none" name="{{ group.prefix }}_existentes" value="{{ item.obj.pk }}" data-tag-check checked{% if not can_edit %} disabled{% endif %}>
-                        <div class="teacher-selected-main">
-                          <span>{{ item.obj.nombre }}</span>
-                          {% if group.prefix == "recursos" and item.clase_recurso and item.clase_recurso.archivo %}
-                            <a class="teacher-file-current" href="{{ item.clase_recurso.archivo.url }}" target="_blank">
-                              <span class="teacher-file-badge file-kind-{{ item.file_meta.kind }}">
-                                <i class="{{ item.file_meta.icon }}"></i>
-                                {{ item.file_meta.label }}
-                              </span>
-                              <span>{{ item.file_meta.filename }}</span>
-                            </a>
-                          {% endif %}
-                        </div>
-                        <button class="btn btn-outline-danger btn-sm" type="button" data-remove-existing aria-label="Quitar"{% if not can_edit %} disabled{% endif %}>
-                          <i class="ri-close-line"></i>
-                        </button>
-                        {% if group.prefix == "recursos" %}
-                          <div class="teacher-file-field is-inline">
-                            <input class="form-control form-control-sm" type="file" name="recurso_archivo_{{ item.obj.pk }}" data-file-input{% if not can_edit %} disabled{% endif %}>
-                            <span class="teacher-upload-preview" data-file-preview hidden>
-                              <i class="ri-file-line"></i>
-                              <span>Archivo seleccionado</span>
-                            </span>
-                          </div>
-                        {% endif %}
-                      </div>
-                    {% endif %}
-                  {% endfor %}
-                  <p class="teacher-empty-text" data-selected-empty{% if group.selected_count %} hidden{% endif %}>Sin seleccionados.</p>
-                </div>
+                {% empty %}
+                  <p class="teacher-empty-text">Sin opciones creadas.</p>
+                {% endfor %}
               </div>
 
-              <div class="teacher-tag-pane {% if group.new_entries %}is-active{% endif %}" data-tag-pane="new">
-                <button class="btn btn-outline-primary btn-sm teacher-add-new-button" type="button" data-add-tag{% if not can_edit %} disabled{% endif %}>
-                  <i class="ri-add-line"></i>
-                  {{ group.add_label }}
-                </button>
-                <div class="teacher-new-stack" data-tag-body>
-                  {% for entry in group.new_entries %}
-                    <div class="teacher-new-row" data-tag-row>
-                      <div class="teacher-new-fields">
-                        <input class="form-control" type="text" name="{{ group.prefix }}-{{ forloop.counter0 }}-nombre" value="{{ entry.nombre }}" placeholder="{{ group.placeholder }}"{% if not can_edit %} disabled{% endif %}>
-                        {% if group.prefix == "recursos" %}
-                          <input class="form-control form-control-sm" type="file" name="{{ group.prefix }}-{{ forloop.counter0 }}-archivo" data-file-input{% if not can_edit %} disabled{% endif %}>
+              <div class="teacher-selected-list" data-selected-list data-drop-label="{{ group.title }}">
+                {% for item in group.items %}
+                  {% if item.selected %}
+                    <div class="teacher-selected-tag" data-selected-tag data-tag-id="{{ item.obj.pk }}">
+                      <input type="checkbox" class="d-none" name="{{ group.prefix }}_existentes" value="{{ item.obj.pk }}" data-tag-check checked{% if not can_edit %} disabled{% endif %}>
+                      <div class="teacher-selected-main">
+                        <span>{{ item.obj.nombre }}</span>
+                        {% if group.prefix == "recursos" and item.clase_recurso and item.clase_recurso.archivo %}
+                          <a class="teacher-file-current" href="{{ item.clase_recurso.archivo.url }}" target="_blank">
+                            <span class="teacher-file-badge file-kind-{{ item.file_meta.kind }}">
+                              <i class="{{ item.file_meta.icon }}"></i>
+                              {{ item.file_meta.label }}
+                            </span>
+                            <span>{{ item.file_meta.filename }}</span>
+                          </a>
+                        {% endif %}
+                      </div>
+                      <button class="btn btn-outline-danger btn-sm" type="button" data-remove-existing aria-label="Quitar"{% if not can_edit %} disabled{% endif %}>
+                        <i class="ri-close-line"></i>
+                      </button>
+                      {% if group.prefix == "recursos" %}
+                        <div class="teacher-file-field is-inline">
+                          <input class="form-control form-control-sm" type="file" name="recurso_archivo_{{ item.obj.pk }}" data-file-input{% if not can_edit %} disabled{% endif %}>
                           <span class="teacher-upload-preview" data-file-preview hidden>
                             <i class="ri-file-line"></i>
                             <span>Archivo seleccionado</span>
                           </span>
-                        {% endif %}
-                      </div>
-                      <input type="checkbox" name="{{ group.prefix }}-{{ forloop.counter0 }}-DELETE" class="d-none" data-tag-delete>
-                      <button class="btn btn-outline-danger btn-sm" type="button" data-remove-tag aria-label="Eliminar"{% if not can_edit %} disabled{% endif %}>
-                        <i class="ri-delete-bin-line"></i>
-                      </button>
+                        </div>
+                      {% endif %}
                     </div>
-                  {% endfor %}
-                  <input type="hidden" name="{{ group.prefix }}-TOTAL_FORMS" value="{{ group.new_entries|length }}" data-tag-total>
-                </div>
+                  {% endif %}
+                {% endfor %}
+                <p class="teacher-empty-text" data-selected-empty{% if group.selected_count %} hidden{% endif %}>Sin seleccionados.</p>
               </div>
+
+              <textarea class="form-control teacher-written-tags" name="{{ group.prefix }}_nuevos" data-new-tags-textarea placeholder="{{ group.placeholder }} por linea"{% if not can_edit %} disabled{% endif %}>{{ group.new_text }}</textarea>
+              <input type="hidden" name="{{ group.prefix }}-TOTAL_FORMS" value="0" data-tag-total>
 
               {% if is_observed and group.revision_note %}
                 <div class="teacher-review-note">
@@ -314,13 +286,18 @@
       const subtemasByTema = {{ subtemas_by_tema_json|safe }};
       const canEdit = form.dataset.canEdit === "true";
       const temaSelect = document.getElementById("{{ form.tema.id_for_label }}");
-      const subtemaSelect = document.getElementById("{{ form.subtema.id_for_label }}");
-      const descripcion = document.getElementById("{{ form.descripcion.id_for_label }}");
-      const selectedSubtema = "{{ form.subtema.value|default:'' }}";
+      const legacySubtemaInput = document.getElementById("{{ form.subtema.id_for_label }}");
+      const subtopicList = form.querySelector("[data-subtopic-list]");
+      const subtopicEmpty = form.querySelector("[data-subtopic-empty]");
+      const initialSelectedSubtemaIds = new Set(({{ selected_subtema_ids_json|safe }} || []).map(function (value) {
+        return String(value);
+      }));
       const indicators = Array.from(form.querySelectorAll("[data-plan-indicator]"));
       const counters = Array.from(form.querySelectorAll("[data-plan-count]"));
       const progressBar = form.querySelector("[data-plan-progress]");
       const inlineAlert = form.querySelector("[data-plan-inline-alert]");
+      let draggedChip = null;
+      let draggedSubtopic = null;
 
       function setAlert(message) {
         if (!inlineAlert) return;
@@ -328,18 +305,54 @@
         inlineAlert.hidden = !message;
       }
 
-      function renderSubtemas(keepCurrent) {
-        if (!temaSelect || !subtemaSelect) return;
-        const currentValue = keepCurrent ? (subtemaSelect.value || selectedSubtema) : "";
-        const subtemas = subtemasByTema[temaSelect.value] || [];
-        subtemaSelect.innerHTML = '<option value="">---------</option>';
-        subtemas.forEach(function (subtema) {
-          const option = document.createElement("option");
-          option.value = subtema.id;
-          option.textContent = subtema.nombre;
-          if (String(subtema.id) === String(currentValue)) option.selected = true;
-          subtemaSelect.appendChild(option);
+      function getCheckedSubtemaIds() {
+        return Array.from(form.querySelectorAll("[data-subtopic-check]")).filter(function (input) {
+          return input.checked;
+        }).map(function (input) {
+          return String(input.value);
         });
+      }
+
+      function syncLegacySubtema() {
+        if (!legacySubtemaInput) return;
+        legacySubtemaInput.value = getCheckedSubtemaIds()[0] || "";
+      }
+
+      function writtenNames(selector) {
+        const field = form.querySelector(selector);
+        if (!field) return [];
+        const seen = new Set();
+        return String(field.value || "")
+          .replace(/\r/g, "\n")
+          .replace(/,/g, "\n")
+          .split(/\n+/)
+          .map(function (value) { return value.trim(); })
+          .filter(function (value) {
+            const key = value.toLowerCase();
+            if (!value || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+      }
+
+      function renderSubtemas(keepCurrent) {
+        if (!temaSelect || !subtopicList) return;
+        const currentValues = keepCurrent ? new Set(getCheckedSubtemaIds().concat(Array.from(initialSelectedSubtemaIds))) : new Set();
+        const subtemas = subtemasByTema[temaSelect.value] || [];
+        subtopicList.innerHTML = "";
+        subtemas.forEach(function (subtema) {
+          const id = String(subtema.id);
+          const checked = currentValues.has(id);
+          const available = subtema.available !== false || checked;
+          subtopicList.insertAdjacentHTML("beforeend", `
+            <label class="teacher-subtopic-option${available ? "" : " is-unavailable"}" draggable="${canEdit && available ? "true" : "false"}" data-subtopic-option>
+              <input class="form-check-input" type="checkbox" name="subtemas_seleccionados" value="${escapeHtml(id)}" data-subtopic-check${checked ? " checked" : ""}${canEdit && available ? "" : " disabled"}>
+              <span>${escapeHtml(subtema.nombre)}${available ? "" : " · asignado"}</span>
+            </label>
+          `);
+        });
+        if (subtopicEmpty) subtopicEmpty.hidden = Boolean(subtemas.length);
+        syncLegacySubtema();
       }
 
       function visibleNewInputs(group) {
@@ -360,13 +373,17 @@
         const created = visibleNewInputs(group).filter(function (input) {
           return input.value.trim();
         }).length;
-        return checked + created;
+        return checked + created + writtenNames(`[name="${prefix}_nuevos"]`).length;
       }
 
       function stepStatus() {
+        const selectedTema = temaSelect ? temaSelect.value : "";
+        const temaSubtemas = subtemasByTema[selectedTema] || [];
+        const hasTopicReady = Boolean(selectedTema) && (
+          !temaSubtemas.length || getCheckedSubtemaIds().length > 0 || writtenNames("[name='subtemas_nuevos']").length > 0
+        );
         return {
-          tema: Boolean(temaSelect && temaSelect.value),
-          detalle: Boolean(descripcion && descripcion.value.trim()),
+          tema: hasTopicReady,
           competencias: tagCount("competencias") > 0,
           estrategias: tagCount("estrategias") > 0,
           recursos: tagCount("recursos") > 0,
@@ -380,6 +397,10 @@
           .replace(/>/g, "&gt;")
           .replace(/"/g, "&quot;")
           .replace(/'/g, "&#039;");
+      }
+
+      function cssAttrValue(value) {
+        return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
       }
 
       function findSelectedTag(group, id) {
@@ -396,6 +417,33 @@
           return input && input.checked;
         });
         empty.hidden = hasSelected;
+      }
+
+      function updateAvailableChip(group, id, selected) {
+        const chip = group.querySelector(`[data-available-chip][data-tag-id="${cssAttrValue(id)}"]`);
+        if (!chip) return;
+        chip.classList.toggle("is-selected", selected);
+        const icon = chip.querySelector("i");
+        if (icon) icon.className = selected ? "ri-check-line" : "ri-add-line";
+      }
+
+      function selectExistingTag(group, id, name) {
+        if (!canEdit || !group || !id) return;
+        const list = group.querySelector("[data-selected-list]");
+        const existingTag = findSelectedTag(group, id);
+        if (existingTag) {
+          existingTag.querySelector("[data-tag-check]").checked = true;
+          existingTag.hidden = false;
+        } else if (list) {
+          list.insertAdjacentHTML(
+            "beforeend",
+            selectedTagTemplate(group.dataset.tagGroup, id, name)
+          );
+        }
+        updateAvailableChip(group, id, true);
+        updateSelectedEmpty(group);
+        setAlert("");
+        syncPlan();
       }
 
       function selectedTagTemplate(prefix, id, name) {
@@ -510,8 +558,6 @@
         setAlert("");
         syncPlan();
       });
-      subtemaSelect?.addEventListener("change", syncPlan);
-      descripcion?.addEventListener("input", syncPlan);
 
       form.querySelectorAll("[data-tag-group]").forEach(function (group) {
         updateSelectedEmpty(group);
@@ -524,6 +570,13 @@
           syncFilePreview(fileInput);
           return;
         }
+        const subtopicCheck = event.target.closest("[data-subtopic-check]");
+        if (subtopicCheck) {
+          syncLegacySubtema();
+          setAlert("");
+          syncPlan();
+          return;
+        }
         const input = event.target.closest("[data-tag-check]");
         if (!input) return;
         setAlert("");
@@ -531,12 +584,24 @@
       });
 
       document.addEventListener("input", function (event) {
+        if (event.target.closest("[data-new-tags-textarea], [data-new-subtopics-textarea]")) {
+          setAlert("");
+          syncPlan();
+          return;
+        }
         if (!event.target.closest("[data-tag-row]")) return;
         setAlert("");
         syncPlan();
       });
 
       document.addEventListener("click", function (event) {
+        const chip = event.target.closest("[data-available-chip]");
+        if (chip) {
+          const group = chip.closest("[data-tag-group]");
+          selectExistingTag(group, chip.dataset.tagId, chip.dataset.tagName || chip.textContent.trim());
+          return;
+        }
+
         const viewButton = event.target.closest("[data-tag-view-trigger]");
         if (viewButton) {
           const group = viewButton.closest("[data-tag-group]");
@@ -580,6 +645,7 @@
           });
           if (input) input.checked = false;
           if (option) option.disabled = false;
+          updateAvailableChip(group, tag.dataset.tagId, false);
           tag.hidden = true;
           updateSelectedEmpty(group);
           setAlert("");
@@ -633,6 +699,74 @@
           }
           updateSelectedEmpty(removeButton.closest("[data-tag-group]"));
           syncPlan();
+        }
+      });
+
+      document.addEventListener("dragstart", function (event) {
+        const chip = event.target.closest("[data-available-chip]");
+        if (chip && canEdit) {
+          draggedChip = chip;
+          chip.classList.add("is-dragging");
+          event.dataTransfer.effectAllowed = "copy";
+          event.dataTransfer.setData("text/plain", chip.dataset.tagId || "");
+          return;
+        }
+        const subtopic = event.target.closest("[data-subtopic-option]");
+        if (subtopic && canEdit) {
+          draggedSubtopic = subtopic;
+          subtopic.classList.add("is-dragging");
+          event.dataTransfer.effectAllowed = "copy";
+          event.dataTransfer.setData("text/plain", subtopic.querySelector("[data-subtopic-check]")?.value || "");
+        }
+      });
+
+      document.addEventListener("dragend", function () {
+        draggedChip?.classList.remove("is-dragging");
+        draggedSubtopic?.classList.remove("is-dragging");
+        form.querySelectorAll(".is-drop-over").forEach(function (item) {
+          item.classList.remove("is-drop-over");
+        });
+        draggedChip = null;
+        draggedSubtopic = null;
+      });
+
+      document.addEventListener("dragover", function (event) {
+        const selectedList = event.target.closest("[data-selected-list]");
+        const subtopicPicker = event.target.closest("[data-subtopic-picker]");
+        if ((draggedChip && selectedList) || (draggedSubtopic && subtopicPicker)) {
+          event.preventDefault();
+          (selectedList || subtopicPicker).classList.add("is-drop-over");
+          event.dataTransfer.dropEffect = "copy";
+        }
+      });
+
+      document.addEventListener("dragleave", function (event) {
+        const target = event.target.closest("[data-selected-list], [data-subtopic-picker]");
+        if (target && !target.contains(event.relatedTarget)) {
+          target.classList.remove("is-drop-over");
+        }
+      });
+
+      document.addEventListener("drop", function (event) {
+        const selectedList = event.target.closest("[data-selected-list]");
+        if (draggedChip && selectedList) {
+          event.preventDefault();
+          selectedList.classList.remove("is-drop-over");
+          const group = selectedList.closest("[data-tag-group]");
+          selectExistingTag(group, draggedChip.dataset.tagId, draggedChip.dataset.tagName || draggedChip.textContent.trim());
+          return;
+        }
+        const subtopicPicker = event.target.closest("[data-subtopic-picker]");
+        if (draggedSubtopic && subtopicPicker) {
+          event.preventDefault();
+          subtopicPicker.classList.remove("is-drop-over");
+          const input = draggedSubtopic.querySelector("[data-subtopic-check]");
+          if (input && !input.disabled) {
+            input.checked = true;
+            syncLegacySubtema();
+            setAlert("");
+            syncPlan();
+          }
         }
       });
 
@@ -708,6 +842,14 @@
       font-size: 14px;
       font-weight: 700;
       margin: 0;
+    }
+
+    .teacher-plan-title .teacher-return-topic {
+      align-items: center;
+      color: #0f766e;
+      display: inline-flex;
+      gap: 6px;
+      margin-top: 6px;
     }
 
     .teacher-plan-status {
@@ -884,6 +1026,68 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .teacher-fixed-topic {
+      align-items: center;
+      background: #ecfdf3;
+      border: 1px solid #86efac;
+      border-radius: 8px;
+      color: #166534;
+      display: flex;
+      font-weight: 900;
+      gap: 8px;
+      min-height: 44px;
+      padding: 8px 10px;
+    }
+
+    .teacher-fixed-topic span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .teacher-subtopic-picker {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 8px;
+      min-height: 45px;
+      padding: 8px;
+    }
+
+    .teacher-subtopic-list {
+      display: grid;
+      gap: 7px;
+    }
+
+    .teacher-subtopic-option {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      color: #344054;
+      display: flex;
+      font-size: 13px;
+      font-weight: 800;
+      gap: 8px;
+      line-height: 1.25;
+      margin: 0;
+      min-height: 38px;
+      padding: 8px 10px;
+    }
+
+    .teacher-subtopic-option:has(input:checked) {
+      background: #ecfdf3;
+      border-color: #86efac;
+      color: #166534;
+    }
+
+    .teacher-subtopic-option.is-unavailable {
+      background: #f1f5f9;
+      color: #94a3b8;
+    }
+
     .teacher-editor-card textarea {
       min-height: 150px;
       resize: vertical;
@@ -898,6 +1102,59 @@
       display: inline-flex;
       gap: 6px;
       white-space: nowrap;
+    }
+
+    .teacher-chip-pool {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .teacher-pool-chip {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d7dee8;
+      border-radius: 999px;
+      color: #344054;
+      cursor: grab;
+      display: inline-flex;
+      font-size: 13px;
+      font-weight: 800;
+      gap: 6px;
+      line-height: 1.2;
+      min-height: 34px;
+      max-width: 100%;
+      padding: 7px 10px;
+      text-align: left;
+    }
+
+    .teacher-pool-chip span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .teacher-pool-chip:hover,
+    .teacher-pool-chip.is-selected {
+      background: #ecfdf3;
+      border-color: #86efac;
+      color: #166534;
+    }
+
+    .teacher-pool-chip.is-dragging,
+    .teacher-subtopic-option.is-dragging {
+      opacity: 0.55;
+    }
+
+    .teacher-written-tags {
+      min-height: 84px;
+    }
+
+    .teacher-subtopic-picker.is-drop-over,
+    .teacher-selected-list.is-drop-over {
+      outline: 2px dashed #0f766e;
+      outline-offset: 4px;
     }
 
     .teacher-tag-switch {

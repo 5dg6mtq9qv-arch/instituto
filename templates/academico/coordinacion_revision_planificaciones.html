@@ -98,6 +98,50 @@
     </a>
   </section>
 
+  {% if docente_history %}
+    <section class="panel coordination-history-panel">
+      <header class="coordination-panel-header">
+        <div>
+          <span>Historial del docente</span>
+          <h2>{{ docente_history.docente.nombre }}</h2>
+        </div>
+        <strong>{{ docente_history.progress.progress }}% materia(s)</strong>
+      </header>
+      <div class="coordination-history-summary">
+        <div>
+          <span>Clases</span>
+          <strong>{{ docente_history.class_count }}</strong>
+        </div>
+        <div>
+          <span>Temas trabajados</span>
+          <strong>{{ docente_history.topic_count }}</strong>
+        </div>
+        <div>
+          <span>Subtemas planificados</span>
+          <strong>{{ docente_history.progress.covered }}/{{ docente_history.progress.total }}</strong>
+        </div>
+      </div>
+      <div class="coordination-history-grid">
+        {% for row in docente_history.rows %}
+          <article>
+            <div>
+              <strong>{{ row.materia_curso.materia }}</strong>
+              <span>{{ row.materia_curso.grupo }}</span>
+            </div>
+            <div class="coordination-history-progress">
+              <span>Avance materia</span>
+              <strong>{{ row.progress.progress }}%</strong>
+            </div>
+            <div class="coordination-progress-line">
+              <span style="width: {{ row.progress.progress }}%"></span>
+            </div>
+            <small>{{ row.progress.covered }}/{{ row.progress.total }} subtema(s) · {{ row.class_count }} clase(s) · {{ row.topic_count }} tema(s)</small>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
   <section class="panel coordination-review-panel">
     <header class="coordination-panel-header">
       <div>
@@ -155,12 +199,31 @@
               </div>
             {% endif %}
 
-            {% if card.tema or card.subtema %}
+            {% if card.tema or card.subtemas %}
               <div class="coordination-card-topic">
                 {% if card.tema %}<strong>{{ card.tema }}</strong>{% endif %}
-                {% if card.subtema %}<span>{{ card.subtema }}</span>{% endif %}
+                {% if card.subtemas %}
+                  <span>
+                    {% for subtema in card.subtemas %}
+                      {{ subtema }}{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                  </span>
+                {% endif %}
               </div>
             {% endif %}
+
+            <div class="coordination-progress-metrics">
+              <div>
+                <span>Avance tema</span>
+                <strong>{{ card.topic_progress.progress }}%</strong>
+                <small>{{ card.topic_progress.covered }}/{{ card.topic_progress.total }} subtema(s)</small>
+              </div>
+              <div>
+                <span>Avance materia</span>
+                <strong>{{ card.materia_progress.progress }}%</strong>
+                <small>{{ card.materia_progress.covered }}/{{ card.materia_progress.total }} subtema(s)</small>
+              </div>
+            </div>
 
             <div class="coordination-progress-line">
               <span style="width: {{ card.progress }}%"></span>
@@ -453,6 +516,86 @@
       color: #15803d;
     }
 
+    .coordination-history-panel {
+      margin-bottom: 16px;
+      overflow: visible;
+    }
+
+    .coordination-history-summary {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin-bottom: 12px;
+    }
+
+    .coordination-history-summary div,
+    .coordination-history-grid article {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .coordination-history-summary span,
+    .coordination-history-progress span,
+    .coordination-progress-metrics span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .coordination-history-summary strong {
+      color: #111827;
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      margin-top: 8px;
+    }
+
+    .coordination-history-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
+    .coordination-history-grid article {
+      display: grid;
+      gap: 8px;
+    }
+
+    .coordination-history-grid article > div:first-child {
+      display: grid;
+      gap: 2px;
+    }
+
+    .coordination-history-grid strong {
+      color: #111827;
+    }
+
+    .coordination-history-grid article > div:first-child span,
+    .coordination-history-grid small,
+    .coordination-progress-metrics small {
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .coordination-history-progress,
+    .coordination-progress-metrics {
+      align-items: center;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .coordination-history-progress strong,
+    .coordination-progress-metrics strong {
+      color: #0f766e;
+      font-size: 18px;
+      line-height: 1;
+    }
+
     .coordination-review-panel {
       overflow: visible;
     }
@@ -661,6 +804,19 @@
       font-size: 13px;
     }
 
+    .coordination-progress-metrics {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .coordination-progress-metrics div {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 4px;
+      padding: 9px 10px;
+    }
+
     .coordination-progress-line {
       background: #e5e7eb;
       border-radius: 999px;
@@ -724,7 +880,8 @@
     }
 
     @media (max-width: 1199.98px) {
-      .coordination-review-summary {
+      .coordination-review-summary,
+      .coordination-history-summary {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
@@ -747,7 +904,9 @@
         flex-direction: column;
       }
 
-      .coordination-review-summary {
+      .coordination-review-summary,
+      .coordination-history-summary,
+      .coordination-progress-metrics {
         grid-template-columns: 1fr;
       }
 
