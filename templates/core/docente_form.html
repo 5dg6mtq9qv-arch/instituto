@@ -29,7 +29,11 @@
         <h2>Datos del docente</h2>
       </div>
       <div class="row g-3">
-        {% include "web/form_field.html" with field=form.empresa cols="col-md-6" %}
+        {% if form.hide_empresa_field %}
+          {{ form.empresa }}
+        {% else %}
+          {% include "web/form_field.html" with field=form.empresa cols="col-md-6" %}
+        {% endif %}
         {% include "web/form_field.html" with field=form.tipo_identificacion cols="col-md-6" %}
         {% include "web/form_field.html" with field=form.identificacion cols="col-md-4" %}
         {% include "web/form_field.html" with field=form.nombre cols="col-md-8" %}

@@ -11,7 +11,7 @@
     <a class="btn btn-outline-secondary" href="{{ list_url }}">Volver</a>
   </header>
 
-  <form class="panel form-panel coordinacion-plan-form" method="post" novalidate>
+  <form class="topic-builder-form" method="post" novalidate>
     {% csrf_token %}
     {{ formset.management_form }}
 
@@ -22,38 +22,48 @@
       <div class="alert alert-danger">{{ formset.non_form_errors }}</div>
     {% endif %}
 
-    <section class="form-section">
-      <div class="section-heading">
-        <h2>Materia por grupo</h2>
-      </div>
-      <div class="row g-3">
-        <div class="col-md-8">
-          <label class="form-label" for="{{ form.materia_curso.id_for_label }}">{{ form.materia_curso.label }}</label>
-          {{ form.materia_curso }}
-          {% for error in form.materia_curso.errors %}
-            <div class="invalid-feedback d-block">{{ error }}</div>
-          {% endfor %}
+    <section class="panel topic-builder-head">
+      <div class="topic-builder-title">
+        <span class="topic-builder-icon"><i class="ri-book-open-line"></i></span>
+        <div>
+          <span class="topic-builder-kicker">Temario base</span>
+          <h2>{% if materia %}{{ materia.nombre }}{% else %}Selecciona una materia{% endif %}</h2>
         </div>
-        {% if docentes %}
-          <div class="col-md-4">
-            <label class="form-label">Docente asignado</label>
-            <div class="form-control bg-neutral-50" data-docente-display>
-              {% for docente in docentes %}{{ docente }}{% if not forloop.last %}, {% endif %}{% endfor %}
-            </div>
-          </div>
-        {% else %}
-          <div class="col-md-4">
-            <label class="form-label">Docente asignado</label>
-            <div class="form-control bg-neutral-50" data-docente-display>Sin docente asignado</div>
-          </div>
-        {% endif %}
+      </div>
+      <div class="topic-builder-stats" aria-label="Resumen del temario">
+        <span><strong data-topic-count>{{ tema_count }}</strong> tema(s)</span>
+        <span><strong data-subtopic-count>{{ subtema_count }}</strong> subtema(s)</span>
+        <span><strong>{{ applied_group_count }}</strong> grupo(s)</span>
       </div>
     </section>
 
-    <section class="form-section">
-      <div class="section-heading">
-        <h2>Temas y subtemas</h2>
-        <button class="btn btn-outline-primary btn-sm" type="button" data-add-topic>
+    <section class="panel topic-subject-panel">
+      <label class="form-label" for="{{ form.materia.id_for_label }}">{{ form.materia.label }}</label>
+      <div class="topic-subject-select">
+        {{ form.materia }}
+      </div>
+      {% for error in form.materia.errors %}
+        <div class="invalid-feedback d-block">{{ error }}</div>
+      {% endfor %}
+      {% if materia_curso %}
+        <div class="topic-context-strip">
+          <span><i class="ri-group-line"></i> {{ materia_curso.grupo }}</span>
+          {% if docentes %}
+            <span><i class="ri-user-3-line"></i> {% for docente in docentes %}{{ docente }}{% if not forloop.last %}, {% endif %}{% endfor %}</span>
+          {% else %}
+            <span><i class="ri-user-3-line"></i> Sin docente asignado</span>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="panel topic-builder-workspace">
+      <div class="topic-builder-toolbar">
+        <div>
+          <span class="topic-builder-kicker">Temas y subtemas</span>
+          <h2>Contenido que se planificara en clases</h2>
+        </div>
+        <button class="btn btn-primary-600 btn-sm" type="button" data-add-topic>
           <i class="ri-add-line"></i>
           Agregar tema
         </button>
@@ -61,89 +71,115 @@
 
       <div class="coordinacion-topic-stack" data-topic-body>
         {% for topic_form in formset %}
-          <article class="coordinacion-topic" data-topic-row>
+          <article class="coordinacion-topic topic-builder-card" data-topic-row>
             {{ topic_form.tema_id }}
             {{ topic_form.orden }}
-            <div class="row g-3">
-              <div class="col-md-6">
-                <label class="form-label" for="{{ topic_form.nombre.id_for_label }}">Tema</label>
-                {{ topic_form.nombre }}
-                {% for error in topic_form.nombre.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
+            <div class="topic-card-order">
+              <span data-topic-number>{{ forloop.counter }}</span>
+            </div>
+            <div class="topic-card-main">
+              <div class="topic-card-header">
+                <div class="topic-name-field">
+                  <label class="form-label" for="{{ topic_form.nombre.id_for_label }}">Tema</label>
+                  {{ topic_form.nombre }}
+                  {% for error in topic_form.nombre.errors %}
+                    <div class="invalid-feedback d-block">{{ error }}</div>
+                  {% endfor %}
+                </div>
+                <button class="btn btn-outline-danger btn-sm topic-delete-btn" type="button" data-remove-topic>
+                  <i class="ri-delete-bin-line"></i>
+                  Eliminar
+                </button>
               </div>
-              <div class="col-md-6">
+              <div class="topic-detail-field">
                 <label class="form-label" for="{{ topic_form.detalle.id_for_label }}">Detalle</label>
                 {{ topic_form.detalle }}
               </div>
-              <div class="col-12">
-                <div class="nested-subtema-header">
-                  <label class="form-label mb-0">Subtemas</label>
-                  <button class="btn btn-outline-primary btn-sm" type="button" data-add-subtopic>
-                    <i class="ri-add-line"></i>
-                    Agregar subtema
-                  </button>
-                </div>
-                <div class="nested-subtema-stack" data-subtopic-body>
-                  {% with subtemas=topic_form.initial.subtemas %}
-                    <input type="hidden" name="form-{{ forloop.counter0 }}-subtemas-TOTAL_FORMS" value="{{ subtemas|length }}" data-subtopic-total>
-                    {% for subtema in subtemas %}
-                      <div class="nested-subtema-row" data-subtopic-row>
-                        <input type="hidden" name="form-{{ forloop.parentloop.counter0 }}-subtemas-{{ forloop.counter0 }}-id" value="{{ subtema.id }}">
-                        <input class="form-control" type="text" name="form-{{ forloop.parentloop.counter0 }}-subtemas-{{ forloop.counter0 }}-nombre" value="{{ subtema.nombre }}" placeholder="Nombre del subtema">
-                        <input type="checkbox" name="form-{{ forloop.parentloop.counter0 }}-subtemas-{{ forloop.counter0 }}-DELETE" class="d-none" data-subtopic-delete>
-                        <button class="btn btn-outline-danger btn-sm" type="button" data-remove-subtopic aria-label="Eliminar subtema">
-                          <i class="ri-delete-bin-line"></i>
-                        </button>
-                      </div>
-                    {% endfor %}
-                  {% endwith %}
-                </div>
-              </div>
-            </div>
-            <div class="coordinacion-topic-actions">
               {{ topic_form.DELETE }}
-              <button class="btn btn-outline-danger btn-sm" type="button" data-remove-topic>
-                <i class="ri-delete-bin-line"></i>
-                Eliminar tema
-              </button>
+            </div>
+            <div class="topic-subtopics-card">
+              <div class="nested-subtema-header">
+                <label class="form-label mb-0">Subtemas</label>
+                <button class="btn btn-outline-primary btn-sm" type="button" data-add-subtopic>
+                  <i class="ri-add-line"></i>
+                  Agregar
+                </button>
+              </div>
+              <div class="nested-subtema-stack" data-subtopic-body>
+                {% with topic_index=forloop.counter0 subtemas=topic_form.initial.subtemas %}
+                  <input type="hidden" name="form-{{ topic_index }}-subtemas-TOTAL_FORMS" value="{% if subtemas %}{{ subtemas|length }}{% else %}1{% endif %}" data-subtopic-total>
+                  {% for subtema in subtemas %}
+                    <div class="nested-subtema-row" data-subtopic-row>
+                      <span class="subtopic-drag-handle"><i class="ri-drag-move-2-line"></i></span>
+                      <input type="hidden" name="form-{{ topic_index }}-subtemas-{{ forloop.counter0 }}-id" value="{{ subtema.id }}">
+                      <input class="form-control" type="text" name="form-{{ topic_index }}-subtemas-{{ forloop.counter0 }}-nombre" value="{{ subtema.nombre }}" placeholder="Nombre del subtema">
+                      <input type="checkbox" name="form-{{ topic_index }}-subtemas-{{ forloop.counter0 }}-DELETE" class="d-none" data-subtopic-delete>
+                      <button class="btn btn-icon btn-subtopic-remove" type="button" data-remove-subtopic aria-label="Eliminar subtema">
+                        <i class="ri-close-line"></i>
+                      </button>
+                    </div>
+                  {% empty %}
+                    <div class="nested-subtema-row" data-subtopic-row>
+                      <span class="subtopic-drag-handle"><i class="ri-drag-move-2-line"></i></span>
+                      <input type="hidden" name="form-{{ topic_index }}-subtemas-0-id" value="">
+                      <input class="form-control" type="text" name="form-{{ topic_index }}-subtemas-0-nombre" value="" placeholder="Nombre del subtema">
+                      <input type="checkbox" name="form-{{ topic_index }}-subtemas-0-DELETE" class="d-none" data-subtopic-delete>
+                      <button class="btn btn-icon btn-subtopic-remove" type="button" data-remove-subtopic aria-label="Eliminar subtema">
+                        <i class="ri-close-line"></i>
+                      </button>
+                    </div>
+                  {% endfor %}
+                {% endwith %}
+              </div>
             </div>
           </article>
         {% endfor %}
       </div>
 
       <template data-empty-topic>
-        <article class="coordinacion-topic" data-topic-row>
+        <article class="coordinacion-topic topic-builder-card" data-topic-row>
           {{ formset.empty_form.tema_id }}
           {{ formset.empty_form.orden }}
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label" for="{{ formset.empty_form.nombre.id_for_label }}">Tema</label>
-              {{ formset.empty_form.nombre }}
+          <div class="topic-card-order">
+            <span data-topic-number></span>
+          </div>
+          <div class="topic-card-main">
+            <div class="topic-card-header">
+              <div class="topic-name-field">
+                <label class="form-label" for="{{ formset.empty_form.nombre.id_for_label }}">Tema</label>
+                {{ formset.empty_form.nombre }}
+              </div>
+              <button class="btn btn-outline-danger btn-sm topic-delete-btn" type="button" data-remove-topic>
+                <i class="ri-delete-bin-line"></i>
+                Eliminar
+              </button>
             </div>
-            <div class="col-md-6">
+            <div class="topic-detail-field">
               <label class="form-label" for="{{ formset.empty_form.detalle.id_for_label }}">Detalle</label>
               {{ formset.empty_form.detalle }}
             </div>
-            <div class="col-12">
-              <div class="nested-subtema-header">
-                <label class="form-label mb-0">Subtemas</label>
-                <button class="btn btn-outline-primary btn-sm" type="button" data-add-subtopic>
-                  <i class="ri-add-line"></i>
-                  Agregar subtema
+            {{ formset.empty_form.DELETE }}
+          </div>
+          <div class="topic-subtopics-card">
+            <div class="nested-subtema-header">
+              <label class="form-label mb-0">Subtemas</label>
+              <button class="btn btn-outline-primary btn-sm" type="button" data-add-subtopic>
+                <i class="ri-add-line"></i>
+                Agregar
+              </button>
+            </div>
+            <div class="nested-subtema-stack" data-subtopic-body>
+              <input type="hidden" name="form-__prefix__-subtemas-TOTAL_FORMS" value="1" data-subtopic-total>
+              <div class="nested-subtema-row" data-subtopic-row>
+                <span class="subtopic-drag-handle"><i class="ri-drag-move-2-line"></i></span>
+                <input type="hidden" name="form-__prefix__-subtemas-0-id" value="">
+                <input class="form-control" type="text" name="form-__prefix__-subtemas-0-nombre" value="" placeholder="Nombre del subtema">
+                <input type="checkbox" name="form-__prefix__-subtemas-0-DELETE" class="d-none" data-subtopic-delete>
+                <button class="btn btn-icon btn-subtopic-remove" type="button" data-remove-subtopic aria-label="Eliminar subtema">
+                  <i class="ri-close-line"></i>
                 </button>
               </div>
-              <div class="nested-subtema-stack" data-subtopic-body>
-                <input type="hidden" name="form-__prefix__-subtemas-TOTAL_FORMS" value="0" data-subtopic-total>
-              </div>
             </div>
-          </div>
-          <div class="coordinacion-topic-actions">
-            {{ formset.empty_form.DELETE }}
-            <button class="btn btn-outline-danger btn-sm" type="button" data-remove-topic>
-              <i class="ri-delete-bin-line"></i>
-              Eliminar tema
-            </button>
           </div>
         </article>
       </template>
@@ -154,9 +190,12 @@
       </datalist>
     </section>
 
-    <div class="form-actions">
+    <div class="topic-builder-actions">
       <a class="btn btn-outline-secondary" href="{{ list_url }}">Cancelar</a>
-      <button class="btn btn-primary" type="submit">Guardar</button>
+      <button class="btn btn-primary" type="submit">
+        <i class="ri-save-3-line"></i>
+        Guardar temario
+      </button>
     </div>
   </form>
 {% endblock %}
@@ -164,24 +203,31 @@
 {% block extra_scripts %}
   <script>
     (function () {
-      const materiaDocentes = {{ materia_docentes_json|safe }};
-      const materiaSelect = document.getElementById("{{ form.materia_curso.id_for_label }}");
-      const docenteDisplay = document.querySelector("[data-docente-display]");
       const body = document.querySelector("[data-topic-body]");
       const template = document.querySelector("[data-empty-topic]");
       const totalForms = document.querySelector("[name='form-TOTAL_FORMS']");
-
-      function renderDocentes() {
-        if (!materiaSelect || !docenteDisplay) return;
-        const docentes = materiaDocentes[materiaSelect.value] || [];
-        docenteDisplay.textContent = docentes.length ? docentes.join(", ") : "Sin docente asignado";
-      }
+      const topicCount = document.querySelector("[data-topic-count]");
+      const subtopicCount = document.querySelector("[data-subtopic-count]");
 
       function refreshTopicOrder() {
-        body?.querySelectorAll("[data-topic-row]:not(.is-deleted)").forEach(function (row, index) {
+        const visibleTopics = Array.from(body?.querySelectorAll("[data-topic-row]:not(.is-deleted)") || []);
+        visibleTopics.forEach(function (row, index) {
           const orderInput = row.querySelector("input[name$='-orden']");
+          const number = row.querySelector("[data-topic-number]");
           if (orderInput) orderInput.value = index + 1;
+          if (number) number.textContent = index + 1;
         });
+        if (topicCount) {
+          topicCount.textContent = visibleTopics.filter(function (row) {
+            return (row.querySelector("[data-topic-name]")?.value || "").trim();
+          }).length;
+        }
+        if (subtopicCount) {
+          const subtopicInputs = Array.from(body?.querySelectorAll("[data-subtopic-row]:not(.is-deleted) input[name$='-nombre']") || []);
+          subtopicCount.textContent = subtopicInputs.filter(function (input) {
+            return input.value.trim();
+          }).length;
+        }
       }
 
       function addSubtopic(topicRow) {
@@ -192,20 +238,20 @@
         const topicPrefix = totalInput.name.replace("-subtemas-TOTAL_FORMS", "");
         subtopicBody.insertAdjacentHTML("beforeend", `
           <div class="nested-subtema-row" data-subtopic-row>
+            <span class="subtopic-drag-handle"><i class="ri-drag-move-2-line"></i></span>
             <input type="hidden" name="${topicPrefix}-subtemas-${index}-id" value="">
             <input class="form-control" type="text" name="${topicPrefix}-subtemas-${index}-nombre" value="" placeholder="Nombre del subtema">
             <input type="checkbox" name="${topicPrefix}-subtemas-${index}-DELETE" class="d-none" data-subtopic-delete>
-            <button class="btn btn-outline-danger btn-sm" type="button" data-remove-subtopic aria-label="Eliminar subtema">
-              <i class="ri-delete-bin-line"></i>
+            <button class="btn btn-icon btn-subtopic-remove" type="button" data-remove-subtopic aria-label="Eliminar subtema">
+              <i class="ri-close-line"></i>
             </button>
           </div>
         `);
         totalInput.value = index + 1;
+        refreshTopicOrder();
       }
 
-      renderDocentes();
       refreshTopicOrder();
-      materiaSelect?.addEventListener("change", renderDocentes);
 
       document.querySelector("[data-add-topic]")?.addEventListener("click", function () {
         const index = Number(totalForms.value);
@@ -213,6 +259,7 @@
         body.insertAdjacentHTML("beforeend", html);
         totalForms.value = index + 1;
         refreshTopicOrder();
+        body.querySelector("[data-topic-row]:last-child input[name$='-nombre']")?.focus();
       });
 
       body?.addEventListener("click", function (event) {
@@ -232,6 +279,7 @@
           } else {
             row.remove();
           }
+          refreshTopicOrder();
           return;
         }
 
@@ -248,12 +296,18 @@
         refreshTopicOrder();
       });
 
-      document.querySelectorAll("[name$='-nombre']").forEach(function (input) {
+      body?.addEventListener("input", function (event) {
+        if (event.target.matches("[data-topic-name], [data-subtopic-row] input[name$='-nombre']")) {
+          refreshTopicOrder();
+        }
+      });
+
+      document.querySelectorAll("[data-topic-name]").forEach(function (input) {
         input.setAttribute("list", "tema-suggestions");
       });
 
       body?.addEventListener("focusin", function (event) {
-        if (event.target.matches("[name$='-nombre']")) {
+        if (event.target.matches("[data-topic-name]")) {
           event.target.setAttribute("list", "tema-suggestions");
         }
       });

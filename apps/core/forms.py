@@ -114,6 +114,15 @@ class PartnerTypedForm(BootstrapFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.hide_empresa_field = False
+        self.fields["empresa"].label = "Institucion"
+        self.fields["tipo_identificacion"].label = "Tipo de documento"
+        self.fields["tipo_identificacion"].empty_label = "Selecciona tipo de documento"
+        active_empresas = Empresa.objects.filter(activa=True).order_by("razon_social", "nombre_comercial", "id")
+        if not self.instance.pk and active_empresas.count() == 1:
+            self.fields["empresa"].initial = active_empresas.first()
+            self.fields["empresa"].widget = forms.HiddenInput()
+            self.hide_empresa_field = True
         if not self.instance.pk and not self.initial.get("tipo_identificacion"):
             tipo_identificacion = TipoIdentificacion.objects.filter(activo=True).order_by("id").first()
             if tipo_identificacion:

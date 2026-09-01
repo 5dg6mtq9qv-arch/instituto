@@ -2,7 +2,16 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import Count, Max
 
-from apps.academico.models import MateriaCurso, PlanificacionDocente, PlanificacionTema, ProfesorMateriaCurso, Subtema, Tema
+from apps.academico.models import (
+    MateriaCurso,
+    MateriaSubtema,
+    MateriaTema,
+    PlanificacionDocente,
+    PlanificacionTema,
+    ProfesorMateriaCurso,
+    Subtema,
+    Tema,
+)
 
 
 TOPICS_BY_SUBJECT = {
@@ -637,6 +646,8 @@ class Command(BaseCommand):
         total_plans = 0
         created_plans = 0
         created_topic_plans = 0
+        created_base_topics = 0
+        created_base_subtopics = 0
         created_topics = 0
         created_subtopics = 0
         skipped = 0
@@ -666,42 +677,104 @@ class Command(BaseCommand):
             total_plans += 1
 
             next_order = (planificacion.temas_planificacion.aggregate(Max("orden"))["orden__max"] or 0) + 1
+            next_base_order = (
+                MateriaTema.objects.filter(materia=materia_curso.materia).aggregate(Max("orden"))["orden__max"] or 0
+            ) + 1
             for nombre, detalle, subtemas in get_topic_data(materia_curso.materia):
+                materia_tema = (
+                    MateriaTema.objects.filter(materia=materia_curso.materia, nombre=nombre)
+                    .order_by("id")
+                    .first()
+                )
+                if materia_tema is None:
+                    materia_tema = MateriaTema.objects.create(
+                        materia=materia_curso.materia,
+                        nombre=nombre,
+                        detalle=detalle,
+                        orden=next_base_order,
+                    )
+                    created_base_topics += 1
+                    next_base_order += 1
+                elif materia_tema.detalle != detalle:
+                    materia_tema.detalle = detalle
+                    materia_tema.save(update_fields=["detalle"])
+
                 tema = (
-                    Tema.objects.filter(planificacion=planificacion, nombre=nombre)
+                    Tema.objects.filter(planificacion=planificacion, materia_tema=materia_tema)
                     .order_by("id")
                     .first()
                 )
                 if tema is None:
+                    tema = (
+                        Tema.objects.filter(planificacion=planificacion, nombre=nombre)
+                        .order_by("id")
+                        .first()
+                    )
+                if tema is None:
                     tema = Tema.objects.create(
                         planificacion=planificacion,
+                        materia_tema=materia_tema,
                         nombre=nombre,
                         detalle=detalle,
                         orden=next_order,
                     )
                     created_topics += 1
                     next_order += 1
-                elif not tema.detalle:
-                    tema.detalle = detalle
-                    tema.save(update_fields=["detalle"])
+                else:
+                    update_fields = []
+                    if tema.materia_tema_id != materia_tema.pk:
+                        tema.materia_tema = materia_tema
+                        update_fields.append("materia_tema")
+                    if not tema.detalle:
+                        tema.detalle = detalle
+                        update_fields.append("detalle")
+                    if update_fields:
+                        tema.save(update_fields=update_fields)
 
+                next_base_subtopic_order = (
+                    materia_tema.subtemas_base.aggregate(Max("orden"))["orden__max"] or 0
+                ) + 1
                 next_subtopic_order = (
                     tema.subtemas_planificacion.aggregate(Max("orden"))["orden__max"] or 0
                 ) + 1
                 for subtema_nombre in subtemas:
+                    materia_subtema = (
+                        MateriaSubtema.objects.filter(tema=materia_tema, nombre=subtema_nombre)
+                        .order_by("id")
+                        .first()
+                    )
+                    if materia_subtema is None:
+                        materia_subtema = MateriaSubtema.objects.create(
+                            tema=materia_tema,
+                            nombre=subtema_nombre,
+                            orden=next_base_subtopic_order,
+                        )
+                        created_base_subtopics += 1
+                        next_base_subtopic_order += 1
+
                     subtema = (
-                        Subtema.objects.filter(tema=tema, nombre=subtema_nombre)
+                        Subtema.objects.filter(tema=tema, materia_subtema=materia_subtema)
                         .order_by("id")
                         .first()
                     )
                     if subtema is None:
+                        subtema = (
+                            Subtema.objects.filter(tema=tema, nombre=subtema_nombre)
+                            .order_by("id")
+                            .first()
+                        )
+                    if subtema is None:
                         Subtema.objects.create(
                             tema=tema,
+                            materia_subtema=materia_subtema,
                             nombre=subtema_nombre,
                             orden=next_subtopic_order,
                         )
                         created_subtopics += 1
                         next_subtopic_order += 1
+                    elif subtema.materia_subtema_id != materia_subtema.pk:
+                        subtema.materia_subtema = materia_subtema
+                        subtema.save(update_fields=["materia_subtema"])
 
             created_subtopics += self.ensure_min_subtemas(planificacion, min_subtemas)
 
@@ -724,6 +797,8 @@ class Command(BaseCommand):
         self.stdout.write(f"Materia-grupo omitidas: {skipped}")
         self.stdout.write(f"Planificaciones creadas: {created_plans}")
         self.stdout.write(f"Planificaciones por tema creadas: {created_topic_plans}")
+        self.stdout.write(f"Temas base creados: {created_base_topics}")
+        self.stdout.write(f"Subtemas base creados: {created_base_subtopics}")
         self.stdout.write(f"Temas creados: {created_topics}")
         self.stdout.write(f"Subtemas creados: {created_subtopics}")
 
@@ -731,7 +806,7 @@ class Command(BaseCommand):
         if not min_subtemas:
             return 0
         created = 0
-        for tema in planificacion.temas_planificacion.all():
+        for tema in planificacion.temas_planificacion.select_related("materia_tema").all():
             current_count = tema.subtemas_planificacion.count()
             if current_count >= min_subtemas:
                 continue
@@ -740,13 +815,31 @@ class Command(BaseCommand):
                 for nombre in tema.subtemas_planificacion.values_list("nombre", flat=True)
             }
             next_order = (tema.subtemas_planificacion.aggregate(Max("orden"))["orden__max"] or 0) + 1
+            next_base_order = 1
+            if tema.materia_tema_id:
+                next_base_order = (tema.materia_tema.subtemas_base.aggregate(Max("orden"))["orden__max"] or 0) + 1
             for subtema_nombre in SUPPLEMENTAL_SUBTOPICS:
                 if current_count >= min_subtemas:
                     break
                 if subtema_nombre.lower() in existing_names:
                     continue
+                materia_subtema = None
+                if tema.materia_tema_id:
+                    materia_subtema = (
+                        tema.materia_tema.subtemas_base.filter(nombre=subtema_nombre)
+                        .order_by("id")
+                        .first()
+                    )
+                    if materia_subtema is None:
+                        materia_subtema = MateriaSubtema.objects.create(
+                            tema=tema.materia_tema,
+                            nombre=subtema_nombre,
+                            orden=next_base_order,
+                        )
+                        next_base_order += 1
                 Subtema.objects.create(
                     tema=tema,
+                    materia_subtema=materia_subtema,
                     nombre=subtema_nombre,
                     orden=next_order,
                 )

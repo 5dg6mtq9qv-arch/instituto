@@ -30,6 +30,7 @@ urlpatterns = [
     path("estudiantes-grupo/", views.GrupoEstudianteListView.as_view(), name="grupo_estudiantes"),
     path("coordinacion/temas/", views.CoordinacionPlanificacionListView.as_view(), name="coordinacion_planificacion_list"),
     path("coordinacion/temas/nuevo/", views.CoordinacionPlanificacionEditorView.as_view(), name="coordinacion_planificacion_nueva"),
+    path("coordinacion/temas/materia/<int:materia_pk>/editar/", views.CoordinacionPlanificacionEditorView.as_view(), name="coordinacion_planificacion_materia_editar"),
     path("coordinacion/temas/<int:materia_curso_pk>/editar/", views.CoordinacionPlanificacionEditorView.as_view(), name="coordinacion_planificacion_editar"),
     path("coordinacion/revision-asistencia/", views.CoordinacionRevisionAsistenciaView.as_view(), name="coordinacion_revision_asistencia"),
     path("coordinacion/revision-asistencia/clases/<int:pk>/", views.CoordinacionReporteAsistenciaClaseView.as_view(), name="coordinacion_reporte_asistencia_clase"),

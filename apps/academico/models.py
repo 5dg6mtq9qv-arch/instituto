@@ -1106,6 +1106,7 @@ class ProfesorMateriaCurso(models.Model):
         on_delete=models.CASCADE,
         related_name="profesor_materia_cursos",
     )
+    auto_generada_por_clases = models.BooleanField(default=False)
 
     class Meta:
         db_table = '"academico"."profesor_materia_curso"'
@@ -1338,6 +1339,48 @@ class PlanificacionTema(models.Model):
         return self.nombre
 
 
+class MateriaTema(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    materia = models.ForeignKey(
+        Materia,
+        db_column="id_materia",
+        on_delete=models.CASCADE,
+        related_name="temas_base",
+    )
+    nombre = models.CharField(max_length=200)
+    detalle = models.TextField(blank=True, null=True)
+    orden = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."materia_tema"'
+        unique_together = (("materia", "nombre"),)
+        ordering = ["materia", "orden", "nombre"]
+
+    def __str__(self):
+        return f"{self.materia} - {self.nombre}"
+
+
+class MateriaSubtema(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    tema = models.ForeignKey(
+        MateriaTema,
+        db_column="id_materia_tema",
+        on_delete=models.CASCADE,
+        related_name="subtemas_base",
+    )
+    nombre = models.CharField(max_length=200)
+    descripcion = models.TextField(blank=True, null=True)
+    orden = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."materia_subtema"'
+        unique_together = (("tema", "nombre"),)
+        ordering = ["tema", "orden", "nombre"]
+
+    def __str__(self):
+        return self.nombre
+
+
 class Tema(models.Model):
     id = models.BigAutoField(primary_key=True)
     planificacion = models.ForeignKey(
@@ -1345,6 +1388,14 @@ class Tema(models.Model):
         db_column="id_planificacion",
         on_delete=models.CASCADE,
         related_name="temas_planificacion",
+    )
+    materia_tema = models.ForeignKey(
+        "academico.MateriaTema",
+        db_column="id_materia_tema",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="temas_generados",
     )
     nombre = models.CharField(max_length=200)
     detalle = models.TextField(blank=True, null=True)
@@ -1365,6 +1416,14 @@ class Subtema(models.Model):
         db_column="id_tema",
         on_delete=models.CASCADE,
         related_name="subtemas_planificacion",
+    )
+    materia_subtema = models.ForeignKey(
+        "academico.MateriaSubtema",
+        db_column="id_materia_subtema",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="subtemas_generados",
     )
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True, null=True)

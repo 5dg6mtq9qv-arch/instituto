@@ -2934,38 +2934,221 @@ dd {
   }
 }
 
-.coordinacion-topic-stack {
+.topic-builder-form {
   display: grid;
   gap: 14px;
 }
 
-.coordinacion-topic {
-  border: 1px solid #d9dde7;
+.topic-builder-head,
+.topic-subject-panel,
+.topic-builder-workspace {
+  border: 1px solid #dce3ef;
   border-radius: 8px;
-  padding: 16px;
-  background: #fff;
+  padding: 18px;
 }
 
-.coordinacion-topic.is-deleted {
-  display: none;
-}
-
-.coordinacion-topic-actions {
+.topic-builder-head {
+  align-items: center;
   display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
+  gap: 16px;
+  justify-content: space-between;
 }
 
-.coordinacion-topic-actions input[type="checkbox"] {
+.topic-builder-title {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.topic-builder-icon {
+  align-items: center;
+  background: #e8f7f2;
+  border: 1px solid #b8eadb;
+  border-radius: 8px;
+  color: #0f766e;
+  display: inline-flex;
+  flex: 0 0 44px;
+  font-size: 22px;
+  height: 44px;
+  justify-content: center;
+  width: 44px;
+}
+
+.topic-builder-kicker {
+  color: #0f766e;
+  display: block;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  line-height: 1.2;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.topic-builder-title h2,
+.topic-builder-toolbar h2 {
+  color: #111827;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.topic-builder-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.topic-builder-stats span {
+  align-items: center;
+  background: #f7fafc;
+  border: 1px solid #dce3ef;
+  border-radius: 999px;
+  color: #526173;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 5px;
+  min-height: 34px;
+  padding: 7px 12px;
+}
+
+.topic-builder-stats strong {
+  color: #111827;
+  font-size: 15px;
+}
+
+.topic-subject-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.topic-subject-select .form-select {
+  min-height: 46px;
+}
+
+.topic-context-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.topic-context-strip span {
+  align-items: center;
+  background: #eef6ff;
+  border: 1px solid #cfe4ff;
+  border-radius: 999px;
+  color: #1f4f86;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.topic-builder-toolbar {
+  align-items: center;
+  border-bottom: 1px solid #e7ebf3;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+}
+
+.coordinacion-topic-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.coordinacion-topic,
+.topic-builder-card {
+  background: #ffffff;
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+}
+
+.topic-builder-card {
+  align-items: stretch;
+  display: grid;
+  gap: 0;
+  grid-template-columns: 44px minmax(280px, 1.1fr) minmax(300px, 0.9fr);
+  min-height: 168px;
+  overflow: hidden;
+}
+
+.coordinacion-topic.is-deleted,
+.nested-subtema-row.is-deleted {
   display: none;
+}
+
+.topic-card-order {
+  align-items: flex-start;
+  background: #f3faf7;
+  border-right: 1px solid #d7eee6;
+  display: flex;
+  justify-content: center;
+  padding-top: 18px;
+}
+
+.topic-card-order span {
+  align-items: center;
+  background: #0f766e;
+  border-radius: 999px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
+}
+
+.topic-card-main,
+.topic-subtopics-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.topic-card-main {
+  border-right: 1px solid #e7ebf3;
+}
+
+.topic-card-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.topic-name-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.topic-delete-btn {
+  flex: 0 0 auto;
+}
+
+.topic-card-main input[type="checkbox"][name$="-DELETE"] {
+  display: none;
+}
+
+.topic-detail-field textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 
 .nested-subtema-header {
   align-items: center;
   display: flex;
-  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  justify-content: space-between;
 }
 
 .nested-subtema-stack {
@@ -2975,13 +3158,104 @@ dd {
 
 .nested-subtema-row {
   align-items: center;
+  background: #f8fafc;
+  border: 1px solid #dfe7f1;
+  border-radius: 8px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 42px;
+  padding: 5px 6px;
 }
 
-.nested-subtema-row.is-deleted {
-  display: none;
+.nested-subtema-row .form-control {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-height: 30px;
+  padding: 4px 0;
+}
+
+.subtopic-drag-handle {
+  align-items: center;
+  color: #8a96a8;
+  display: inline-flex;
+  font-size: 18px;
+  justify-content: center;
+  width: 22px;
+}
+
+.btn-subtopic-remove {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #dfe7f1;
+  border-radius: 8px;
+  color: #dc2626;
+  display: inline-flex;
+  height: 30px;
+  justify-content: center;
+  padding: 0;
+  width: 30px;
+}
+
+.btn-subtopic-remove:hover {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.topic-builder-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+@media (max-width: 991.98px) {
+  .topic-builder-head,
+  .topic-builder-toolbar,
+  .topic-builder-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topic-builder-stats {
+    justify-content: flex-start;
+  }
+
+  .topic-builder-card {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .topic-subtopics-card {
+    border-top: 1px solid #e7ebf3;
+    grid-column: 2;
+  }
+
+  .topic-card-main {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .topic-builder-head,
+  .topic-subject-panel,
+  .topic-builder-workspace {
+    padding: 14px;
+  }
+
+  .topic-card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topic-delete-btn {
+    width: 100%;
+  }
+
+  .topic-builder-actions .btn {
+    width: 100%;
+  }
 }
 
 .tag-select-panel {

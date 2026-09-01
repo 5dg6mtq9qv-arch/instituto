@@ -191,9 +191,31 @@ class MateriaForm(BootstrapFormMixin, forms.ModelForm):
         model = Materia
         fields = ["nombre", "nombre_corto", "color", "descripcion"]
         widgets = {
-            "color": forms.TextInput(attrs={"type": "color"}),
+            "color": forms.TextInput(
+                attrs={
+                    "type": "text",
+                    "autocomplete": "off",
+                    "maxlength": "7",
+                    "pattern": "^#[0-9A-Fa-f]{6}$",
+                    "data-color-input": "",
+                }
+            ),
             "descripcion": forms.Textarea(attrs={"rows": 3}),
         }
+
+    def clean_color(self):
+        color = (self.cleaned_data.get("color") or "").strip()
+        if not color:
+            return "#2563eb"
+        if not color.startswith("#"):
+            color = f"#{color}"
+        if len(color) != 7:
+            raise forms.ValidationError("Ingresa un color valido.")
+        try:
+            int(color[1:], 16)
+        except ValueError as exc:
+            raise forms.ValidationError("Ingresa un color valido.") from exc
+        return color.lower()
 
 
 class PeriodoForm(BootstrapFormMixin, forms.ModelForm):
@@ -201,8 +223,14 @@ class PeriodoForm(BootstrapFormMixin, forms.ModelForm):
         model = Periodo
         fields = ["nombre", "fecha_inicio", "fecha_fin"]
         widgets = {
-            "fecha_inicio": forms.DateInput(attrs={"type": "date"}),
-            "fecha_fin": forms.DateInput(attrs={"type": "date"}),
+            "fecha_inicio": forms.DateInput(
+                format="%Y-%m-%d",
+                attrs={"type": "text", "autocomplete": "off", "placeholder": "dd/mm/aaaa"},
+            ),
+            "fecha_fin": forms.DateInput(
+                format="%Y-%m-%d",
+                attrs={"type": "text", "autocomplete": "off", "placeholder": "dd/mm/aaaa"},
+            ),
         }
 
     def clean(self):
@@ -311,7 +339,10 @@ class PlanificacionDocenteItemForm(BootstrapFormMixin, forms.Form):
         if grupo and materia_curso and materia_curso.grupo_id != grupo.pk:
             self.add_error("materia_curso", "La materia no pertenece al grupo seleccionado.")
         if materia_curso:
-            assigned = ProfesorMateriaCurso.objects.select_related("partner").filter(materia_curso=materia_curso)
+            assigned = ProfesorMateriaCurso.objects.select_related("partner").filter(
+                materia_curso=materia_curso,
+                auto_generada_por_clases=False,
+            )
             if self.docente:
                 assigned = assigned.exclude(partner=self.docente)
             existing = assigned.first()
@@ -455,28 +486,35 @@ class ClaseEstudianteMovimientoForm(BootstrapFormMixin, forms.Form):
 
 
 class CoordinacionPlanificacionForm(BootstrapFormMixin, forms.Form):
-    materia_curso = forms.ModelChoiceField(
-        label="Materia / grupo",
-        queryset=MateriaCurso.objects.none(),
+    materia = forms.ModelChoiceField(
+        label="Materia",
+        queryset=Materia.objects.none(),
     )
 
     def __init__(self, *args, **kwargs):
+        materia = kwargs.pop("materia", None)
         materia_curso = kwargs.pop("materia_curso", None)
         super().__init__(*args, **kwargs)
-        self.fields["materia_curso"].queryset = (
-            MateriaCurso.objects.select_related("materia", "grupo")
-            .order_by("grupo__nombre", "materia__nombre")
-        )
-        self.fields["materia_curso"].label_from_instance = lambda obj: f"{obj.grupo} - {obj.materia}"
+        self.fields["materia"].queryset = Materia.objects.order_by("nombre")
         if materia_curso:
-            self.fields["materia_curso"].initial = materia_curso
-            self.fields["materia_curso"].disabled = True
+            self.fields["materia"].initial = materia_curso.materia
+            self.fields["materia"].disabled = True
+        elif materia:
+            self.fields["materia"].initial = materia
+            self.fields["materia"].disabled = True
 
 
 class CoordinacionTemaForm(BootstrapFormMixin, forms.Form):
     tema_id = forms.IntegerField(required=False, widget=forms.HiddenInput)
-    nombre = forms.CharField(max_length=200, required=False)
-    detalle = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}))
+    nombre = forms.CharField(
+        max_length=200,
+        required=False,
+        widget=forms.TextInput(attrs={"data-topic-name": "", "placeholder": "Ej. Operaciones algebraicas"}),
+    )
+    detalle = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2, "placeholder": "Breve alcance del tema"}),
+    )
     orden = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
 
     def has_topic_data(self):

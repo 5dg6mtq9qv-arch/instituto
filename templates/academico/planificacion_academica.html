@@ -69,9 +69,9 @@
           <div class="alert alert-warning planning-teacher-alert">
             <div>
               <strong>{{ unassigned_alert.count }} clase(s) proximas sin docente asignado.</strong>
-              <span>La asignacion se realiza desde el tablero docente.</span>
+              <span>Abre una clase del calendario para asignar materia y docente.</span>
             </div>
-            <a class="btn btn-outline-warning btn-sm" href="{{ unassigned_alert.assign_url }}">Asignar docentes</a>
+            <a class="btn btn-outline-warning btn-sm" href="{{ unassigned_alert.assign_url }}">Abrir calendario</a>
           </div>
         {% endif %}
       </div>
@@ -126,18 +126,21 @@
           <div class="mb-3">
             <label class="form-label" for="materiaPlanificacion">Materia</label>
             <select class="form-select" id="materiaPlanificacion" name="materia" data-planning-materia>
-              <option value="">Sin materia</option>
-              {% for materia in materias %}
+              <option value=""></option>
+              {% for materia in materias_asignables %}
                 <option value="{{ materia.pk }}">{{ materia.nombre }}</option>
               {% endfor %}
             </select>
+            {% if not materias_asignables %}
+              <small class="text-warning d-block mt-2">Primero carga temas para las materias de este grupo.</small>
+            {% endif %}
           </div>
 
           <div class="mb-3 planning-docente-field" data-planning-docente-container hidden>
             <label class="form-label" for="docentePlanificacion">Docente</label>
             <select class="form-select" id="docentePlanificacion" name="docente" data-planning-docente disabled>
-              <option value="">Mantener docente de la materia</option>
-              <option value="__none__">Sin docente</option>
+              <option value="">Docente de la materia</option>
+              <option value="__none__">Sin docente en esta clase</option>
               {% for docente in docentes %}
                 <option value="{{ docente.pk }}">{{ docente.nombre }}</option>
               {% endfor %}
@@ -146,7 +149,7 @@
 
           <div class="planning-period-switch" data-planning-periodo-container>
             <input class="js-switch" id="asignarPeriodoPlanificacion" type="checkbox" name="asignar_periodo" data-planning-periodo-switch>
-            <label for="asignarPeriodoPlanificacion">Aplicar desde esta fecha al resto del periodo</label>
+            <label for="asignarPeriodoPlanificacion">Actualizar desde esta fecha al resto del periodo</label>
           </div>
 
           <button class="btn btn-primary-600 w-100" type="submit">Guardar cambios</button>
@@ -278,6 +281,7 @@
       let periodSwitchery = null;
       let schedulePeriodSwitchery = null;
       let activePlanningEvent = null;
+      let suppressMateriaDropdown = false;
 
       if (window.Switchery) {
         const switchInput = document.querySelector("[data-planning-periodo-switch]");
@@ -328,7 +332,8 @@
       }
 
       if (window.jQuery && jQuery.fn.select2 && planningMateriaInput) {
-        jQuery(planningMateriaInput).select2({
+        const materiaSelect = jQuery(planningMateriaInput);
+        materiaSelect.select2({
           width: "100%",
           dropdownParent: jQuery("#planificacionMateriaOffcanvas"),
           placeholder: "Selecciona materia",
@@ -339,7 +344,21 @@
             }
           }
         });
-        jQuery(planningMateriaInput).on("change", handlePlanningMateriaChange);
+        materiaSelect.on("select2:clearing select2:unselecting", function () {
+          suppressMateriaDropdown = true;
+          setPlanningDocenteControl("");
+        });
+        materiaSelect.on("select2:opening", function (event) {
+          if (!suppressMateriaDropdown) return;
+          event.preventDefault();
+          window.setTimeout(function () {
+            suppressMateriaDropdown = false;
+          }, 0);
+        });
+        materiaSelect.on("select2:clear", function () {
+          setPlanningDocenteControl("");
+        });
+        materiaSelect.on("change", handlePlanningMateriaChange);
       }
 
       function resetPeriodSwitch(periodAvailable) {
@@ -516,10 +535,10 @@
         if (planningMateriaInput) {
           planningMateriaInput.value = event.materiaId || "";
           if (window.jQuery && jQuery.fn.select2) {
-            jQuery(planningMateriaInput).trigger("change.select2");
+            jQuery(planningMateriaInput).trigger("change");
           }
         }
-        setPlanningDocenteControl(event.materiaId || "", event.docenteId || "");
+        setPlanningDocenteControl(planningMateriaInput ? planningMateriaInput.value : event.materiaId || "", event.docenteId || "");
         document.querySelector("[data-planning-date]").textContent = formatDate(event.start);
         document.querySelector("[data-planning-aula]").textContent = event.aula || "";
         document.querySelector("[data-planning-time]").textContent = event.hora || "";

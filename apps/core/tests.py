@@ -5,6 +5,7 @@ from django.urls import reverse
 
 from apps.core.forms import SystemUserForm
 from apps.core.current_user import set_current_request
+from apps.core.menu import permitted_menu_groups
 from apps.core.models import Empresa, Partner, TipoIdentificacion
 
 
@@ -246,6 +247,16 @@ class SecurityGroupViewTests(TestCase):
         self.assertRedirects(response, reverse("core:usuario_list"), fetch_redirect_response=False)
         self.assertTrue(member.groups.filter(pk=self.target_group.pk).exists())
 
+    def test_administrador_menu_includes_empresa_management(self):
+        user = get_user_model().objects.create_user(username="admin_empresa", password="ClaveActual987!")
+        user.groups.add(self.admin_group)
+
+        groups = permitted_menu_groups(user)
+        administrativo = next(group for group in groups if group["label"] == "Administrativo")
+        labels = [item["label"] for item in administrativo["items"]]
+
+        self.assertIn("Empresas", labels)
+
 
 class PartnerRoleViewTests(TestCase):
     def setUp(self):
@@ -353,6 +364,8 @@ class PartnerRoleViewTests(TestCase):
         form_response = self.client.get(reverse("core:docente_nuevo"), HTTP_HOST="localhost")
         self.assertEqual(form_response.status_code, 200)
         self.assertContains(form_response, "Acceso docente")
+        self.assertContains(form_response, "Tipo de documento")
+        self.assertContains(form_response, f'<input type="hidden" name="empresa" value="{self.empresa.pk}" id="id_empresa">', html=True)
         self.assertContains(form_response, 'name="username"')
         self.assertContains(form_response, 'name="password"')
         self.assertNotContains(form_response, 'name="es_docente"')
@@ -391,3 +404,33 @@ class PartnerRoleViewTests(TestCase):
         self.assertEqual(docente.usuario.username, "docente_nuevo")
         self.assertTrue(docente.usuario.check_password("ClaveDocente987!"))
         self.assertTrue(docente.usuario.groups.filter(name="Docente").exists())
+
+    def test_docente_create_defaults_single_active_empresa(self):
+        director = get_user_model().objects.create_user(username="director-alt", password="ClaveActual987!")
+        director.groups.add(Group.objects.get_or_create(name="Director")[0])
+        self.client.force_login(director)
+
+        response = self.client.post(
+            reverse("core:docente_nuevo"),
+            {
+                "tipo_identificacion": self.tipo_identificacion.pk,
+                "identificacion": "1002003005",
+                "nombre": "Docente Sin Empresa Visible",
+                "username": "docente_sin_empresa",
+                "password": "ClaveDocente987!",
+                "password_confirm": "ClaveDocente987!",
+                "telefono": "",
+                "telefono_celular": "",
+                "email": "docente2@example.com",
+                "fecha_nacimiento": "",
+                "genero": "",
+                "ocupacion": "",
+                "direccion": "",
+                "activo": "on",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(response, reverse("core:docente_list"), fetch_redirect_response=False)
+        docente = Partner.objects.get(identificacion="1002003005")
+        self.assertEqual(docente.empresa, self.empresa)

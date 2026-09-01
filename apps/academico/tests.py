@@ -30,6 +30,8 @@ from apps.academico.models import (
     HorarioDia,
     Materia,
     MateriaCurso,
+    MateriaSubtema,
+    MateriaTema,
     Periodo,
     PlanificacionDocente,
     PlanificacionTema,
@@ -716,6 +718,12 @@ class DocenteHorariosPanelTests(TestCase):
         self.pendiente.estrategias.add(self.estrategia)
         self.pendiente.recursos.add(self.recurso)
         nueva_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
+        nueva_materia_curso = MateriaCurso.objects.create(materia=nueva_materia, grupo=self.curso)
+        nueva_planificacion = PlanificacionDocente.objects.create(
+            materia_curso=nueva_materia_curso,
+            nombre="Plan lenguaje",
+        )
+        Tema.objects.create(planificacion=nueva_planificacion, nombre="Lectura", orden=1)
         self.client.force_login(self.user)
 
         response = self.client.post(
@@ -735,6 +743,278 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(self.pendiente.estado_planificacion, "pendiente")
         self.assertIsNone(self.pendiente.tema)
         self.assertFalse(self.pendiente.recursos.exists())
+
+    def test_academic_planning_selector_only_lists_subjects_with_topics(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        nueva_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'<option value="{self.materia.pk}">Matematicas</option>', html=True)
+        self.assertNotContains(response, f'<option value="{nueva_materia.pk}">Lenguaje</option>', html=True)
+        self.assertEqual(response.context["materias_asignables"], [self.materia])
+
+    def test_academic_planning_rejects_subject_without_topics(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        nueva_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": nueva_materia.pk,
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.pendiente.materia_curso, self.materia_curso)
+        self.assertFalse(MateriaCurso.objects.filter(materia=nueva_materia, grupo=self.curso).exists())
+        self.assertContains(response, "Solo puedes asignar materias que ya tienen temas cargados para este grupo.")
+
+    def test_academic_planning_can_assign_subject_with_base_topics_to_group(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        nueva_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
+        materia_tema = MateriaTema.objects.create(materia=nueva_materia, nombre="Lectura", orden=1)
+        MateriaSubtema.objects.create(tema=materia_tema, nombre="Comprension", orden=1)
+        self.client.force_login(self.user)
+
+        page_response = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": nueva_materia.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.pendiente.refresh_from_db()
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, f'<option value="{nueva_materia.pk}">Lenguaje</option>', html=True)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.pendiente.materia_curso.materia, nueva_materia)
+        generated_tema = self.pendiente.materia_curso.planificaciones.get().temas_planificacion.get(nombre="Lectura")
+        self.assertEqual(generated_tema.materia_tema, materia_tema)
+        self.assertTrue(generated_tema.subtemas_planificacion.filter(nombre="Comprension").exists())
+
+    def test_academic_planning_calendar_opens_on_today_inside_period(self):
+        today = timezone.localdate()
+        periodo = Periodo.objects.create(
+            nombre="Periodo vigente",
+            fecha_inicio=today - timedelta(days=14),
+            fecha_fin=today + timedelta(days=35),
+        )
+        CursoPeriodo.objects.create(curso=self.curso, periodo=periodo)
+        self.make_superuser()
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["calendar_default_date"], today.isoformat())
+
+    def test_periodo_edit_loads_dates_with_modern_datepicker(self):
+        self.make_superuser()
+        today = timezone.localdate()
+        periodo = Periodo.objects.create(
+            nombre="Periodo editable",
+            fecha_inicio=today,
+            fecha_fin=today + timedelta(days=30),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:periodo_editar", args=[periodo.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "flatpickr.min.css")
+        self.assertContains(response, "InstitutoDatePicker.init")
+        self.assertContains(response, "js-date-picker")
+        self.assertContains(response, f'value="{today.isoformat()}"')
+        self.assertContains(response, f'value="{(today + timedelta(days=30)).isoformat()}"')
+
+    def test_materia_form_uses_custom_color_picker(self):
+        self.make_superuser()
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("academico:materia_nueva"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "subject-color-picker")
+        self.assertContains(response, "data-color-trigger")
+        self.assertContains(response, "data-color-popover")
+        self.assertContains(response, "data-color-honeycomb")
+        self.assertContains(response, "subject-color-row")
+        self.assertContains(response, "dataset.colorTone")
+        self.assertContains(response, "data-color-preview")
+        self.assertContains(response, 'data-color-input=""')
+        self.assertNotContains(response, 'type="color"')
+
+    def test_materia_form_saves_hex_color(self):
+        self.make_superuser()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:materia_nueva"),
+            {
+                "nombre": "Historia",
+                "nombre_corto": "HIS",
+                "color": "0F766E",
+                "descripcion": "",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Materia.objects.get(nombre="Historia").color, "#0f766e")
+
+    def test_coordinacion_topic_create_only_selects_subject(self):
+        coordinator = self.create_coordinator()
+        self.client.force_login(coordinator)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_planificacion_nueva"),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Materia")
+        self.assertContains(response, 'name="materia"')
+        self.assertNotContains(response, "Materia / grupo")
+        self.assertNotContains(response, 'name="materia_curso"')
+        self.assertNotContains(response, "Docente asignado")
+
+    def test_coordinacion_topic_create_applies_subject_topics_to_existing_groups(self):
+        coordinator = self.create_coordinator()
+        grupo_b = Curso.objects.create(nombre="Grupo B", activo=True)
+        materia_curso_b = MateriaCurso.objects.create(materia=self.materia, grupo=grupo_b)
+        self.client.force_login(coordinator)
+
+        response = self.client.post(
+            reverse("academico:coordinacion_planificacion_nueva"),
+            {
+                "materia": self.materia.pk,
+                "form-TOTAL_FORMS": "1",
+                "form-INITIAL_FORMS": "0",
+                "form-MIN_NUM_FORMS": "0",
+                "form-MAX_NUM_FORMS": "1000",
+                "form-0-tema_id": "",
+                "form-0-nombre": "Algebra",
+                "form-0-detalle": "",
+                "form-0-orden": "1",
+                "form-0-subtemas-TOTAL_FORMS": "1",
+                "form-0-subtemas-0-id": "",
+                "form-0-subtemas-0-nombre": "Polinomios",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse("academico:coordinacion_planificacion_materia_editar", args=[self.materia.pk]),
+        )
+        materia_tema = MateriaTema.objects.get(materia=self.materia, nombre="Algebra")
+        self.assertTrue(materia_tema.subtemas_base.filter(nombre="Polinomios").exists())
+        for materia_curso in [self.materia_curso, materia_curso_b]:
+            planificacion = PlanificacionDocente.objects.get(materia_curso=materia_curso)
+            tema = planificacion.temas_planificacion.get(nombre="Algebra")
+            self.assertEqual(tema.materia_tema, materia_tema)
+            self.assertTrue(tema.subtemas_planificacion.filter(nombre="Polinomios").exists())
+
+    def test_coordinacion_topic_create_allows_subject_without_existing_group_link(self):
+        coordinator = self.create_coordinator()
+        nueva_materia = Materia.objects.create(nombre="Fisica", nombre_corto="FIS", color="#0891b2")
+        self.client.force_login(coordinator)
+
+        response = self.client.post(
+            reverse("academico:coordinacion_planificacion_nueva"),
+            {
+                "materia": nueva_materia.pk,
+                "form-TOTAL_FORMS": "1",
+                "form-INITIAL_FORMS": "0",
+                "form-MIN_NUM_FORMS": "0",
+                "form-MAX_NUM_FORMS": "1000",
+                "form-0-tema_id": "",
+                "form-0-nombre": "Movimiento",
+                "form-0-detalle": "",
+                "form-0-orden": "1",
+                "form-0-subtemas-TOTAL_FORMS": "1",
+                "form-0-subtemas-0-id": "",
+                "form-0-subtemas-0-nombre": "Velocidad",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            reverse("academico:coordinacion_planificacion_materia_editar", args=[nueva_materia.pk]),
+        )
+        materia_tema = MateriaTema.objects.get(materia=nueva_materia, nombre="Movimiento")
+        self.assertTrue(materia_tema.subtemas_base.filter(nombre="Velocidad").exists())
+        self.assertFalse(MateriaCurso.objects.filter(materia=nueva_materia).exists())
+
+    def test_academic_planning_can_remove_subject_assignment_with_cleared_selector(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.pendiente.sync_subtemas_planificados([self.subtema])
+        self.client.force_login(self.user)
+
+        page_response = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(page_response.status_code, 200)
+        self.assertContains(page_response, "allowClear: true")
+        self.assertContains(page_response, "select2:clearing")
+        self.assertContains(page_response, "select2:opening")
+        self.assertNotContains(page_response, "Quitar materia de esta clase")
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": "",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Clase.objects.filter(pk=self.pendiente.pk).exists())
 
     def test_academic_planning_does_not_update_approved_class(self):
         self.create_periodo_for_course()
@@ -766,7 +1046,7 @@ class DocenteHorariosPanelTests(TestCase):
     def test_academic_planning_assigns_single_day_docente_override(self):
         self.create_periodo_for_course()
         self.make_superuser()
-        reemplazo, _ = self.create_docente()
+        reemplazo, reemplazo_user = self.create_docente()
         self.client.force_login(self.user)
 
         response = self.client.post(
@@ -787,11 +1067,164 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(self.pendiente.docente, reemplazo)
         self.assertTrue(self.pendiente.docente_override)
         self.assertIsNone(self.revision.docente)
+        profesor_materia_curso = ProfesorMateriaCurso.objects.get(partner=reemplazo, materia_curso=self.materia_curso)
+        self.assertTrue(profesor_materia_curso.auto_generada_por_clases)
+        self.assertTrue(PlanificacionTema.objects.filter(profesor_materia_curso=profesor_materia_curso, tema=self.tema).exists())
+
+        self.client.force_login(reemplazo_user)
+        docente_response = self.client.get(reverse("academico:docente_horarios"), HTTP_HOST="localhost")
+
+        self.assertEqual(docente_response.status_code, 200)
+        self.assertEqual(docente_response.context["planificacion_stats"]["total"], 1)
+        self.assertEqual(len(docente_response.context["tema_cards"]), 1)
+
+    def test_academic_planning_removing_class_cleans_auto_docente_topic_plans(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        reemplazo, _ = self.create_docente()
+        self.client.force_login(self.user)
+
+        assign_response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": self.materia.pk,
+                "docente": reemplazo.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        profesor_materia_curso = ProfesorMateriaCurso.objects.get(partner=reemplazo, materia_curso=self.materia_curso)
+
+        remove_response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": "",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(assign_response.status_code, 302)
+        self.assertEqual(remove_response.status_code, 302)
+        self.assertFalse(Clase.objects.filter(pk=self.pendiente.pk).exists())
+        self.assertFalse(ProfesorMateriaCurso.objects.filter(pk=profesor_materia_curso.pk).exists())
+        self.assertFalse(PlanificacionTema.objects.filter(profesor_materia_curso_id=profesor_materia_curso.pk).exists())
+
+    def test_docente_subject_assignment_removal_blocks_locked_class_planifications(self):
+        self.make_superuser()
+        self.revision.estado_planificacion = "aprobada"
+        self.revision.save(update_fields=["estado_planificacion"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_docente"),
+            {
+                "materia_curso": self.materia_curso.pk,
+                "docente": "",
+                "grupo": self.curso.pk,
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+        self.revision.refresh_from_db()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            ProfesorMateriaCurso.objects.filter(
+                pk=self.profesor_materia_curso.pk,
+                auto_generada_por_clases=False,
+            ).exists()
+        )
+        self.assertFalse(self.revision.docente_override)
+        self.assertContains(response, "No se puede quitar el docente porque hay clases con planificacion enviada o aprobada.")
+
+    def test_docente_subject_assignment_replacement_preserves_locked_classes_for_previous_teacher(self):
+        self.make_superuser()
+        reemplazo, reemplazo_user = self.create_docente()
+        self.revision.estado_planificacion = "aprobada"
+        self.revision.save(update_fields=["estado_planificacion"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_docente"),
+            {
+                "materia_curso": self.materia_curso.pk,
+                "docente": reemplazo.pk,
+                "grupo": self.curso.pk,
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+        self.revision.refresh_from_db()
+        self.pendiente.refresh_from_db()
+        previous_assignment = ProfesorMateriaCurso.objects.get(partner=self.docente, materia_curso=self.materia_curso)
+        new_assignment = ProfesorMateriaCurso.objects.get(partner=reemplazo, materia_curso=self.materia_curso)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(previous_assignment.auto_generada_por_clases)
+        self.assertFalse(new_assignment.auto_generada_por_clases)
+        self.assertEqual(self.revision.docente, self.docente)
+        self.assertTrue(self.revision.docente_override)
+        self.assertIsNone(self.pendiente.docente)
+        self.assertFalse(self.pendiente.docente_override)
+        self.assertTrue(
+            PlanificacionTema.objects.filter(profesor_materia_curso=previous_assignment, tema=self.tema).exists()
+        )
+        self.assertTrue(
+            PlanificacionTema.objects.filter(profesor_materia_curso=new_assignment, tema=self.tema).exists()
+        )
+
+        self.client.force_login(reemplazo_user)
+        docente_response = self.client.get(reverse("academico:docente_horarios"), HTTP_HOST="localhost")
+
+        self.assertEqual(docente_response.status_code, 200)
+        self.assertEqual(docente_response.context["planificacion_stats"]["total"], 3)
+        self.assertNotIn(self.revision, [card["clase"] for card in docente_response.context["planificacion_cards"]])
+
+        self.client.force_login(self.user)
+        previous_docente_response = self.client.get(reverse("academico:docente_horarios"), HTTP_HOST="localhost")
+
+        self.assertEqual(previous_docente_response.status_code, 200)
+        self.assertEqual(previous_docente_response.context["planificacion_stats"]["total"], 1)
+
+    def test_docente_bulk_assignment_removal_blocks_locked_class_planifications(self):
+        self.make_superuser()
+        self.revision.estado_planificacion = "aprobada"
+        self.revision.save(update_fields=["estado_planificacion"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_docente_editar", args=[self.docente.pk]),
+            {
+                "docente": self.docente.pk,
+                "form-TOTAL_FORMS": "1",
+                "form-INITIAL_FORMS": "1",
+                "form-MIN_NUM_FORMS": "0",
+                "form-MAX_NUM_FORMS": "1000",
+                "form-0-grupo": self.curso.pk,
+                "form-0-materia_curso": self.materia_curso.pk,
+                "form-0-DELETE": "on",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            ProfesorMateriaCurso.objects.filter(
+                pk=self.profesor_materia_curso.pk,
+                auto_generada_por_clases=False,
+            ).exists()
+        )
+        self.assertContains(response, "No se puede quitar el docente porque hay clases con planificacion enviada o aprobada")
 
     def test_academic_planning_assigns_docente_from_selected_date_forward(self):
         self.create_periodo_for_course()
         self.make_superuser()
-        reemplazo, _ = self.create_docente()
+        reemplazo, reemplazo_user = self.create_docente()
         selected_date = self.rechazada.fecha
         future_date = selected_date + timedelta(days=7)
         self.client.force_login(self.user)
@@ -809,16 +1242,48 @@ class DocenteHorariosPanelTests(TestCase):
             HTTP_HOST="localhost",
         )
         self.pendiente.refresh_from_db()
+        self.revision.refresh_from_db()
         self.rechazada.refresh_from_db()
         future_class = Clase.objects.get(horario_aula_curso=self.horario_aula_curso, fecha=future_date)
+        previous_assignment = ProfesorMateriaCurso.objects.get(partner=self.docente, materia_curso=self.materia_curso)
+        new_assignment = ProfesorMateriaCurso.objects.get(partner=reemplazo, materia_curso=self.materia_curso)
 
         self.assertEqual(response.status_code, 302)
-        self.assertIsNone(self.pendiente.docente)
-        self.assertFalse(self.pendiente.docente_override)
-        self.assertEqual(self.rechazada.docente, reemplazo)
-        self.assertTrue(self.rechazada.docente_override)
-        self.assertEqual(future_class.docente, reemplazo)
-        self.assertTrue(future_class.docente_override)
+        self.assertEqual(self.pendiente.docente, self.docente)
+        self.assertTrue(self.pendiente.docente_override)
+        self.assertEqual(self.revision.docente, self.docente)
+        self.assertTrue(self.revision.docente_override)
+        self.assertIsNone(self.rechazada.docente)
+        self.assertFalse(self.rechazada.docente_override)
+        self.assertIsNone(future_class.docente)
+        self.assertFalse(future_class.docente_override)
+        self.assertTrue(previous_assignment.auto_generada_por_clases)
+        self.assertFalse(new_assignment.auto_generada_por_clases)
+
+        self.client.force_login(reemplazo_user)
+        replacement_response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.rechazada.pk]),
+            HTTP_HOST="localhost",
+        )
+        locked_response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.revision.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(replacement_response.status_code, 200)
+        self.assertEqual(locked_response.status_code, 404)
+
+        self.client.force_login(self.user)
+        assignment_response = self.client.get(
+            reverse("academico:planificacion_docente"),
+            {"grupo": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(assignment_response.status_code, 200)
+        self.assertEqual(assignment_response.context["stats"]["asignadas"], 1)
+        self.assertEqual(assignment_response.context["stats"]["pendientes"], 0)
+        self.assertContains(assignment_response, "Docente Reemplazo")
 
     def test_academic_planning_can_leave_single_class_without_docente(self):
         self.create_periodo_for_course()

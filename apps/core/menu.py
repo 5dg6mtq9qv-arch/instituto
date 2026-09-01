@@ -18,6 +18,13 @@ MENU_ITEMS = [
     {"label": "Cuotas", "url_name": "cartera:cuota_list", "perm": "cartera.view_cuota", "icon": "ri-bill-line"},
     {"label": "Pagos registrados", "url_name": "cartera:pago_list", "perm": "cartera.view_pago", "icon": "ri-bank-card-line"},
     {
+        "label": "Empresas",
+        "url_name": "core:empresa_list",
+        "perm": None,
+        "groups": ["Administrador"],
+        "icon": "ri-building-4-line",
+    },
+    {
         "label": "Cursos academicos",
         "url_name": "academico:curso_list",
         "perm": "academico.view_curso",
@@ -61,6 +68,7 @@ MENU_GROUPS = [
         "label": "Administrativo",
         "icon": "ri-building-4-line",
         "items": [
+            {"label": "Empresas", "url_name": "core:empresa_list", "perm": None, "groups": ["Administrador"]},
             {"label": "Docentes", "url_name": "core:docente_list", "perm": None, "groups": ["Director"]},
             {"label": "Usuarios", "url_name": "core:usuario_list", "perm": None, "groups": ["Administrador"]},
             {"label": "Grupos", "url_name": "core:grupo_list", "perm": None, "groups": ["Administrador"]},
@@ -70,10 +78,10 @@ MENU_GROUPS = [
         "label": "Academico",
         "icon": "ri-graduation-cap-line",
         "items": [
+            {"label": "Periodos", "url_name": "academico:periodo_list", "perm": "academico.view_periodo"},
             {"label": "Cursos", "url_name": "academico:curso_list", "perm": "academico.view_curso"},
             {"label": "Aulas", "url_name": "academico:aula_list", "perm": "academico.view_aula"},
-            {"label": "Materias", "url_name": "academico:materia_list", "perm": "academico.view_materia"},
-            {"label": "Periodos", "url_name": "academico:periodo_list", "perm": "academico.view_periodo"},
+            {"label": "Materias", "url_name": "academico:materia_list", "perm": "academico.view_materia"},            
             {"label": "Planificacion academica", "url_name": "academico:planificacion_academica", "perm": "academico.view_clase"},
             {"label": "Planificacion docente", "url_name": "academico:planificacion_docente", "perm": "academico.view_profesormateriacurso"},
             {"label": "Estudiantes por grupo", "url_name": "academico:grupo_estudiantes", "perm": "academico.view_grupoestudiante"},

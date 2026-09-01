@@ -8,7 +8,7 @@ from django.http import HttpResponse
 from django.urls import reverse_lazy
 from django.db import connection, transaction
 from django.db.models import Prefetch
-from django.db.models import Count, Max, Min, Q
+from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import ValidationError
@@ -66,6 +66,8 @@ from .models import (
     HorarioDia,
     Materia,
     MateriaCurso,
+    MateriaSubtema,
+    MateriaTema,
     Periodo,
     PlanificacionClase,
     PlanificacionDocente,
@@ -176,6 +178,7 @@ def docente_responsable_filter(docente):
     return Q(docente_override=True, docente=docente) | Q(
         docente_override=False,
         materia_curso__profesor_materia_cursos__partner=docente,
+        materia_curso__profesor_materia_cursos__auto_generada_por_clases=False,
     )
 
 
@@ -186,10 +189,12 @@ def docente_responsable_search_filter(query):
         | Q(
             docente_override=False,
             materia_curso__profesor_materia_cursos__partner__nombre__icontains=query,
+            materia_curso__profesor_materia_cursos__auto_generada_por_clases=False,
         )
         | Q(
             docente_override=False,
             materia_curso__profesor_materia_cursos__partner__identificacion__icontains=query,
+            materia_curso__profesor_materia_cursos__auto_generada_por_clases=False,
         )
     )
 
@@ -197,18 +202,34 @@ def docente_responsable_search_filter(query):
 def get_clase_docentes(clase):
     if clase.docente_override:
         return [clase.docente] if clase.docente_id else []
-    return [item.partner for item in clase.materia_curso.profesor_materia_cursos.all()]
+    return [
+        item.partner
+        for item in clase.materia_curso.profesor_materia_cursos.all()
+        if not item.auto_generada_por_clases
+    ]
 
 
 def clase_tiene_docente(clase):
     if clase.docente_override:
         return bool(clase.docente_id)
-    return clase.materia_curso.profesor_materia_cursos.exists()
+    return clase.materia_curso.profesor_materia_cursos.filter(auto_generada_por_clases=False).exists()
 
 
 def planificacion_tema_nombre(profesor_materia_curso, tema):
     materia_curso = profesor_materia_curso.materia_curso
     return f"{materia_curso.grupo} - {materia_curso.materia} - {tema.nombre}"
+
+
+def ensure_planificacion_docente_for_materia_curso(materia_curso):
+    nombre = f"{materia_curso.grupo} - {materia_curso.materia}"
+    planificacion, _ = PlanificacionDocente.objects.get_or_create(
+        materia_curso=materia_curso,
+        defaults={"nombre": nombre},
+    )
+    if planificacion.nombre != nombre:
+        planificacion.nombre = nombre
+        planificacion.save(update_fields=["nombre", "updated_at"])
+    return planificacion
 
 
 def sync_planificaciones_tema_for_profesor(profesor_materia_curso):
@@ -233,6 +254,193 @@ def sync_planificaciones_tema_for_materia_curso(materia_curso):
         "materia_curso__materia",
     ).filter(materia_curso=materia_curso):
         sync_planificaciones_tema_for_profesor(profesor_materia_curso)
+
+
+def ensure_planificaciones_tema_for_docente_materia_curso(docente, materia_curso):
+    if not docente or not materia_curso:
+        return None
+    if MateriaTema.objects.filter(materia=materia_curso.materia).exists():
+        sync_materia_temas_to_materia_curso(materia_curso)
+    profesor_materia_curso, _ = ProfesorMateriaCurso.objects.get_or_create(
+        partner=docente,
+        materia_curso=materia_curso,
+        defaults={"auto_generada_por_clases": True},
+    )
+    sync_planificaciones_tema_for_profesor(profesor_materia_curso)
+    return profesor_materia_curso
+
+
+def cleanup_auto_planificaciones_tema_for_docente_materia_curso(docente, materia_curso):
+    if not docente or not materia_curso:
+        return
+    if Clase.objects.filter(
+        materia_curso=materia_curso,
+        docente_override=True,
+        docente=docente,
+    ).exists():
+        return
+    ProfesorMateriaCurso.objects.filter(
+        partner=docente,
+        materia_curso=materia_curso,
+        auto_generada_por_clases=True,
+    ).delete()
+
+
+def locked_inherited_classes_queryset(materia_curso):
+    return Clase.objects.filter(
+        materia_curso=materia_curso,
+        docente_override=False,
+        estado_planificacion__in=CLASS_ASSIGNMENT_LOCK_STATES,
+    )
+
+
+def real_docente_assignments_queryset(materia_curso):
+    return (
+        ProfesorMateriaCurso.objects.select_related("partner")
+        .filter(materia_curso=materia_curso, auto_generada_por_clases=False)
+    )
+
+
+def preserved_inherited_classes_queryset(materia_curso, preserve_before_date=None):
+    filters = Q(estado_planificacion__in=CLASS_ASSIGNMENT_LOCK_STATES)
+    if preserve_before_date:
+        filters |= Q(fecha__lt=preserve_before_date)
+    return Clase.objects.filter(
+        materia_curso=materia_curso,
+        docente_override=False,
+    ).filter(filters)
+
+
+def assign_real_docente_to_materia_curso(materia_curso, docente, preserve_before_date=None):
+    real_assignments = list(
+        real_docente_assignments_queryset(materia_curso)
+        .select_for_update()
+        .order_by("partner__nombre", "pk")
+    )
+    replaced_assignments = [item for item in real_assignments if item.partner_id != docente.pk]
+    preserved_class_ids = list(
+        preserved_inherited_classes_queryset(materia_curso, preserve_before_date)
+        .select_for_update()
+        .values_list("pk", flat=True)
+    )
+    if preserved_class_ids and len(replaced_assignments) > 1:
+        return {
+            "ok": False,
+            "message": (
+                "No se puede reemplazar el docente porque hay clases enviadas, aprobadas "
+                "o anteriores y la materia tiene varios docentes asignados."
+            ),
+        }
+    if preserved_class_ids and replaced_assignments:
+        previous_assignment = replaced_assignments[0]
+        Clase.objects.filter(pk__in=preserved_class_ids).update(
+            docente=previous_assignment.partner,
+            docente_override=True,
+        )
+        previous_assignment.auto_generada_por_clases = True
+        previous_assignment.save(update_fields=["auto_generada_por_clases"])
+        sync_planificaciones_tema_for_profesor(previous_assignment)
+    elif preserved_class_ids and not real_assignments:
+        Clase.objects.filter(pk__in=preserved_class_ids).update(
+            docente=None,
+            docente_override=True,
+        )
+
+    ProfesorMateriaCurso.objects.filter(
+        materia_curso=materia_curso,
+        auto_generada_por_clases=False,
+    ).exclude(partner=docente).delete()
+    profesor_materia_curso, _ = ProfesorMateriaCurso.objects.get_or_create(
+        partner=docente,
+        materia_curso=materia_curso,
+    )
+    if profesor_materia_curso.auto_generada_por_clases:
+        profesor_materia_curso.auto_generada_por_clases = False
+        profesor_materia_curso.save(update_fields=["auto_generada_por_clases"])
+    sync_planificaciones_tema_for_profesor(profesor_materia_curso)
+    return {
+        "ok": True,
+        "preserved_count": len(preserved_class_ids),
+        "replaced": bool(replaced_assignments),
+        "profesor_materia_curso": profesor_materia_curso,
+    }
+
+
+def remove_real_docentes_from_materia_curso(materia_curso):
+    real_assignments = list(
+        real_docente_assignments_queryset(materia_curso)
+        .select_for_update()
+        .order_by("partner__nombre", "pk")
+    )
+    locked_class_ids = list(
+        locked_inherited_classes_queryset(materia_curso)
+        .select_for_update()
+        .values_list("pk", flat=True)
+    )
+    if locked_class_ids and real_assignments:
+        return {
+            "ok": False,
+            "message": "No se puede quitar el docente porque hay clases con planificacion enviada o aprobada.",
+        }
+    ProfesorMateriaCurso.objects.filter(
+        materia_curso=materia_curso,
+        auto_generada_por_clases=False,
+    ).delete()
+    return {"ok": True, "removed_count": len(real_assignments)}
+
+
+def sync_materia_temas_to_materia_curso(materia_curso):
+    materia_temas = list(
+        MateriaTema.objects.filter(materia=materia_curso.materia)
+        .prefetch_related("subtemas_base")
+        .order_by("orden", "nombre")
+    )
+    if not materia_temas:
+        planificacion = PlanificacionDocente.objects.filter(materia_curso=materia_curso).first()
+        if planificacion:
+            planificacion.temas_planificacion.all().delete()
+            sync_planificaciones_tema_for_materia_curso(materia_curso)
+            return planificacion
+        return None
+    planificacion = ensure_planificacion_docente_for_materia_curso(materia_curso)
+    kept_tema_ids = set()
+    for order, materia_tema in enumerate(materia_temas, start=1):
+        tema = planificacion.temas_planificacion.filter(materia_tema=materia_tema).first()
+        if tema is None:
+            tema = planificacion.temas_planificacion.filter(
+                materia_tema__isnull=True,
+                nombre__iexact=materia_tema.nombre,
+            ).first()
+        if tema is None:
+            tema = Tema(planificacion=planificacion)
+        tema.materia_tema = materia_tema
+        tema.nombre = materia_tema.nombre
+        tema.detalle = materia_tema.detalle
+        tema.orden = order
+        tema.save()
+        kept_tema_ids.add(tema.pk)
+
+        kept_subtema_ids = set()
+        subtemas_base = materia_tema.subtemas_base.order_by("orden", "nombre")
+        for subtema_order, materia_subtema in enumerate(subtemas_base, start=1):
+            subtema = tema.subtemas_planificacion.filter(materia_subtema=materia_subtema).first()
+            if subtema is None:
+                subtema = tema.subtemas_planificacion.filter(
+                    materia_subtema__isnull=True,
+                    nombre__iexact=materia_subtema.nombre,
+                ).first()
+            if subtema is None:
+                subtema = Subtema(tema=tema)
+            subtema.materia_subtema = materia_subtema
+            subtema.nombre = materia_subtema.nombre
+            subtema.descripcion = materia_subtema.descripcion
+            subtema.orden = subtema_order
+            subtema.save()
+            kept_subtema_ids.add(subtema.pk)
+        tema.subtemas_planificacion.exclude(pk__in=kept_subtema_ids).delete()
+    planificacion.temas_planificacion.exclude(pk__in=kept_tema_ids).delete()
+    sync_planificaciones_tema_for_materia_curso(materia_curso)
+    return planificacion
 
 
 def sync_planificaciones_tema_for_docente(docente):
@@ -303,6 +511,10 @@ def materia_temario_progress(materia_curso, docente=None):
 
 
 def clases_sin_docente_queryset(curso=None, start_date=None, end_date=None):
+    real_docentes = ProfesorMateriaCurso.objects.filter(
+        materia_curso=OuterRef("materia_curso"),
+        auto_generada_por_clases=False,
+    )
     queryset = (
         Clase.objects.select_related(
             "materia_curso__materia",
@@ -311,9 +523,10 @@ def clases_sin_docente_queryset(curso=None, start_date=None, end_date=None):
             "horario_aula_curso__aula_curso__aula",
             "horario_aula_curso__horario_dia__horario",
         )
+        .annotate(has_real_docente=Exists(real_docentes))
         .filter(
             Q(docente_override=True, docente__isnull=True)
-            | Q(docente_override=False, materia_curso__profesor_materia_cursos__isnull=True)
+            | Q(docente_override=False, has_real_docente=False)
         )
         .distinct()
     )
@@ -333,9 +546,9 @@ def clases_sin_docente_alert(curso=None, days=UNASSIGNED_CLASS_ALERT_DAYS, limit
         start_date=today,
         end_date=today + timedelta(days=days),
     )
-    assign_url = reverse_lazy("academico:planificacion_docente")
+    assign_url = reverse_lazy("academico:planificacion_academica")
     if curso:
-        assign_url = f"{assign_url}?{urlencode({'grupo': curso.pk})}"
+        assign_url = f"{assign_url}?{urlencode({'curso': curso.pk})}"
     return {
         "count": queryset.count(),
         "items": list(queryset[:limit]),
@@ -1130,22 +1343,33 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
 
             materia_grupo = None
             if materia_id:
-                materia = get_object_or_404(Materia, pk=materia_id)
-                materia_grupo, _ = MateriaCurso.objects.get_or_create(
-                    materia=materia,
-                    grupo=curso,
-                )
+                materia_grupo = self.get_materia_curso_with_temas(curso, materia_id)
+                if not materia_grupo:
+                    messages.error(request, "Solo puedes asignar materias que ya tienen temas cargados para este grupo.")
+                    return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
             docente = None
-            docente_override = bool(docente_value)
             if docente_value and docente_value != "__none__":
                 docente = get_object_or_404(Partner, pk=docente_value, es_docente=True, activo=True)
+            update_subject_docente = bool(asignar_periodo and materia_grupo and docente)
+            docente_override = bool(docente_value) and not update_subject_docente
+            clase_docente = docente if docente_override else None
 
             with transaction.atomic():
+                subject_assignment_result = None
+                if update_subject_docente:
+                    subject_assignment_result = assign_real_docente_to_materia_curso(
+                        materia_grupo,
+                        docente,
+                        preserve_before_date=fecha_clase,
+                    )
+                    if not subject_assignment_result["ok"]:
+                        messages.error(request, subject_assignment_result["message"])
+                        return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
                 updated_count, locked_count = self.apply_clase_assignment(
                     horario_aula_curso,
                     fecha_clase,
                     materia_grupo,
-                    docente,
+                    clase_docente,
                     docente_override,
                 )
                 if asignar_periodo:
@@ -1159,7 +1383,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                                 horario_aula_curso,
                                 current_date,
                                 materia_grupo,
-                                docente,
+                                clase_docente,
                                 docente_override,
                             )
                             updated_count += updated
@@ -1167,13 +1391,27 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                         current_date += timedelta(days=1)
                     action = "asignada" if materia_grupo else "removida"
                     if updated_count:
-                        messages.success(request, f"Clase {action} correctamente desde la fecha seleccionada en {updated_count} fecha(s) editable(s).")
+                        if subject_assignment_result:
+                            messages.success(
+                                request,
+                                f"{docente.nombre} quedo como docente de {materia_grupo.materia}. "
+                                f"Se actualizaron {updated_count} clase(s) editable(s) desde la fecha seleccionada.",
+                            )
+                        else:
+                            messages.success(request, f"Clase {action} correctamente desde la fecha seleccionada en {updated_count} fecha(s) editable(s).")
+                    elif subject_assignment_result:
+                        messages.success(request, f"{docente.nombre} quedo como docente de {materia_grupo.materia}.")
+                    if subject_assignment_result and subject_assignment_result["preserved_count"]:
+                        messages.info(
+                            request,
+                            "Las clases anteriores, enviadas o aprobadas conservaron su docente original.",
+                        )
                     if locked_count:
                         messages.warning(
                             request,
                             f"{locked_count} clase(s) no se modificaron porque tienen una planificacion enviada o aprobada.",
                         )
-                    if not updated_count and not locked_count:
+                    if not updated_count and not locked_count and not subject_assignment_result:
                         messages.info(request, "No habia clases editables para modificar en este horario.")
                 elif locked_count:
                     messages.error(request, CLASS_ASSIGNMENT_LOCK_MESSAGE)
@@ -1203,7 +1441,11 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 docente_override=docente_override,
                 fecha=fecha_clase,
             )
+            if docente_override and docente:
+                ensure_planificaciones_tema_for_docente_materia_curso(docente, materia_grupo)
             return 1, 0
+        previous_docente = clase.docente if clase.docente_override and clase.docente_id else None
+        previous_materia_curso = clase.materia_curso if previous_docente else None
         update_fields = []
         if clase.materia_curso_id != materia_grupo.pk:
             reset_fields = self.reset_clase_planificacion(clase)
@@ -1218,11 +1460,17 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             update_fields.append("docente_override")
         if update_fields:
             clase.save(update_fields=update_fields)
+        if docente_override and docente:
+            ensure_planificaciones_tema_for_docente_materia_curso(docente, materia_grupo)
+        cleanup_auto_planificaciones_tema_for_docente_materia_curso(previous_docente, previous_materia_curso)
         return 1, 0
 
     def delete_clase_assignment(self, clase):
+        previous_docente = clase.docente if clase.docente_override and clase.docente_id else None
+        previous_materia_curso = clase.materia_curso if previous_docente else None
         self.clear_clase_relations(clase)
         clase.delete()
+        cleanup_auto_planificaciones_tema_for_docente_materia_curso(previous_docente, previous_materia_curso)
 
     def reset_clase_planificacion(self, clase):
         self.clear_clase_relations(clase)
@@ -1288,6 +1536,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
     def get_context(self, schedule_form=None, schedule_action=None):
         cursos = Curso.objects.filter(activo=True).order_by("nombre")
         materias = list(Materia.objects.order_by("nombre"))
+        materias_asignables = []
         docentes = list(Partner.objects.filter(es_docente=True, activo=True).order_by("nombre"))
         selected_curso_id = self.request.GET.get("curso") or self.request.POST.get("curso") or ""
         selected_curso = None
@@ -1323,6 +1572,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         if selected_curso_id and not selected_curso:
             selected_curso_id = ""
         if selected_curso:
+            materias_asignables = list(self.get_assignable_materias(selected_curso))
             unassigned_alert = clases_sin_docente_alert(curso=selected_curso)
             selected_curso_periodo = (
                 CursoPeriodo.objects.select_related("periodo")
@@ -1363,6 +1613,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 }
                 for item in ProfesorMateriaCurso.objects.select_related("partner").filter(
                     materia_curso__grupo=selected_curso,
+                    auto_generada_por_clases=False,
                 ):
                     docentes_by_materia_curso.setdefault(item.materia_curso_id, []).append(item.partner)
 
@@ -1371,7 +1622,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 current_date = selected_curso_periodo.periodo.fecha_inicio
                 end_date = selected_curso_periodo.periodo.fecha_fin
                 today = timezone.localdate()
-                calendar_default_date = current_date.isoformat()
+                if current_date <= today <= end_date:
+                    calendar_default_date = today.isoformat()
+                else:
+                    calendar_default_date = current_date.isoformat()
                 while current_date <= end_date:
                     day_name = weekday_to_dia[current_date.weekday()]
                     blocks = []
@@ -1467,6 +1721,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "periodo_create_url": reverse_lazy("academico:periodo_nuevo"),
             "cursos": cursos,
             "materias": materias,
+            "materias_asignables": materias_asignables,
             "docentes": docentes,
             "rows": rows,
             "calendar_events_json": json.dumps(calendar_events),
@@ -1486,6 +1741,34 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "can_save": self.can_save_class(self.request.user),
             "can_add_schedule": self.can_add_schedule(self.request.user),
         }
+
+    def get_assignable_materias(self, curso):
+        return (
+            Materia.objects.filter(
+                Q(temas_base__isnull=False)
+                | Q(
+                    materia_cursos__grupo=curso,
+                    materia_cursos__planificaciones__temas_planificacion__isnull=False,
+                )
+            )
+            .distinct()
+            .order_by("nombre")
+        )
+
+    def get_materia_curso_with_temas(self, curso, materia_id):
+        if not str(materia_id or "").isdigit():
+            return None
+        materia = Materia.objects.filter(pk=materia_id).first()
+        if not materia:
+            return None
+        materia_curso = MateriaCurso.objects.filter(grupo=curso, materia=materia).first()
+        if MateriaTema.objects.filter(materia=materia).exists():
+            materia_curso, _ = MateriaCurso.objects.get_or_create(grupo=curso, materia=materia)
+            sync_materia_temas_to_materia_curso(materia_curso)
+            return materia_curso
+        if materia_curso and materia_curso.planificaciones.filter(temas_planificacion__isnull=False).exists():
+            return materia_curso
+        return None
 
     def get_docente_field_value(self, clase):
         if not clase or not clase.docente_override:
@@ -1551,7 +1834,9 @@ class PlanificacionAcademicaExportView(LoginRequiredMixin, PermissionRequiredMix
             queryset = queryset.filter(materia_curso__grupo_id=curso_id)
 
         docentes = {}
-        for item in ProfesorMateriaCurso.objects.select_related("partner", "materia_curso"):
+        for item in ProfesorMateriaCurso.objects.select_related("partner", "materia_curso").filter(
+            auto_generada_por_clases=False
+        ):
             docentes.setdefault(item.materia_curso_id, []).append(item.partner.nombre)
         rows = []
         for clase in queryset:
@@ -1695,8 +1980,14 @@ class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, 
                 Q(grupo__nombre__icontains=q)
                 | Q(materia__nombre__icontains=q)
                 | Q(materia__nombre_corto__icontains=q)
-                | Q(profesor_materia_cursos__partner__nombre__icontains=q)
-                | Q(profesor_materia_cursos__partner__identificacion__icontains=q)
+                | Q(
+                    profesor_materia_cursos__auto_generada_por_clases=False,
+                    profesor_materia_cursos__partner__nombre__icontains=q,
+                )
+                | Q(
+                    profesor_materia_cursos__auto_generada_por_clases=False,
+                    profesor_materia_cursos__partner__identificacion__icontains=q,
+                )
             )
         asignaciones = list(asignaciones.distinct())
         grupos = self.group_asignaciones(asignaciones)
@@ -1730,20 +2021,31 @@ class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, 
         with transaction.atomic():
             if docente_id:
                 docente = get_object_or_404(Partner, pk=docente_id, es_docente=True, activo=True)
-                ProfesorMateriaCurso.objects.filter(materia_curso=materia_curso).exclude(partner=docente).delete()
-                profesor_materia_curso, _ = ProfesorMateriaCurso.objects.get_or_create(
-                    partner=docente,
-                    materia_curso=materia_curso,
-                )
-                sync_planificaciones_tema_for_profesor(profesor_materia_curso)
-                messages.success(
-                    request,
-                    f"{docente.nombre} asignado a {materia_curso.grupo} - {materia_curso.materia}.",
-                )
+                assignment_result = assign_real_docente_to_materia_curso(materia_curso, docente)
+                if not assignment_result["ok"]:
+                    messages.error(request, assignment_result["message"])
+                    return self.redirect_after_post(request, materia_curso)
+                if assignment_result["preserved_count"] and assignment_result["replaced"]:
+                    messages.success(
+                        request,
+                        f"{docente.nombre} tomara las clases pendientes de {materia_curso.grupo} - {materia_curso.materia}. "
+                        "Las clases enviadas o aprobadas quedaron con el docente anterior.",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f"{docente.nombre} asignado a {materia_curso.grupo} - {materia_curso.materia}.",
+                    )
             else:
-                ProfesorMateriaCurso.objects.filter(materia_curso=materia_curso).delete()
+                assignment_result = remove_real_docentes_from_materia_curso(materia_curso)
+                if not assignment_result["ok"]:
+                    messages.error(request, assignment_result["message"])
+                    return self.redirect_after_post(request, materia_curso)
                 messages.success(request, f"{materia_curso.grupo} - {materia_curso.materia} quedo sin docente asignado.")
 
+        return self.redirect_after_post(request, materia_curso)
+
+    def redirect_after_post(self, request, materia_curso):
         redirect_url = reverse_lazy("academico:planificacion_docente")
         redirect_params = {"grupo": request.POST.get("grupo") or materia_curso.grupo_id}
         q = request.POST.get("q") or ""
@@ -1761,7 +2063,15 @@ class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, 
                 return selected
 
         pending_group_id = (
-            MateriaCurso.objects.filter(grupo__in=cursos, profesor_materia_cursos__isnull=True)
+            MateriaCurso.objects.filter(grupo__in=cursos)
+            .annotate(
+                total_docentes=Count(
+                    "profesor_materia_cursos",
+                    filter=Q(profesor_materia_cursos__auto_generada_por_clases=False),
+                    distinct=True,
+                )
+            )
+            .filter(total_docentes=0)
             .order_by("grupo__nombre")
             .values_list("grupo_id", flat=True)
             .first()
@@ -1777,11 +2087,17 @@ class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, 
             .prefetch_related(
                 Prefetch(
                     "profesor_materia_cursos",
-                    queryset=ProfesorMateriaCurso.objects.select_related("partner").order_by("partner__nombre"),
+                    queryset=ProfesorMateriaCurso.objects.select_related("partner")
+                    .filter(auto_generada_por_clases=False)
+                    .order_by("partner__nombre"),
                 )
             )
             .annotate(
-                total_docentes=Count("profesor_materia_cursos", distinct=True),
+                total_docentes=Count(
+                    "profesor_materia_cursos",
+                    filter=Q(profesor_materia_cursos__auto_generada_por_clases=False),
+                    distinct=True,
+                ),
                 total_clases=Count("clases", distinct=True),
                 proximas_clases=Count(
                     "clases",
@@ -1799,7 +2115,11 @@ class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, 
             .values("grupo_id")
             .annotate(
                 total=Count("id", distinct=True),
-                asignadas=Count("id", filter=Q(profesor_materia_cursos__isnull=False), distinct=True),
+                asignadas=Count(
+                    "id",
+                    filter=Q(profesor_materia_cursos__auto_generada_por_clases=False),
+                    distinct=True,
+                ),
             )
         )
         counters = {
@@ -2210,12 +2530,40 @@ class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMi
 
             if not duplicate:
                 with transaction.atomic():
-                    ProfesorMateriaCurso.objects.filter(partner=docente).exclude(materia_curso_id__in=materia_ids).delete()
+                    removed_assignments = list(
+                        ProfesorMateriaCurso.objects.select_for_update()
+                        .select_related("materia_curso__grupo", "materia_curso__materia")
+                        .filter(partner=docente, auto_generada_por_clases=False)
+                        .exclude(materia_curso_id__in=materia_ids)
+                    )
+                    locked_removed = [
+                        item
+                        for item in removed_assignments
+                        if locked_inherited_classes_queryset(item.materia_curso).exists()
+                    ]
+                    if locked_removed:
+                        materias = ", ".join(
+                            f"{item.materia_curso.grupo} - {item.materia_curso.materia}"
+                            for item in locked_removed
+                        )
+                        messages.error(
+                            request,
+                            "No se puede quitar el docente porque hay clases con planificacion enviada o aprobada: "
+                            f"{materias}.",
+                        )
+                        return render(request, self.template_name, self.get_context(base_form, formset, docente))
+                    ProfesorMateriaCurso.objects.filter(
+                        partner=docente,
+                        auto_generada_por_clases=False,
+                    ).exclude(materia_curso_id__in=materia_ids).delete()
                     for materia_curso in rows:
                         profesor_materia_curso, _ = ProfesorMateriaCurso.objects.get_or_create(
                             partner=docente,
                             materia_curso=materia_curso,
                         )
+                        if profesor_materia_curso.auto_generada_por_clases:
+                            profesor_materia_curso.auto_generada_por_clases = False
+                            profesor_materia_curso.save(update_fields=["auto_generada_por_clases"])
                         sync_planificaciones_tema_for_profesor(profesor_materia_curso)
                 messages.success(request, "Planificacion docente guardada correctamente.")
                 return redirect("academico:planificacion_docente")
@@ -2240,7 +2588,7 @@ class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMi
                     "materia_curso__grupo",
                     "materia_curso__materia",
                 )
-                .filter(partner=docente)
+                .filter(partner=docente, auto_generada_por_clases=False)
                 .order_by("materia_curso__grupo__nombre", "materia_curso__materia__nombre")
             ]
         if not initial:
@@ -2280,7 +2628,9 @@ class CoordinacionPlanificacionListView(CoordinacionRequiredMixin, View):
             .prefetch_related(
                 Prefetch(
                     "profesor_materia_cursos",
-                    queryset=ProfesorMateriaCurso.objects.select_related("partner").order_by("partner__nombre"),
+                    queryset=ProfesorMateriaCurso.objects.select_related("partner")
+                    .filter(auto_generada_por_clases=False)
+                    .order_by("partner__nombre"),
                 )
             )
             .annotate(total_temas=Count("planificaciones__temas_planificacion", distinct=True))
@@ -2290,7 +2640,10 @@ class CoordinacionPlanificacionListView(CoordinacionRequiredMixin, View):
             asignaciones = asignaciones.filter(
                 Q(materia__nombre__icontains=q)
                 | Q(grupo__nombre__icontains=q)
-                | Q(profesor_materia_cursos__partner__nombre__icontains=q)
+                | Q(
+                    profesor_materia_cursos__auto_generada_por_clases=False,
+                    profesor_materia_cursos__partner__nombre__icontains=q,
+                )
             )
         return render(
             request,
@@ -2312,7 +2665,9 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
                 MateriaCurso.objects.select_related("materia", "grupo").prefetch_related(
                     Prefetch(
                         "profesor_materia_cursos",
-                        queryset=ProfesorMateriaCurso.objects.select_related("partner").order_by("partner__nombre"),
+                        queryset=ProfesorMateriaCurso.objects.select_related("partner")
+                        .filter(auto_generada_por_clases=False)
+                        .order_by("partner__nombre"),
                     )
                 ),
                 pk=pk,
@@ -2328,73 +2683,91 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
             .first()
         )
 
+    def get_materia(self, materia_curso=None):
+        pk = self.kwargs.get("materia_pk")
+        if pk:
+            return get_object_or_404(Materia, pk=pk)
+        if materia_curso:
+            return materia_curso.materia
+        return None
+
     def ensure_planificacion(self, materia_curso):
-        nombre = f"{materia_curso.grupo} - {materia_curso.materia}"
-        planificacion, _ = PlanificacionDocente.objects.get_or_create(
-            materia_curso=materia_curso,
-            defaults={"nombre": nombre},
-        )
-        return planificacion
+        return ensure_planificacion_docente_for_materia_curso(materia_curso)
 
     def get(self, request, *args, **kwargs):
         materia_curso = self.get_materia_curso()
+        materia = self.get_materia(materia_curso)
         planificacion = self.get_planificacion(materia_curso)
-        form = CoordinacionPlanificacionForm(materia_curso=materia_curso)
-        formset = CoordinacionTemaFormSet(initial=self.get_tema_initial(planificacion))
-        return render(request, self.template_name, self.get_context(form, formset, materia_curso, planificacion))
+        form = CoordinacionPlanificacionForm(materia=materia, materia_curso=materia_curso)
+        formset = CoordinacionTemaFormSet(initial=self.get_tema_initial(materia, planificacion))
+        return render(request, self.template_name, self.get_context(form, formset, materia, materia_curso, planificacion))
 
     def post(self, request, *args, **kwargs):
         materia_curso = self.get_materia_curso()
-        form = CoordinacionPlanificacionForm(request.POST, materia_curso=materia_curso)
+        materia = self.get_materia(materia_curso)
+        form = CoordinacionPlanificacionForm(request.POST, materia=materia, materia_curso=materia_curso)
         formset = CoordinacionTemaFormSet(request.POST)
         if form.is_valid() and formset.is_valid():
+            materia = materia or form.cleaned_data["materia"]
             with transaction.atomic():
-                materia_curso = materia_curso or form.cleaned_data["materia_curso"]
-                planificacion = self.ensure_planificacion(materia_curso)
-                kept_tema_ids = set()
-                for tema_index, tema_form in enumerate(formset):
-                    if tema_form.cleaned_data.get("DELETE") or not tema_form.has_topic_data():
-                        continue
-                    tema_id = tema_form.cleaned_data.get("tema_id")
-                    tema = None
-                    if tema_id:
-                        tema = planificacion.temas_planificacion.filter(pk=tema_id).first()
-                    if tema is None:
-                        tema = Tema(planificacion=planificacion)
-                    tema.nombre = tema_form.cleaned_data["nombre"]
-                    tema.detalle = tema_form.cleaned_data.get("detalle") or None
-                    tema.orden = len(kept_tema_ids) + 1
-                    tema.save()
-                    kept_tema_ids.add(tema.pk)
+                self.save_materia_topics(materia, formset)
+                target_materia_cursos = list(
+                    MateriaCurso.objects.select_related("materia", "grupo")
+                    .filter(materia=materia)
+                    .order_by("grupo__nombre")
+                )
+                for target_materia_curso in target_materia_cursos:
+                    sync_materia_temas_to_materia_curso(target_materia_curso)
+            if target_materia_cursos:
+                messages.success(request, f"Temas y subtemas guardados y aplicados en {len(target_materia_cursos)} grupo(s).")
+            else:
+                messages.success(request, "Temas y subtemas guardados para la materia.")
+            return redirect("academico:coordinacion_planificacion_materia_editar", materia_pk=materia.pk)
+        return render(request, self.template_name, self.get_context(form, formset, materia, materia_curso, self.get_planificacion(materia_curso)))
 
-                    submitted_subtemas = self.get_subtemas_from_post(tema_index)
-                    kept_subtema_ids = set()
-                    for subtema_order, subtema_data in enumerate(submitted_subtemas, start=1):
-                        subtema = None
-                        if subtema_data["id"]:
-                            subtema = tema.subtemas_planificacion.filter(pk=subtema_data["id"]).first()
-                        if subtema_data["delete"] or not subtema_data["nombre"]:
-                            if subtema:
-                                subtema.delete()
-                            continue
-                        if subtema:
-                            subtema.nombre = subtema_data["nombre"]
-                            subtema.descripcion = None
-                            subtema.orden = subtema_order
-                            subtema.save(update_fields=["nombre", "descripcion", "orden"])
-                        else:
-                            subtema = tema.subtemas_planificacion.create(
-                                nombre=subtema_data["nombre"],
-                                orden=subtema_order,
-                            )
-                        kept_subtema_ids.add(subtema.pk)
-                    tema.subtemas_planificacion.exclude(pk__in=kept_subtema_ids).delete()
+    def save_materia_topics(self, materia, formset):
+        kept_tema_ids = set()
+        for tema_index, tema_form in enumerate(formset):
+            if tema_form.cleaned_data.get("DELETE") or not tema_form.has_topic_data():
+                continue
+            tema_id = tema_form.cleaned_data.get("tema_id")
+            tema_nombre = tema_form.cleaned_data["nombre"]
+            materia_tema = None
+            if tema_id:
+                materia_tema = MateriaTema.objects.filter(pk=tema_id, materia=materia).first()
+            if materia_tema is None:
+                materia_tema = MateriaTema.objects.filter(materia=materia, nombre__iexact=tema_nombre).first()
+            if materia_tema is None:
+                materia_tema = MateriaTema(materia=materia)
+            materia_tema.nombre = tema_nombre
+            materia_tema.detalle = tema_form.cleaned_data.get("detalle") or None
+            materia_tema.orden = len(kept_tema_ids) + 1
+            materia_tema.save()
+            kept_tema_ids.add(materia_tema.pk)
 
-                planificacion.temas_planificacion.exclude(pk__in=kept_tema_ids).delete()
-                sync_planificaciones_tema_for_materia_curso(materia_curso)
-            messages.success(request, "Temas y subtemas guardados correctamente.")
-            return redirect("academico:coordinacion_planificacion_editar", materia_curso_pk=materia_curso.pk)
-        return render(request, self.template_name, self.get_context(form, formset, materia_curso, self.get_planificacion(materia_curso)))
+            submitted_subtemas = self.get_subtemas_from_post(tema_index)
+            kept_subtema_ids = set()
+            for subtema_order, subtema_data in enumerate(submitted_subtemas, start=1):
+                subtema_nombre = subtema_data["nombre"]
+                materia_subtema = None
+                if subtema_data["id"]:
+                    materia_subtema = materia_tema.subtemas_base.filter(pk=subtema_data["id"]).first()
+                if subtema_data["delete"] or not subtema_nombre:
+                    if materia_subtema:
+                        materia_subtema.delete()
+                    continue
+                if materia_subtema is None:
+                    materia_subtema = materia_tema.subtemas_base.filter(nombre__iexact=subtema_nombre).first()
+                if materia_subtema is None:
+                    materia_subtema = MateriaSubtema(tema=materia_tema)
+                materia_subtema.nombre = subtema_nombre
+                materia_subtema.descripcion = None
+                materia_subtema.orden = subtema_order
+                materia_subtema.save()
+                kept_subtema_ids.add(materia_subtema.pk)
+            materia_tema.subtemas_base.exclude(pk__in=kept_subtema_ids).delete()
+
+        MateriaTema.objects.filter(materia=materia).exclude(pk__in=kept_tema_ids).delete()
 
     def get_subtemas_from_post(self, tema_index):
         prefix = f"form-{tema_index}-subtemas"
@@ -2414,7 +2787,25 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
             )
         return subtemas
 
-    def get_tema_initial(self, planificacion):
+    def get_tema_initial(self, materia=None, planificacion=None):
+        if materia:
+            temas_base = MateriaTema.objects.filter(materia=materia).prefetch_related("subtemas_base").order_by("orden", "nombre")
+            if temas_base.exists():
+                initial = []
+                for tema in temas_base:
+                    initial.append(
+                        {
+                            "tema_id": tema.pk,
+                            "nombre": tema.nombre,
+                            "detalle": tema.detalle,
+                            "orden": tema.orden,
+                            "subtemas": [
+                                {"id": subtema.pk, "nombre": subtema.nombre}
+                                for subtema in tema.subtemas_base.order_by("orden", "nombre")
+                            ],
+                        }
+                    )
+                return initial or [{}]
         if not planificacion:
             return [{}]
         initial = []
@@ -2422,45 +2813,45 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
         for tema in temas:
             initial.append(
                 {
-                    "tema_id": tema.pk,
+                    "tema_id": tema.materia_tema_id or "",
                     "nombre": tema.nombre,
                     "detalle": tema.detalle,
                     "orden": tema.orden,
                     "subtemas": [
-                        {"id": subtema.pk, "nombre": subtema.nombre}
+                        {"id": subtema.materia_subtema_id or "", "nombre": subtema.nombre}
                         for subtema in tema.subtemas_planificacion.order_by("orden", "nombre")
                     ],
                 }
             )
         return initial or [{}]
 
-    def get_context(self, form, formset, materia_curso, planificacion):
+    def get_context(self, form, formset, materia, materia_curso, planificacion):
         docentes = []
         if materia_curso:
             docentes = [
                 item.partner
                 for item in materia_curso.profesor_materia_cursos.all()
+                if not item.auto_generada_por_clases
             ]
-        materia_docentes = {}
-        for item in MateriaCurso.objects.prefetch_related(
-            Prefetch(
-                "profesor_materia_cursos",
-                queryset=ProfesorMateriaCurso.objects.select_related("partner").order_by("partner__nombre"),
-            )
-        ):
-            materia_docentes[str(item.pk)] = [
-                asignacion.partner.nombre
-                for asignacion in item.profesor_materia_cursos.all()
-            ]
+        tema_count = 0
+        subtema_count = 0
+        applied_group_count = 0
+        if materia:
+            tema_count = MateriaTema.objects.filter(materia=materia).count()
+            subtema_count = MateriaSubtema.objects.filter(tema__materia=materia).count()
+            applied_group_count = MateriaCurso.objects.filter(materia=materia).count()
         return {
             "title": "Temas y subtemas",
             "form": form,
             "formset": formset,
+            "materia": materia,
             "materia_curso": materia_curso,
             "docentes": docentes,
             "planificacion": planificacion,
-            "materia_docentes_json": json.dumps(materia_docentes),
-            "tema_suggestions": Tema.objects.order_by("nombre").values_list("nombre", flat=True).distinct(),
+            "tema_count": tema_count,
+            "subtema_count": subtema_count,
+            "applied_group_count": applied_group_count,
+            "tema_suggestions": MateriaTema.objects.order_by("nombre").values_list("nombre", flat=True).distinct(),
             "list_url": reverse_lazy("academico:coordinacion_planificacion_list"),
         }
 
