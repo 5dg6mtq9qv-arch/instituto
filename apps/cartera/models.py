@@ -80,6 +80,9 @@ class PlanPago(models.Model):
 
 
 class Cuota(models.Model):
+    NUMERO_MATRICULA = -1
+    NUMERO_ABONO = 0
+
     ESTADO_CHOICES = (
         ("pendiente", "Pendiente"),
         ("parcial", "Parcial"),
@@ -127,10 +130,22 @@ class Cuota(models.Model):
         ordering = ["fecha_pago_debito", "numero"]
 
     def __str__(self):
-        return f"Cuota {self.numero} - {self.plan_pago}"
+        return f"{self.etiqueta()} - {self.plan_pago}"
 
     def saldo(self):
         return self.valor - self.valor_pagado
+
+    def numero_pago(self):
+        if self.numero == self.NUMERO_MATRICULA:
+            return "Matricula"
+        if self.numero == self.NUMERO_ABONO:
+            return "Abono"
+        return str(self.numero)
+
+    def etiqueta(self):
+        if self.numero in {self.NUMERO_MATRICULA, self.NUMERO_ABONO}:
+            return self.numero_pago()
+        return f"Cuota {self.numero}"
 
 
 class Pago(models.Model):

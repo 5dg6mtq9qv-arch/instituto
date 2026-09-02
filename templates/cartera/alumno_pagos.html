@@ -56,12 +56,12 @@
               <span class="payment-ledger-icon"><i class="ri-bank-card-line"></i></span>
               <div>
                 <h3>${{ pago.valor|floatformat:2 }}</h3>
-                <p>{{ pago.forma_pago }} · Cuota {{ pago.cuota.numero }} · {{ pago.fecha_registro|date:"d/m/Y H:i" }}</p>
+                <p>{{ pago.forma_pago }} · {{ pago.cuota.etiqueta }} · {{ pago.fecha_registro|date:"d/m/Y H:i" }}</p>
                 <small>No. comprobante: {{ pago.numero_documento|default:"-" }}</small>
               </div>
             </div>
             <div class="payment-ledger-meta">
-              <span>Cuota</span>
+              <span>Concepto</span>
               <strong>{{ pago.cuota.get_estado_display }}</strong>
               <small>Saldo: ${{ pago.cuota.saldo|floatformat:2 }}</small>
             </div>

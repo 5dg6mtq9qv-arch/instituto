@@ -202,11 +202,11 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     descuento = forms.DecimalField(max_digits=12, decimal_places=2, min_value=0, required=False, initial=0)
     abono = forms.DecimalField(max_digits=12, decimal_places=2, min_value=0, initial=0)
     forma_pago_abono = forms.ModelChoiceField(
-        label="Forma de pago del abono",
+        label="Forma de pago inicial",
         queryset=FormaPago.objects.none(),
         required=False,
     )
-    numero_documento_abono = forms.CharField(label="No. recibo/factura/deposito", max_length=60, required=False)
+    numero_documento_abono = forms.CharField(label="No. recibo/factura/deposito inicial", max_length=60, required=False)
     numero_cuotas = forms.IntegerField(label="Numero de cuotas", min_value=1, initial=1)
     fecha_inicio_cobro = forms.DateField(label="Fecha primera cuota", widget=forms.DateInput(attrs={"type": "date"}))
     promo = forms.BooleanField(required=False)
@@ -280,6 +280,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         self.fields["horario"].widget.attrs["data-aula-horario"] = "horario"
         self.fields["hora"].widget.attrs["data-aula-horario"] = "hora"
         self.fields["duracion"].widget.attrs["data-aula-horario"] = "duracion"
+        self.fields["valor_matricula"].widget.attrs["data-money-input"] = "matricula"
         self.fields["valor_cuota"].widget.attrs["data-money-input"] = "cuota"
         self.fields["abono"].widget.attrs["data-money-input"] = "abono"
         self.fields["numero_cuotas"].widget.attrs["data-installments-input"] = "true"
@@ -316,14 +317,18 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         cleaned_data["edad"] = calcular_edad(fecha_nacimiento)
         valor_cuota = cleaned_data.get("valor_cuota") or 0
         numero_cuotas = cleaned_data.get("numero_cuotas") or 0
+        valor_matricula = cleaned_data.get("valor_matricula") or 0
         abono = cleaned_data.get("abono") or 0
-        saldo = valor_cuota * numero_cuotas
+        total_cuotas = valor_cuota * numero_cuotas
+        total = total_cuotas + valor_matricula
+        saldo = total - abono
+        if saldo < 0:
+            self.add_error("abono", "El abono no puede ser mayor que la matricula mas las cuotas.")
         cleaned_data["saldo_calculado"] = saldo
-        cleaned_data["valor_total_curso"] = saldo + abono
-        cleaned_data["valor_matricula"] = Decimal("0.00")
+        cleaned_data["valor_total_curso"] = total_cuotas
         cleaned_data["descuento"] = Decimal("0.00")
         if abono > 0 and not cleaned_data.get("forma_pago_abono"):
-            self.add_error("forma_pago_abono", "Seleccione la forma de pago del abono.")
+            self.add_error("forma_pago_abono", "Seleccione la forma de pago inicial.")
         self.clean_comprobante_abono(cleaned_data)
         return cleaned_data
 
@@ -529,6 +534,7 @@ class MatriculaDatosForm(MatriculaPasoForm):
 class MatriculaConvenioForm(MatriculaPasoForm):
     field_names = (
         "forma_pago_convenio",
+        "valor_matricula",
         "valor_cuota",
         "abono",
         "forma_pago_abono",

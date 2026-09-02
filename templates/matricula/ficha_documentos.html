@@ -30,6 +30,10 @@
         <dd>{{ ficha.aula|default:"-" }}</dd>
       </div>
       <div>
+        <dt>Matricula</dt>
+        <dd>{{ ficha.valor_matricula }}</dd>
+      </div>
+      <div>
         <dt>Abono</dt>
         <dd>{{ ficha.abono }}</dd>
       </div>
@@ -79,7 +83,7 @@
         <tbody>
           {% for cuota in cuotas %}
             <tr>
-              <td>{{ cuota.numero }}</td>
+              <td>{{ cuota.numero_pago }}</td>
               <td>{{ cuota.fecha_pago_debito }}</td>
               <td>{{ cuota.valor }}</td>
               <td>{{ cuota.valor_pagado }}</td>

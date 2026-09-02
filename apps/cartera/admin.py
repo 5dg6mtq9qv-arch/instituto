@@ -26,9 +26,9 @@ class PlanPagoAdmin(admin.ModelAdmin):
     inlines = [CuotaInline]
 
     def save_model(self, request, obj, form, change):
-        obj.valor_matricula = 0
-        obj.descuento = 0
-        obj.valor_total = (obj.abono or 0) + (obj.saldo or 0)
+        obj.valor_matricula = obj.valor_matricula or 0
+        obj.descuento = obj.descuento or 0
+        obj.valor_total = (obj.abono or 0) + (obj.saldo or 0) + obj.descuento
         super().save_model(request, obj, form, change)
 
     @admin.display(description="Restante")
@@ -40,7 +40,7 @@ class PlanPagoAdmin(admin.ModelAdmin):
 class CuotaAdmin(admin.ModelAdmin):
     list_display = (
         "plan_pago",
-        "numero",
+        "etiqueta",
         "fecha_pago_debito",
         "valor",
         "valor_pagado",

@@ -90,7 +90,7 @@ def home(request):
 
     def cuota_item(cuota):
         return {
-            "title": f"Cuota {cuota.numero}",
+            "title": cuota.etiqueta(),
             "meta": f"Vence {cuota.fecha_pago_debito:%d/%m/%Y} · saldo {cuota.saldo():.2f}",
             "note": str(cuota.plan_pago.ficha_inscripcion.estudiante),
             "badge": cuota.get_estado_display(),

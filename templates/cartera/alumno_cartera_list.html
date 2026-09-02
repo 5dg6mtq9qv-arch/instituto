@@ -97,7 +97,7 @@
             <div class="student-payment-card-state">
               <span class="status-badge status-{{ card.status_key }}">{{ card.status_label }}</span>
               {% if card.next_cuota %}
-                <small>Proxima cuota {{ card.next_cuota.numero }} · {{ card.next_cuota.fecha_pago_debito|date:"d M Y" }}</small>
+                <small>Proxima {{ card.next_cuota.etiqueta }} · {{ card.next_cuota.fecha_pago_debito|date:"d M Y" }}</small>
               {% else %}
                 <small>Sin cuotas pendientes</small>
               {% endif %}

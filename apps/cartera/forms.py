@@ -238,9 +238,9 @@ class PlanPagoForm(BootstrapFormMixin, forms.ModelForm):
 
     def save(self, commit=True):
         plan = super().save(commit=False)
-        plan.valor_matricula = 0
-        plan.descuento = 0
-        plan.valor_total = (plan.abono or 0) + (plan.saldo or 0)
+        plan.valor_matricula = plan.valor_matricula or 0
+        plan.descuento = plan.descuento or 0
+        plan.valor_total = (plan.abono or 0) + (plan.saldo or 0) + plan.descuento
         if commit:
             plan.save()
             self.save_m2m()

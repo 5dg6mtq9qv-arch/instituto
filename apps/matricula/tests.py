@@ -268,8 +268,9 @@ class MatriculaProcesoTests(TestCase):
         form = MatriculaConvenioForm(
             data={
                 "forma_pago_convenio": "mensual",
+                "valor_matricula": "25.00",
                 "valor_cuota": "50.00",
-                "abono": "30.00",
+                "abono": "25.00",
                 "forma_pago_abono": self.forma_pago.pk,
                 "numero_documento_abono": "rec-001",
                 "numero_cuotas": "2",
@@ -386,8 +387,9 @@ class MatriculaProcesoTests(TestCase):
             f"{url}?paso=convenio",
             {
                 "forma_pago_convenio": "mensual",
+                "valor_matricula": "80.00",
                 "valor_cuota": "50.00",
-                "abono": "30.00",
+                "abono": "120.00",
                 "forma_pago_abono": self.forma_pago.pk,
                 "numero_documento_abono": "REC-001",
                 "numero_cuotas": "2",
@@ -410,9 +412,14 @@ class MatriculaProcesoTests(TestCase):
         self.assertEqual(ficha.curso_grado, "Tercero")
         self.assertEqual(ficha.carrera, "Medicina")
         self.assertEqual(ficha.universidad, "Universidad Central")
-        self.assertEqual(ficha.valor_proximo_pago, Decimal("50.00"))
-        self.assertEqual(ficha.valor_total_curso, Decimal("130.00"))
-        self.assertEqual(ficha.saldo, Decimal("100.00"))
+        self.assertEqual(ficha.valor_proximo_pago, Decimal("10.00"))
+        self.assertEqual(ficha.valor_total_curso, Decimal("100.00"))
+        self.assertEqual(ficha.valor_matricula, Decimal("80.00"))
+        self.assertEqual(ficha.abono, Decimal("120.00"))
+        self.assertEqual(ficha.saldo, Decimal("60.00"))
+        self.assertEqual(ficha.plan_pago.valor_total, Decimal("180.00"))
+        self.assertEqual(ficha.plan_pago.valor_matricula, Decimal("80.00"))
+        self.assertEqual(ficha.plan_pago.abono, Decimal("120.00"))
 
         estudiante = Partner.objects.get(identificacion="1002003001")
         representante = Partner.objects.get(identificacion="1002003002")
@@ -431,32 +438,45 @@ class MatriculaProcesoTests(TestCase):
         )
         self.assertFalse(AulaHistorial.objects.filter(ficha_inscripcion=ficha).exists())
         self.assertEqual(Cuota.objects.filter(plan_pago=ficha.plan_pago).count(), 3)
+        cuota_matricula = Cuota.objects.get(plan_pago=ficha.plan_pago, numero=Cuota.NUMERO_MATRICULA)
+        self.assertEqual(cuota_matricula.valor, Decimal("80.00"))
+        self.assertEqual(cuota_matricula.valor_pagado, Decimal("80.00"))
+        self.assertEqual(cuota_matricula.observacion, "Matricula")
+        self.assertEqual(cuota_matricula.pagos.get().comentario, "Pago de matricula")
+        primera_cuota = Cuota.objects.get(plan_pago=ficha.plan_pago, numero=1)
+        self.assertEqual(primera_cuota.valor, Decimal("50.00"))
+        self.assertEqual(primera_cuota.valor_pagado, Decimal("40.00"))
+        self.assertEqual(primera_cuota.estado, "parcial")
+        self.assertEqual(primera_cuota.pagos.get().valor, Decimal("40.00"))
+        self.assertEqual(primera_cuota.pagos.get().comentario, "Abono inicial aplicado a Cuota 1")
+        self.assertEqual(Pago.objects.filter(cuota__plan_pago=ficha.plan_pago).count(), 2)
         self.assertEqual(
             list(Cuota.objects.filter(plan_pago=ficha.plan_pago, numero__gt=0).values_list("valor", flat=True)),
             [Decimal("50.00"), Decimal("50.00")],
         )
         document_context = ficha_context(ficha)
-        self.assertEqual(document_context["valor_total_curso"], "130.00")
-        self.assertEqual(document_context["total"], "130.00")
-        self.assertEqual(document_context["abono"], "30.00")
-        self.assertEqual(document_context["saldo"], "100.00")
+        self.assertEqual(document_context["valor_total_curso"], "100.00")
+        self.assertEqual(document_context["valor_matricula"], "80.00")
+        self.assertEqual(document_context["total"], "180.00")
+        self.assertEqual(document_context["abono"], "120.00")
+        self.assertEqual(document_context["saldo"], "60.00")
         self.assertEqual(document_context["pago_efectivo"], "X")
         self.assertEqual(
             document_context["cuotas_detalle"],
             [
                 {
-                    "numero": "Abono",
+                    "numero": "Matricula",
                     "fecha": "28/08/2026",
-                    "valor": "30.00",
+                    "valor": "80.00",
                     "documento": "REC-001",
-                    "observacion": "Abono inicial",
+                    "observacion": "Matricula",
                 },
                 {
                     "numero": "1",
                     "fecha": "01/09/2026",
                     "valor": "50.00",
-                    "documento": "",
-                    "observacion": "",
+                    "documento": "REC-001",
+                    "observacion": "Abono inicial aplicado a Cuota 1",
                 },
                 {
                     "numero": "2",

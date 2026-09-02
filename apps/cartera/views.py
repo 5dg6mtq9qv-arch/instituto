@@ -475,7 +475,7 @@ class CuotaListView(InstitutoListView):
     model = Cuota
     title = "Cuotas"
     create_url_name = "cartera:cuota_nueva"
-    columns = (("Plan", "plan_pago"), ("No.", "numero"), ("Fecha", "fecha_pago_debito"), ("Valor", "valor"), ("Pagado", "valor_pagado"), ("Estado", "estado"))
+    columns = (("Plan", "plan_pago"), ("Concepto", "etiqueta"), ("Fecha", "fecha_pago_debito"), ("Valor", "valor"), ("Pagado", "valor_pagado"), ("Estado", "estado"))
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("plan_pago", "plan_pago__ficha_inscripcion")
@@ -514,7 +514,7 @@ class PagoListView(InstitutoListView):
         ("Fecha", "fecha_registro"),
         ("Estudiante", "cuota.plan_pago.ficha_inscripcion.estudiante"),
         ("Ficha", "cuota.plan_pago.ficha_inscripcion.numero"),
-        ("Cuota", "cuota.numero"),
+        ("Concepto", "cuota.etiqueta"),
         ("Forma", "forma_pago"),
         ("Valor", "valor"),
         ("Documento", "numero_documento"),

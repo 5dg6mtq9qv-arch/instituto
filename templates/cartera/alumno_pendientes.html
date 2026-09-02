@@ -100,13 +100,13 @@
                       value="{{ item.cuota.pk }}"
                       data-payment-checkbox
                       data-amount="{{ item.saldo|unlocalize }}"
-                      data-number="{{ item.cuota.numero }}"
+                      data-label="{{ item.cuota.etiqueta }}"
                       data-date="{{ item.cuota.fecha_pago_debito|date:'d M Y' }}"
                     >
                   </div>
 
                   <label class="payment-installment-main" for="payment-cuot-{{ item.cuota.pk }}">
-                    <span class="payment-installment-kicker">Cuota {{ item.cuota.numero }}</span>
+                    <span class="payment-installment-kicker">{{ item.cuota.etiqueta }}</span>
                     <strong>{{ item.cuota.fecha_pago_debito|date:"d M Y" }}</strong>
                     <div class="payment-progress">
                       <span style="width: {{ item.progress }}%"></span>
@@ -157,7 +157,7 @@
             <div class="payment-history-item">
               <div>
                 <strong>${{ pago.valor|floatformat:2 }}</strong>
-                <span>{{ pago.forma_pago }} · Cuota {{ pago.cuota.numero }}</span>
+                <span>{{ pago.forma_pago }} · {{ pago.cuota.etiqueta }}</span>
               </div>
               <div class="payment-history-actions">
                 <small>{{ pago.fecha_registro|date:"d/m/Y" }}</small>
@@ -328,7 +328,7 @@
           item.className = "payment-modal-item";
           item.innerHTML = [
             "<div>",
-            "<strong>Cuota " + checkbox.dataset.number + "</strong>",
+            "<strong>" + checkbox.dataset.label + "</strong>",
             "<span>" + (selected.length ? checkbox.dataset.date : "Aplicacion automatica · " + checkbox.dataset.date) + "</span>",
             "</div>",
             "<small>$" + formatAmount(row.amount) + "</small>"

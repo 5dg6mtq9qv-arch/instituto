@@ -87,7 +87,7 @@ def cuotas_detalle(cuotas):
         pago = pago_principal(cuota)
         detalle.append(
             {
-                "numero": "Abono" if cuota.numero == 0 else str(cuota.numero),
+                "numero": cuota.numero_pago() if hasattr(cuota, "numero_pago") else str(cuota.numero),
                 "fecha": formato_fecha(cuota.fecha_pago_debito),
                 "valor": formato_moneda(cuota.valor),
                 "documento": cuota.numero_recibo_factura_deposito or (pago.numero_documento if pago else "") or "",
@@ -167,11 +167,16 @@ def ficha_context(ficha):
     empresa = ficha.empresa
     plan = get_plan_pago(ficha)
     forma_pago_abono = normalizar_forma_pago(primera_forma_pago(cuotas))
-    valor_total = plan.valor_total if plan else ficha.valor_total_curso
+    valor_total_curso = ficha.valor_total_curso
     valor_matricula = plan.valor_matricula if plan else ficha.valor_matricula
     descuento = plan.descuento if plan else ficha.descuento
-    abono = plan.abono if plan else ficha.abono
+    abono = ficha.abono
     saldo = plan.saldo if plan else ficha.saldo
+    valor_total = (
+        plan.valor_total
+        if plan
+        else (valor_total_curso or Decimal("0")) + (valor_matricula or Decimal("0")) - (descuento or Decimal("0"))
+    )
     empresa_nombre = empresa.nombre_comercial or empresa.razon_social or ""
     titulo_1, titulo_2 = empresa_titulo(empresa_nombre)
     footer_direccion_1, footer_direccion_2, footer_contacto = footer_datos(empresa, empresa_nombre)
@@ -217,7 +222,7 @@ def ficha_context(ficha):
         "convenio_unico": checkbox(forma_pago == "unico"),
         "fecha_proximo_pago": formato_fecha(ficha.fecha_proximo_pago),
         "valor_proximo_pago": formato_moneda(ficha.valor_proximo_pago),
-        "valor_total_curso": formato_moneda(valor_total),
+        "valor_total_curso": formato_moneda(valor_total_curso),
         "valor_matricula": formato_moneda(valor_matricula),
         "total": formato_moneda(valor_total),
         "descuento": formato_moneda(descuento),

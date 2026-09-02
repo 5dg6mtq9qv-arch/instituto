@@ -156,6 +156,7 @@
             </div>
             <div class="row g-3">
               {% include "web/form_field.html" with field=form.forma_pago_convenio cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.valor_matricula cols="col-md-4" %}
               {% include "web/form_field.html" with field=form.valor_cuota cols="col-md-4" %}
               {% include "web/form_field.html" with field=form.numero_cuotas cols="col-md-4" %}
               {% include "web/form_field.html" with field=form.abono cols="col-md-4" %}
@@ -165,6 +166,10 @@
             </div>
             <div class="matricula-payment-strip" data-payment-preview>
               <div>
+                <span>Matricula</span>
+                <strong data-payment-matricula>$0.00</strong>
+              </div>
+              <div>
                 <span>Cuota</span>
                 <strong data-payment-cuota>$0.00</strong>
               </div>
@@ -173,8 +178,12 @@
                 <strong data-payment-abono>$0.00</strong>
               </div>
               <div>
-                <span>Restante</span>
+                <span>Total cuotas</span>
                 <strong data-payment-saldo>$0.00</strong>
+              </div>
+              <div>
+                <span>Total</span>
+                <strong data-payment-total>$0.00</strong>
               </div>
             </div>
           </section>
@@ -260,8 +269,8 @@
             <h2>Convenio</h2>
           </div>
           <div class="matricula-side-total">
-            <span>Restante estimado</span>
-            <strong>{{ process_summary.saldo }}</strong>
+            <span>Total estimado</span>
+            <strong>{{ process_summary.total }}</strong>
           </div>
         </section>
       </aside>
@@ -423,9 +432,11 @@
       }
 
       const moneyInputs = qsa("[data-money-input]");
+      const matriculaNode = qs("[data-payment-matricula]");
       const cuotaNode = qs("[data-payment-cuota]");
       const abonoNode = qs("[data-payment-abono]");
       const saldoNode = qs("[data-payment-saldo]");
+      const totalNode = qs("[data-payment-total]");
       const installmentsInput = qs("[data-installments-input]");
       const formatter = new Intl.NumberFormat("es-EC", {style: "currency", currency: "USD"});
 
@@ -437,13 +448,18 @@
       }
 
       function syncPayment() {
-        if (!cuotaNode || !abonoNode || !saldoNode) return;
+        if (!matriculaNode || !cuotaNode || !abonoNode || !saldoNode || !totalNode) return;
+        const matricula = moneyValue("matricula");
         const cuota = moneyValue("cuota");
         const abono = moneyValue("abono");
         const cuotas = Math.max(Number(installmentsInput ? installmentsInput.value : 0) || 0, 0);
+        const totalCuotas = cuota * cuotas;
+        const total = Math.max(matricula + totalCuotas - abono, 0);
+        matriculaNode.textContent = formatter.format(matricula);
         cuotaNode.textContent = formatter.format(cuota);
         abonoNode.textContent = formatter.format(abono);
-        saldoNode.textContent = formatter.format(cuota * cuotas);
+        saldoNode.textContent = formatter.format(totalCuotas);
+        totalNode.textContent = formatter.format(total);
       }
 
       moneyInputs.forEach(function (input) {

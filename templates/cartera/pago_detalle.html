@@ -63,8 +63,8 @@
         <p>Ficha {{ ficha.numero }} · {{ ficha.aula|default:"Sin aula" }}</p>
       </div>
       <div class="payment-receipt-block">
-        <span>Cuota</span>
-        <strong>Cuota {{ pago.cuota.numero }}</strong>
+        <span>Concepto</span>
+        <strong>{{ pago.cuota.etiqueta }}</strong>
         <p>Vence: {{ pago.cuota.fecha_pago_debito|date:"d/m/Y" }} · Estado: {{ pago.cuota.get_estado_display }}</p>
       </div>
       <div class="payment-receipt-block">

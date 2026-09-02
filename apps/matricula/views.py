@@ -264,7 +264,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
                     "url": reverse("core:empresa_list"),
                 },
                 {
-                    "label": "Forma de pago para abono",
+                    "label": "Forma de pago inicial",
                     "ready": active_payment,
                     "url": reverse("cartera:forma_pago_list"),
                 },
@@ -282,10 +282,12 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
 
     def build_summary(self, request, empresa):
         data = self.combined_querydict(self.get_session_data(request))
+        valor_matricula = self.safe_decimal(data.get("valor_matricula"))
         valor_cuota = self.safe_decimal(data.get("valor_cuota"))
         numero_cuotas = self.safe_int(data.get("numero_cuotas"))
         abono = self.safe_decimal(data.get("abono"))
-        saldo = valor_cuota * numero_cuotas
+        total_cuotas = valor_cuota * numero_cuotas
+        saldo = max(valor_matricula + total_cuotas - abono, Decimal("0"))
         return {
             "empresa": str(empresa) if empresa else "Pendiente",
             "estudiante": data.get("estudiante_nombre") or "Pendiente",
@@ -293,10 +295,13 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             "numero": data.get("numero") or "Pendiente",
             "fecha": data.get("fecha") or "",
             "asignacion": "Pendiente",
+            "valor_matricula": valor_matricula,
             "valor_cuota": valor_cuota,
             "numero_cuotas": numero_cuotas,
             "abono": abono,
             "saldo": saldo,
+            "total_cuotas": total_cuotas,
+            "total": saldo,
         }
 
     @staticmethod
@@ -567,7 +572,10 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             relacion.save(update_fields=relacion_updates)
 
         saldo = data["saldo_calculado"]
-        total = saldo + data["abono"]
+        valor_matricula = data["valor_matricula"]
+        total_curso = data["valor_total_curso"]
+        total = total_curso + valor_matricula
+        fecha_proximo_pago, valor_proximo_pago = self.proximo_pago_pendiente(data)
         ficha = FichaInscripcion.objects.create(
             empresa=empresa,
             numero=data["numero"] or next_ficha_numero(empresa),
@@ -592,10 +600,10 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             hora=data.get("hora") or (data["aula"].hora if data.get("aula") else ""),
             duracion=data.get("duracion") or (data["aula"].duracion if data.get("aula") else ""),
             forma_pago_convenio=data["forma_pago_convenio"],
-            fecha_proximo_pago=data["fecha_inicio_cobro"],
-            valor_proximo_pago=data["valor_cuota"] if saldo else Decimal("0.00"),
-            valor_total_curso=total,
-            valor_matricula=Decimal("0.00"),
+            fecha_proximo_pago=fecha_proximo_pago,
+            valor_proximo_pago=valor_proximo_pago,
+            valor_total_curso=total_curso,
+            valor_matricula=valor_matricula,
             descuento=Decimal("0.00"),
             abono=data["abono"],
             saldo=saldo,
@@ -618,7 +626,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             empresa=empresa,
             ficha_inscripcion=ficha,
             valor_total=total,
-            valor_matricula=Decimal("0.00"),
+            valor_matricula=valor_matricula,
             descuento=Decimal("0.00"),
             abono=data["abono"],
             saldo=saldo,
@@ -626,7 +634,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             observacion=data["observacion"],
             usuario_updated=user,
         )
-        self.crear_cuotas_y_abono(plan, data, empresa, user, saldo)
+        self.crear_cuotas_y_abono(plan, data, empresa, user)
         return ficha
 
     def guardar_partner(self, **kwargs):
@@ -655,48 +663,94 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         partner.save()
         return partner
 
-    def crear_cuotas_y_abono(self, plan, data, empresa, user, saldo):
-        if data["abono"] > 0:
-            cuota_abono = Cuota.objects.create(
+    def fecha_cuota(self, data, indice):
+        if data["forma_pago_convenio"] == "quincenal":
+            return data["fecha_inicio_cobro"] + timedelta(days=15 * (indice - 1))
+        return add_months(data["fecha_inicio_cobro"], indice - 1)
+
+    def proximo_pago_pendiente(self, data):
+        restante_abono = data["abono"]
+        valor_matricula = data["valor_matricula"]
+        if valor_matricula > 0:
+            saldo_matricula = max(valor_matricula - restante_abono, Decimal("0.00"))
+            if saldo_matricula > 0:
+                return data["fecha"], saldo_matricula
+            restante_abono = max(restante_abono - valor_matricula, Decimal("0.00"))
+
+        for indice in range(1, data["numero_cuotas"] + 1):
+            valor_cuota = data["valor_cuota"]
+            saldo_cuota = max(valor_cuota - restante_abono, Decimal("0.00"))
+            if saldo_cuota > 0:
+                return self.fecha_cuota(data, indice), saldo_cuota
+            restante_abono = max(restante_abono - valor_cuota, Decimal("0.00"))
+        return data["fecha_inicio_cobro"], Decimal("0.00")
+
+    def aplicar_pago_inicial(self, cuota, monto_disponible, data, empresa, user, comentario):
+        if monto_disponible <= 0:
+            return monto_disponible
+        valor_pago = min(cuota.saldo(), monto_disponible)
+        if valor_pago <= 0:
+            return monto_disponible
+
+        cuota.valor_pagado += valor_pago
+        cuota.estado = "pagada" if cuota.valor_pagado >= cuota.valor else "parcial"
+        cuota.usuario_updated = user
+        cuota.save(update_fields=["valor_pagado", "estado", "usuario_updated", "updated"])
+        Pago.objects.create(
+            empresa=empresa,
+            cuota=cuota,
+            forma_pago=data["forma_pago_abono"],
+            fecha_registro=timezone.now(),
+            valor=valor_pago,
+            numero_documento=data["numero_documento_abono"],
+            comentario=comentario,
+            usuario=user,
+            usuario_updated=user,
+        )
+        return monto_disponible - valor_pago
+
+    def crear_cuotas_y_abono(self, plan, data, empresa, user):
+        abono_disponible = data["abono"]
+        if data["valor_matricula"] > 0:
+            cuota_matricula = Cuota.objects.create(
                 plan_pago=plan,
-                numero=0,
+                numero=Cuota.NUMERO_MATRICULA,
                 fecha_pago_debito=data["fecha"],
-                valor=data["abono"],
-                valor_pagado=data["abono"],
+                valor=data["valor_matricula"],
+                valor_pagado=Decimal("0.00"),
                 numero_recibo_factura_deposito=data["numero_documento_abono"],
-                observacion="Abono inicial",
-                estado="pagada",
+                observacion="Matricula",
+                estado="pendiente",
                 prioridad="normal",
                 usuario_updated=user,
             )
-            Pago.objects.create(
-                empresa=empresa,
-                cuota=cuota_abono,
-                forma_pago=data["forma_pago_abono"],
-                fecha_registro=timezone.now(),
-                valor=data["abono"],
-                numero_documento=data["numero_documento_abono"],
-                comentario="Abono inicial de matricula",
-                usuario=user,
-                usuario_updated=user,
+            abono_disponible = self.aplicar_pago_inicial(
+                cuota_matricula,
+                abono_disponible,
+                data,
+                empresa,
+                user,
+                "Pago de matricula",
             )
-        if saldo <= 0:
-            return
         for indice in range(1, data["numero_cuotas"] + 1):
-            if data["forma_pago_convenio"] == "quincenal":
-                fecha_cuota = data["fecha_inicio_cobro"] + timedelta(days=15 * (indice - 1))
-            else:
-                fecha_cuota = add_months(data["fecha_inicio_cobro"], indice - 1)
             valor = data["valor_cuota"]
-            Cuota.objects.create(
+            cuota = Cuota.objects.create(
                 plan_pago=plan,
                 numero=indice,
-                fecha_pago_debito=fecha_cuota,
+                fecha_pago_debito=self.fecha_cuota(data, indice),
                 valor=valor,
                 valor_pagado=Decimal("0.00"),
                 estado="pendiente" if valor else "pagada",
                 prioridad="normal",
                 usuario_updated=user,
+            )
+            abono_disponible = self.aplicar_pago_inicial(
+                cuota,
+                abono_disponible,
+                data,
+                empresa,
+                user,
+                f"Abono inicial aplicado a {cuota.etiqueta()}",
             )
 
 
