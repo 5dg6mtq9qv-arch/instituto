@@ -16,9 +16,16 @@ from apps.cartera.models import Cuota, FormaPago, Pago, PlanPago
 from apps.core.current_user import set_current_request
 from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacion
 
-from .forms import MatriculaConvenioForm, MatriculaDatosForm, MatriculaEstudianteForm, MatriculaRepresentanteForm
+from .forms import (
+    FichaInscripcionForm,
+    MatriculaConvenioForm,
+    MatriculaDatosForm,
+    MatriculaEstudianteForm,
+    MatriculaRepresentanteForm,
+)
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
 from .odt import SOFFICE_BIN, SYSTEM_PATH, convert_odt_to_pdf, ficha_context, footer_datos, identificacion_numero
+from .views import next_ficha_numero
 
 
 class ConvertOdtToPdfTests(SimpleTestCase):
@@ -277,7 +284,7 @@ class MatriculaProcesoTests(TestCase):
     def test_matricula_data_allows_pending_period_course_and_classroom(self):
         form = MatriculaDatosForm(
             data={
-                "numero": "0000001",
+                "numero": "999999",
                 "fecha": "2026-08-28",
                 "colegio": "Colegio Prueba",
                 "curso_grado": "Tercero",
@@ -289,6 +296,28 @@ class MatriculaProcesoTests(TestCase):
         )
 
         self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(form.fields["numero"].disabled)
+        self.assertEqual(form.cleaned_data["numero"], "")
+        self.assertEqual(next_ficha_numero(self.empresa), "000001")
+
+    def test_ficha_edit_number_is_read_only(self):
+        estudiante = self.create_partner("1002003010", "Alumno Uno", es_estudiante=True)
+        representante = self.create_partner("1002003011", "Representante Uno", es_cliente=True, es_representante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000001",
+            fecha=date(2026, 8, 28),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            estado="activa",
+            activo=True,
+        )
+
+        form = FichaInscripcionForm(instance=ficha)
+
+        self.assertTrue(form.fields["numero"].disabled)
+        self.assertEqual(form.fields["numero"].widget.attrs["readonly"], "readonly")
 
     def test_process_uses_custom_datepicker_assets(self):
         self.client.force_login(self.user)
@@ -340,7 +369,7 @@ class MatriculaProcesoTests(TestCase):
         response = self.client.post(
             f"{url}?paso=matricula",
             {
-                "numero": "0000001",
+                "numero": "999999",
                 "fecha": "2026-08-28",
                 "colegio": "Colegio Prueba",
                 "curso_grado": "Tercero",
@@ -373,7 +402,7 @@ class MatriculaProcesoTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        ficha = FichaInscripcion.objects.get(numero="0000001")
+        ficha = FichaInscripcion.objects.get(numero="000001")
         self.assertEqual(response["Location"], reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}))
         self.assertIsNone(ficha.periodo_academico_id)
         self.assertIsNone(ficha.curso_id)

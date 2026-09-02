@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.db import transaction
-from django.db.models import Max, Q
+from django.db.models import Q
 from django.http import HttpResponse
 from django.http import JsonResponse
 from django.http import QueryDict
@@ -43,9 +43,18 @@ def add_months(value, months):
     return value.replace(year=year, month=month, day=day)
 
 
+def format_ficha_numero(sequence):
+    return str(sequence).zfill(6)
+
+
 def next_ficha_numero(empresa):
-    ultimo_id = FichaInscripcion.objects.filter(empresa=empresa).aggregate(Max("id"))["id__max"] or 0
-    return str(ultimo_id + 1).zfill(7)
+    siguiente = 1
+    numeros = FichaInscripcion.objects.filter(empresa=empresa).values_list("numero", flat=True)
+    for numero in numeros:
+        numero = (numero or "").strip()
+        if numero.isdigit():
+            siguiente = max(siguiente, int(numero) + 1)
+    return format_ficha_numero(siguiente)
 
 
 class PeriodoAcademicoListView(InstitutoListView):
@@ -391,6 +400,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         form = form_class(
             request.POST,
             empresa=empresa,
+            initial=self.get_initial_for_step(request, empresa, form_class),
             **self.get_saved_partner_form_kwargs(session_data),
         )
         if not empresa:

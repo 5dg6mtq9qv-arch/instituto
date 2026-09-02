@@ -97,6 +97,12 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             "saldo": "Restante",
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["numero"].disabled = True
+        self.fields["numero"].widget.attrs["readonly"] = "readonly"
+        self.fields["numero"].widget.attrs["aria-readonly"] = "true"
+
 
 class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     FORMAS_PAGO_CONVENIO = FichaInscripcion.FORMA_PAGO_CONVENIO_CHOICES
@@ -266,6 +272,9 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             self.fields["representante_modo"].initial = "crear"
 
         self.fields["periodo_academico"].widget.attrs["data-periodo-select"] = "true"
+        self.fields["numero"].disabled = True
+        self.fields["numero"].widget.attrs["readonly"] = "readonly"
+        self.fields["numero"].widget.attrs["aria-readonly"] = "true"
         self.fields["curso"].widget.attrs["data-curso-select"] = "true"
         self.fields["aula"].widget.attrs["data-aula-select"] = "true"
         self.fields["horario"].widget.attrs["data-aula-horario"] = "horario"
