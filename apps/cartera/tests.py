@@ -175,17 +175,32 @@ class FormaPagoFormTests(TestCase):
 
     def test_student_wallet_list_renders_status_filters_and_payment_links(self):
         self.client.force_login(self.user)
-        ficha, _, _, _, _ = self.create_payment_flow_data()
+        ficha, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("40.00"),
+            numero_documento="PAY-001",
+            usuario=self.user,
+        )
 
         response = self.client.get(reverse("cartera:alumno_cartera_list"), HTTP_HOST="localhost")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["student_payment_summary"]["pendientes"], 1)
         self.assertEqual(response.context["student_payment_summary"]["vencidos"], 1)
+        self.assertEqual(response.context["student_payment_summary"]["pagos_realizados"], 1)
+        self.assertEqual(response.context["student_payment_summary"]["total_pagado"], Decimal("40.00"))
         self.assertContains(response, "Cobros por alumno")
         self.assertContains(response, "Vencidos")
         self.assertContains(response, "Pendientes")
+        self.assertContains(response, "Pagos realizados")
+        self.assertContains(response, "data-student-payment-card")
+        self.assertContains(response, "Ver pagos")
         self.assertContains(response, reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}))
+        self.assertContains(response, reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}))
 
     def test_payment_create_redirects_to_student_wallet_flow(self):
         self.client.force_login(self.user)
@@ -221,6 +236,63 @@ class FormaPagoFormTests(TestCase):
         self.assertEqual(plan.saldo, Decimal("180.00"))
         self.assertEqual(Cuota.objects.get(pk=cuota_atrasada.pk).pagos.first().valor, Decimal("200.00"))
         self.assertEqual(Cuota.objects.get(pk=cuota_proxima.pk).pagos.first().valor, Decimal("20.00"))
+
+    def test_student_payment_rejects_duplicate_receipt_number(self):
+        self.client.force_login(self.user)
+        ficha, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("15.00"),
+            numero_documento="DUP-001",
+            usuario=self.user,
+        )
+
+        response = self.client.post(
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            data={
+                "valor": "10.00",
+                "forma_pago": forma_pago.pk,
+                "fecha_registro": "2026-08-30T10:30",
+                "numero_documento": "dup-001",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Este comprobante ya está relacionado al pago DUP-001 por 15.00 de Juan Estudiante.",
+        )
+        self.assertEqual(Pago.objects.filter(numero_documento__iexact="DUP-001").count(), 1)
+
+    def test_payment_form_rejects_duplicate_receipt_number(self):
+        _, _, cuota_atrasada, cuota_proxima, forma_pago = self.create_payment_flow_data()
+        Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("15.00"),
+            numero_documento="DUP-001",
+            usuario=self.user,
+        )
+
+        form = PagoForm(
+            data={
+                "empresa": self.empresa.pk,
+                "cuota": cuota_proxima.pk,
+                "forma_pago": forma_pago.pk,
+                "fecha_registro": "2026-08-30T10:30",
+                "valor": "10.00",
+                "numero_documento": "dup-001",
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Juan Estudiante", form.errors["numero_documento"][0])
 
     def test_student_payment_receipt_file_uses_student_and_payment_date(self):
         self.client.force_login(self.user)
@@ -267,3 +339,73 @@ class FormaPagoFormTests(TestCase):
         self.assertIn("payment-file-link", html)
         self.assertIn("ri-file-excel-2-line", html)
         self.assertIn("Descargar", html)
+
+    def test_student_payments_page_renders_read_only_payment_cards(self):
+        self.client.force_login(self.user)
+        ficha, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        pago = Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("40.00"),
+            numero_documento="PAY-001",
+            usuario=self.user,
+        )
+
+        response = self.client.get(reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["pagos_count"], 1)
+        self.assertEqual(response.context["total_pagado"], Decimal("40.00"))
+        self.assertContains(response, "Pagos realizados")
+        self.assertContains(response, "PAY-001")
+        self.assertContains(response, reverse("cartera:pago_detalle", kwargs={"pk": pago.pk}))
+        self.assertNotContains(response, "Editar")
+        self.assertNotContains(response, 'name="valor"')
+
+    def test_payment_detail_renders_receipt_without_editing(self):
+        self.client.force_login(self.user)
+        ficha, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        pago = Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("40.00"),
+            numero_documento="PAY-001",
+            comentario="Pago revisado",
+            usuario=self.user,
+        )
+
+        response = self.client.get(reverse("cartera:pago_detalle", kwargs={"pk": pago.pk}), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ficha de pago")
+        self.assertContains(response, "Comprobante de pago")
+        self.assertContains(response, "Juan Estudiante")
+        self.assertContains(response, "PAY-001")
+        self.assertContains(response, "Pago revisado")
+        self.assertNotContains(response, "Editar")
+        self.assertNotContains(response, 'name="valor"')
+
+    def test_payment_list_opens_read_only_receipt_as_primary_action(self):
+        self.client.force_login(self.user)
+        _, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        pago = Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("40.00"),
+            numero_documento="PAY-001",
+            usuario=self.user,
+        )
+
+        response = self.client.get(reverse("cartera:pago_list"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        row = response.context["object_rows"][0]
+        self.assertEqual(row["primary_url"], reverse("cartera:pago_detalle", kwargs={"pk": pago.pk}))
+        self.assertEqual(row["update_url"], "")
+        self.assertContains(response, "Ver ficha")

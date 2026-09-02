@@ -1,0 +1,319 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Cartera</p>
+      <h1>{{ ficha.estudiante }}</h1>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-secondary" href="{% url 'cartera:alumno_cartera_list' %}">
+        <i class="ri-arrow-left-line"></i>
+        Cobros por alumno
+      </a>
+      <a class="btn btn-primary-600" href="{% url 'cartera:alumno_pendientes' ficha.pk %}">
+        <i class="ri-secure-payment-line"></i>
+        Cobrar
+      </a>
+    </div>
+  </header>
+
+  <section class="payment-ledger-summary">
+    <div class="payment-ledger-stat is-paid">
+      <span>Total pagado</span>
+      <strong>${{ total_pagado|floatformat:2 }}</strong>
+    </div>
+    <div class="payment-ledger-stat">
+      <span>Pagos realizados</span>
+      <strong>{{ pagos_count }}</strong>
+    </div>
+    <div class="payment-ledger-stat">
+      <span>Ultimo pago</span>
+      <strong>{% if ultimo_pago %}{{ ultimo_pago.fecha_registro|date:"d/m/Y" }}{% else %}-{% endif %}</strong>
+    </div>
+    <div class="payment-ledger-stat is-balance">
+      <span>Saldo actual</span>
+      <strong>${{ ficha.plan_pago.saldo|floatformat:2 }}</strong>
+    </div>
+  </section>
+
+  <section class="panel payment-ledger-panel">
+    <header class="payment-ledger-header">
+      <div>
+        <span>Ficha {{ ficha.numero }}</span>
+        <h2>Pagos realizados</h2>
+      </div>
+      <strong>{{ pagos_count }} registro(s)</strong>
+    </header>
+
+    {% if pagos %}
+      <div class="payment-ledger-list">
+        {% for pago in pagos %}
+          <article class="payment-ledger-row">
+            <div class="payment-ledger-main">
+              <span class="payment-ledger-icon"><i class="ri-bank-card-line"></i></span>
+              <div>
+                <h3>${{ pago.valor|floatformat:2 }}</h3>
+                <p>{{ pago.forma_pago }} · Cuota {{ pago.cuota.numero }} · {{ pago.fecha_registro|date:"d/m/Y H:i" }}</p>
+                <small>No. comprobante: {{ pago.numero_documento|default:"-" }}</small>
+              </div>
+            </div>
+            <div class="payment-ledger-meta">
+              <span>Cuota</span>
+              <strong>{{ pago.cuota.get_estado_display }}</strong>
+              <small>Saldo: ${{ pago.cuota.saldo|floatformat:2 }}</small>
+            </div>
+            <div class="payment-ledger-actions">
+              <a class="payment-ledger-action" href="{% url 'cartera:pago_detalle' pago.pk %}">
+                <i class="ri-file-text-line"></i>
+                Ver ficha
+              </a>
+              {% if pago.comprobante %}
+                <a class="payment-ledger-action is-secondary" href="{{ pago.comprobante.url }}" target="_blank" rel="noopener">
+                  <i class="ri-attachment-2"></i>
+                  Comprobante
+                </a>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="academic-empty-state">
+        Sin pagos registrados.
+      </div>
+    {% endif %}
+
+    {% if is_paginated %}
+      <div class="list-pagination payment-ledger-pagination">
+        <span>Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+        <nav aria-label="Paginacion">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-left-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-left-s-line"></i></span>
+          {% endif %}
+          {% for number in page_obj.paginator.page_range %}
+            {% if number == page_obj.number %}
+              <span class="active">{{ number }}</span>
+            {% elif number >= page_obj.number|add:-2 and number <= page_obj.number|add:2 %}
+              <a href="?page={{ number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}">{{ number }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-right-s-line"></i></a>
+          {% else %}
+            <span class="disabled"><i class="ri-arrow-right-s-line"></i></span>
+          {% endif %}
+        </nav>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .payment-ledger-summary {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .payment-ledger-stat {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      min-height: 92px;
+      padding: 14px;
+    }
+
+    .payment-ledger-stat span,
+    .payment-ledger-header span,
+    .payment-ledger-meta span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .payment-ledger-stat strong {
+      color: #111827;
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      margin-top: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .payment-ledger-stat.is-paid strong {
+      color: #0369a1;
+    }
+
+    .payment-ledger-stat.is-balance strong {
+      color: #0f766e;
+    }
+
+    .payment-ledger-panel,
+    .payment-ledger-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .payment-ledger-header {
+      align-items: center;
+      display: flex;
+      gap: 14px;
+      justify-content: space-between;
+    }
+
+    .payment-ledger-header h2 {
+      color: #111827;
+      font-size: 22px;
+      margin: 2px 0 0;
+    }
+
+    .payment-ledger-header > strong {
+      color: #475467;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .payment-ledger-row {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(260px, 1fr) minmax(150px, auto) auto;
+      padding: 14px;
+    }
+
+    .payment-ledger-main {
+      align-items: center;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 44px minmax(0, 1fr);
+      min-width: 0;
+    }
+
+    .payment-ledger-icon {
+      align-items: center;
+      background: #eff6ff;
+      border-radius: 8px;
+      color: #1d4ed8;
+      display: inline-flex;
+      font-size: 22px;
+      height: 44px;
+      justify-content: center;
+      width: 44px;
+    }
+
+    .payment-ledger-main h3 {
+      color: #111827;
+      font-size: 20px;
+      line-height: 1.1;
+      margin: 0;
+    }
+
+    .payment-ledger-main p,
+    .payment-ledger-main small,
+    .payment-ledger-meta small {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      margin: 4px 0 0;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .payment-ledger-meta {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .payment-ledger-meta strong {
+      color: #111827;
+      line-height: 1.1;
+    }
+
+    .payment-ledger-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .payment-ledger-action {
+      align-items: center;
+      border: 1px solid #0f766e;
+      border-radius: 8px;
+      color: #0f766e;
+      display: inline-flex;
+      font-weight: 900;
+      gap: 6px;
+      min-height: 38px;
+      padding: 8px 10px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .payment-ledger-action:hover {
+      background: #f0fdfa;
+      color: #0f766e;
+    }
+
+    .payment-ledger-action.is-secondary {
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+
+    .payment-ledger-action.is-secondary:hover {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .payment-ledger-pagination {
+      margin-top: 0;
+    }
+
+    @media (max-width: 991.98px) {
+      .payment-ledger-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .payment-ledger-row {
+        align-items: start;
+        grid-template-columns: 1fr;
+      }
+
+      .payment-ledger-actions {
+        justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 575.98px) {
+      .payment-ledger-summary,
+      .payment-ledger-main {
+        grid-template-columns: 1fr;
+      }
+
+      .payment-ledger-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .payment-ledger-action {
+        width: 100%;
+      }
+    }
+  </style>
+{% endblock %}

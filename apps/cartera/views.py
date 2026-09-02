@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views import View
+from django.views.generic import DetailView, ListView
 
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 from apps.matricula.models import FichaInscripcion
@@ -54,7 +55,7 @@ class AlumnoCarteraListView(InstitutoListView):
         )
 
     def get_base_queryset(self):
-        cuotas = Cuota.objects.filter(activo=True).order_by("fecha_pago_debito", "numero")
+        cuotas = Cuota.objects.filter(activo=True).prefetch_related("pagos").order_by("fecha_pago_debito", "numero")
         return (
             FichaInscripcion.objects.select_related("estudiante", "cliente", "representante", "aula", "plan_pago")
             .prefetch_related(Prefetch("plan_pago__cuotas", queryset=cuotas))
@@ -130,6 +131,8 @@ class AlumnoCarteraListView(InstitutoListView):
 
     def build_summary(self, queryset, counts):
         total_saldo = queryset.filter(plan_pago__saldo__gt=0).aggregate(total=Sum("plan_pago__saldo"))["total"]
+        pagos = Pago.objects.filter(cuota__plan_pago__ficha_inscripcion_id__in=queryset.values("pk"))
+        total_pagado = pagos.aggregate(total=Sum("valor"))["total"]
         return {
             "total": counts["todos"],
             "vencidos": counts["vencidos"],
@@ -137,6 +140,8 @@ class AlumnoCarteraListView(InstitutoListView):
             "al_dia": counts["al-dia"],
             "cerrados": counts["cerrados"],
             "saldo": total_saldo or Decimal("0"),
+            "pagos_realizados": pagos.count(),
+            "total_pagado": total_pagado or Decimal("0"),
         }
 
     def get_cuota_state(self, cuota):
@@ -158,6 +163,8 @@ class AlumnoCarteraListView(InstitutoListView):
                     overdue_items.append(cuota)
             next_cuota = pending_items[0] if pending_items else None
             overdue_balance = sum((cuota.saldo() for cuota in overdue_items), Decimal("0"))
+            pagos = [pago for cuota in cuotas for pago in cuota.pagos.all()]
+            paid_amount = sum((pago.valor for pago in pagos), Decimal("0"))
             if ficha.plan_pago.saldo <= 0 or ficha.plan_pago.estado == "cerrado":
                 status_key = "cerrado"
                 status_label = "Cerrado"
@@ -178,6 +185,9 @@ class AlumnoCarteraListView(InstitutoListView):
                     "overdue_balance": overdue_balance,
                     "next_cuota": next_cuota,
                     "url": self.get_update_url(ficha),
+                    "payments_url": reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}),
+                    "paid_amount": paid_amount,
+                    "paid_count": len(pagos),
                 }
             )
         return cards
@@ -190,6 +200,15 @@ class AlumnoCarteraListView(InstitutoListView):
         context["selected_estado"] = selected_estado
         context["selected_estado_label"] = dict((key, label) for key, label, _ in self.STATUS_TABS)[selected_estado]
         context["student_payment_summary"] = self.build_summary(searched_queryset, counts)
+        payment_query = self.request.GET.copy()
+        payment_query.pop("estado", None)
+        payment_query.pop("page", None)
+        payment_query_string = payment_query.urlencode()
+        context["payments_list_url"] = (
+            f"{reverse('cartera:pago_list')}?{payment_query_string}"
+            if payment_query_string
+            else reverse("cartera:pago_list")
+        )
         context["status_tabs"] = [
             {
                 "key": key,
@@ -355,6 +374,51 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         return render(request, self.template_name, self.get_context(ficha, cuotas, form))
 
 
+class AlumnoPagosView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
+    model = Pago
+    permission_required = "cartera.view_pago"
+    template_name = "cartera/alumno_pagos.html"
+    context_object_name = "pagos"
+    paginate_by = 20
+
+    def get_ficha(self):
+        if not hasattr(self, "_ficha"):
+            self._ficha = get_object_or_404(
+                FichaInscripcion.objects.select_related("estudiante", "representante", "cliente", "aula", "plan_pago"),
+                pk=self.kwargs["pk"],
+                plan_pago__isnull=False,
+            )
+        return self._ficha
+
+    def get_queryset(self):
+        ficha = self.get_ficha()
+        return (
+            Pago.objects.select_related("cuota", "forma_pago", "empresa")
+            .filter(cuota__plan_pago=ficha.plan_pago)
+            .order_by("-fecha_registro", "-pk")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        ficha = self.get_ficha()
+        pagos = self.object_list
+        total_pagado = pagos.aggregate(total=Sum("valor"))["total"] or Decimal("0")
+        ultimo_pago = pagos.first()
+        context.update(
+            {
+                "title": "Pagos realizados",
+                "ficha": ficha,
+                "total_pagado": total_pagado,
+                "pagos_count": pagos.count(),
+                "ultimo_pago": ultimo_pago,
+            }
+        )
+        query_params = self.request.GET.copy()
+        query_params.pop("page", None)
+        context["pagination_query"] = query_params.urlencode()
+        return context
+
+
 class FormaPagoListView(InstitutoListView):
     model = FormaPago
     title = "Formas de pago"
@@ -445,14 +509,78 @@ class PagoListView(InstitutoListView):
     model = Pago
     title = "Pagos registrados"
     create_url_name = None
-    update_url_name = "cartera:pago_editar"
-    columns = (("Fecha", "fecha_registro"), ("Cuota", "cuota"), ("Forma", "forma_pago"), ("Valor", "valor"), ("Documento", "numero_documento"))
+    update_url_name = None
+    columns = (
+        ("Fecha", "fecha_registro"),
+        ("Estudiante", "cuota.plan_pago.ficha_inscripcion.estudiante"),
+        ("Ficha", "cuota.plan_pago.ficha_inscripcion.numero"),
+        ("Cuota", "cuota.numero"),
+        ("Forma", "forma_pago"),
+        ("Valor", "valor"),
+        ("Documento", "numero_documento"),
+    )
 
     def get_queryset(self):
-        return super().get_queryset().select_related("cuota", "forma_pago", "empresa")
+        queryset = super().get_queryset().select_related(
+            "cuota",
+            "forma_pago",
+            "empresa",
+            "cuota__plan_pago__ficha_inscripcion__estudiante",
+            "cuota__plan_pago__ficha_inscripcion__representante",
+        )
+        ficha_id = self.request.GET.get("ficha")
+        if ficha_id:
+            queryset = queryset.filter(cuota__plan_pago__ficha_inscripcion_id=ficha_id)
+        q = self.request.GET.get("q")
+        if q:
+            queryset = queryset.filter(
+                Q(numero_documento__icontains=q)
+                | Q(cuota__plan_pago__ficha_inscripcion__numero__icontains=q)
+                | Q(cuota__plan_pago__ficha_inscripcion__estudiante__nombre__icontains=q)
+                | Q(cuota__plan_pago__ficha_inscripcion__estudiante__identificacion__icontains=q)
+                | Q(cuota__plan_pago__ficha_inscripcion__representante__nombre__icontains=q)
+            )
+        return queryset
 
     def get_action_label(self, obj):
-        return "Ver pago"
+        return "Ver ficha"
+
+    def get_primary_url(self, obj):
+        return reverse("cartera:pago_detalle", kwargs={"pk": obj.pk})
+
+
+class PagoDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailView):
+    model = Pago
+    permission_required = "cartera.view_pago"
+    template_name = "cartera/pago_detalle.html"
+    context_object_name = "pago"
+
+    def get_queryset(self):
+        return Pago.objects.select_related(
+            "empresa",
+            "forma_pago",
+            "cuota",
+            "cuota__plan_pago",
+            "cuota__plan_pago__ficha_inscripcion",
+            "cuota__plan_pago__ficha_inscripcion__estudiante",
+            "cuota__plan_pago__ficha_inscripcion__representante",
+            "cuota__plan_pago__ficha_inscripcion__cliente",
+            "cuota__plan_pago__ficha_inscripcion__aula",
+            "usuario",
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        ficha = self.object.cuota.plan_pago.ficha_inscripcion
+        context.update(
+            {
+                "title": "Ficha de pago",
+                "ficha": ficha,
+                "student_payments_url": reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}),
+                "student_wallet_url": reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            }
+        )
+        return context
 
 
 class PagoCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):

@@ -1,21 +1,24 @@
 import subprocess
 import tempfile
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import unquote, urlparse
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
-from apps.cartera.models import Cuota, FormaPago
+from apps.cartera.models import Cuota, FormaPago, Pago, PlanPago
 from apps.core.current_user import set_current_request
 from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacion
 
-from .forms import MatriculaDatosForm
+from .forms import MatriculaConvenioForm, MatriculaDatosForm, MatriculaEstudianteForm, MatriculaRepresentanteForm
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
-from .odt import SOFFICE_BIN, SYSTEM_PATH, convert_odt_to_pdf
+from .odt import SOFFICE_BIN, SYSTEM_PATH, convert_odt_to_pdf, ficha_context, footer_datos, identificacion_numero
 
 
 class ConvertOdtToPdfTests(SimpleTestCase):
@@ -53,6 +56,28 @@ class ConvertOdtToPdfTests(SimpleTestCase):
     def test_raises_when_libreoffice_binary_is_missing(self, mock_is_file):
         with self.assertRaisesMessage(RuntimeError, "No se encontró LibreOffice en /usr/bin/soffice."):
             convert_odt_to_pdf(Path("/tmp/ficha.odt"), "/tmp")
+
+
+class FichaDocumentoContextTests(SimpleTestCase):
+    def test_identification_prints_only_digits(self):
+        self.assertEqual(identificacion_numero("REP0902045442"), "0902045442")
+        self.assertEqual(identificacion_numero("RUC 1790012345001"), "1790012345001")
+
+    def test_william_james_footer_uses_reference_lines(self):
+        empresa = SimpleNamespace(
+            direccion="Direccion registrada diferente",
+            telefono="0989396225",
+            ciudad="Ibarra",
+        )
+
+        direccion_1, direccion_2, contacto = footer_datos(empresa, "Preuniversitario William James")
+
+        self.assertEqual(
+            direccion_1,
+            "Av. Carlos Emilio Grijalva entre Juan Genaro Jaramillo y Av. Heleodoro Ayala atrás del nuevo Plásticos y Supermercados San José",
+        )
+        self.assertEqual(direccion_2, "(a una cuadra de la Academia Superior Militar y Policial ASMIL)")
+        self.assertEqual(contacto, "0989396225 / 0978634977   Ibarra - Ecuador")
 
 
 class MatriculaProcesoTests(TestCase):
@@ -120,6 +145,134 @@ class MatriculaProcesoTests(TestCase):
 
     def tearDown(self):
         set_current_request(None)
+
+    def create_partner(self, identificacion, nombre, **flags):
+        return Partner.objects.create(
+            nombre=nombre,
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion=identificacion,
+            empresa=self.empresa,
+            **flags,
+        )
+
+    def test_student_create_rejects_duplicate_identification(self):
+        self.create_partner("1002003001", "Alumno Existente", es_estudiante=True)
+
+        form = MatriculaEstudianteForm(
+            data={
+                "estudiante_modo": "crear",
+                "estudiante_identificacion": "1002003001",
+                "estudiante_nombre": "Alumno Nuevo",
+            },
+            empresa=self.empresa,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Seleccione el estudiante registrado", form.errors["estudiante_identificacion"][0])
+
+    def test_representative_create_rejects_duplicate_identification(self):
+        self.create_partner("1002003002", "Representante Existente", es_representante=True)
+
+        form = MatriculaRepresentanteForm(
+            data={
+                "representante_modo": "crear",
+                "representante_identificacion": "1002003002",
+                "representante_nombre": "Representante Nuevo",
+            },
+            empresa=self.empresa,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Seleccione el representante registrado", form.errors["representante_identificacion"][0])
+
+    def test_process_rejects_same_identification_for_student_and_representative(self):
+        self.client.force_login(self.user)
+        partner = self.create_partner(
+            "1002003009",
+            "Persona Duplicada",
+            es_cliente=True,
+            es_estudiante=True,
+            es_representante=True,
+        )
+        url = reverse("matricula:matricula_proceso")
+
+        response = self.client.post(
+            url,
+            {
+                "estudiante_modo": "seleccionar",
+                "estudiante_partner": partner.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        response = self.client.post(
+            f"{url}?paso=representante",
+            {
+                "representante_modo": "seleccionar",
+                "representante_partner": partner.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "La identificacion del representante no puede ser igual a la del estudiante.",
+        )
+
+    def test_initial_payment_rejects_duplicate_receipt_number(self):
+        cliente = self.create_partner("1002003003", "Maria Representante", es_cliente=True)
+        estudiante = self.create_partner("1002003004", "Juan Estudiante", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="F-001",
+            fecha=date(2026, 8, 1),
+            cliente=cliente,
+            estudiante=estudiante,
+            estado="activa",
+            activo=True,
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("100.00"),
+            abono=Decimal("0.00"),
+            saldo=Decimal("100.00"),
+            estado="activo",
+        )
+        cuota = Cuota.objects.create(
+            plan_pago=plan,
+            numero=1,
+            fecha_pago_debito=date(2026, 9, 1),
+            valor=Decimal("100.00"),
+            estado="pendiente",
+        )
+        Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota,
+            forma_pago=self.forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("25.00"),
+            numero_documento="REC-001",
+            usuario=self.user,
+        )
+
+        form = MatriculaConvenioForm(
+            data={
+                "forma_pago_convenio": "mensual",
+                "valor_cuota": "50.00",
+                "abono": "30.00",
+                "forma_pago_abono": self.forma_pago.pk,
+                "numero_documento_abono": "rec-001",
+                "numero_cuotas": "2",
+                "fecha_inicio_cobro": "2026-09-01",
+            },
+            empresa=self.empresa,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Juan Estudiante", form.errors["numero_documento_abono"][0])
 
     def test_matricula_data_allows_pending_period_course_and_classroom(self):
         form = MatriculaDatosForm(
@@ -252,4 +405,36 @@ class MatriculaProcesoTests(TestCase):
         self.assertEqual(
             list(Cuota.objects.filter(plan_pago=ficha.plan_pago, numero__gt=0).values_list("valor", flat=True)),
             [Decimal("50.00"), Decimal("50.00")],
+        )
+        document_context = ficha_context(ficha)
+        self.assertEqual(document_context["valor_total_curso"], "130.00")
+        self.assertEqual(document_context["total"], "130.00")
+        self.assertEqual(document_context["abono"], "30.00")
+        self.assertEqual(document_context["saldo"], "100.00")
+        self.assertEqual(document_context["pago_efectivo"], "X")
+        self.assertEqual(
+            document_context["cuotas_detalle"],
+            [
+                {
+                    "numero": "Abono",
+                    "fecha": "28/08/2026",
+                    "valor": "30.00",
+                    "documento": "REC-001",
+                    "observacion": "Abono inicial",
+                },
+                {
+                    "numero": "1",
+                    "fecha": "01/09/2026",
+                    "valor": "50.00",
+                    "documento": "",
+                    "observacion": "",
+                },
+                {
+                    "numero": "2",
+                    "fecha": "01/10/2026",
+                    "valor": "50.00",
+                    "documento": "",
+                    "observacion": "",
+                },
+            ],
         )

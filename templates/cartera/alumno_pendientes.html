@@ -148,6 +148,10 @@
               <span>Ultimos pagos</span>
               <h2>Historial reciente</h2>
             </div>
+            <a class="payment-section-link" href="{% url 'cartera:alumno_pagos' ficha.pk %}">
+              <i class="ri-file-list-3-line"></i>
+              Ver todos
+            </a>
           </header>
           {% for pago in pagos_recientes %}
             <div class="payment-history-item">
@@ -157,6 +161,9 @@
               </div>
               <div class="payment-history-actions">
                 <small>{{ pago.fecha_registro|date:"d/m/Y" }}</small>
+                <a href="{% url 'cartera:pago_detalle' pago.pk %}" title="Ver ficha de pago" aria-label="Ver ficha de pago">
+                  <i class="ri-file-text-line"></i>
+                </a>
                 {% if pago.comprobante %}
                   <a href="{{ pago.comprobante.url }}" target="_blank" rel="noopener" title="Descargar comprobante" aria-label="Descargar comprobante">
                     <i class="ri-attachment-2"></i>
@@ -576,6 +583,26 @@
       min-height: 42px;
       padding: 8px 12px;
       white-space: nowrap;
+    }
+
+    .payment-section-link {
+      align-items: center;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      color: #1d4ed8;
+      display: inline-flex;
+      font-size: 13px;
+      font-weight: 900;
+      gap: 6px;
+      min-height: 38px;
+      padding: 8px 10px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .payment-section-link:hover {
+      background: #eff6ff;
+      color: #1d4ed8;
     }
 
     .payment-installment-list {

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .forms import FormaPagoForm
+from .forms import FormaPagoForm, PagoForm
 from .models import Cuota, FormaPago, Pago, PlanPago
 
 
@@ -54,6 +54,7 @@ class CuotaAdmin(admin.ModelAdmin):
 
 @admin.register(Pago)
 class PagoAdmin(admin.ModelAdmin):
+    form = PagoForm
     list_display = ("cuota", "fecha_registro", "valor", "forma_pago", "numero_documento", "usuario")
     list_filter = ("empresa", "forma_pago", "fecha_registro")
     search_fields = ("numero_documento", "cuota__plan_pago__ficha_inscripcion__numero")

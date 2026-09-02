@@ -1,0 +1,302 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header payment-detail-page-header">
+    <div>
+      <p class="eyebrow">Cartera</p>
+      <h1>Ficha de pago</h1>
+    </div>
+    <div class="topbar-actions no-print">
+      <a class="btn btn-outline-secondary" href="{{ student_payments_url }}">
+        <i class="ri-arrow-left-line"></i>
+        Pagos del alumno
+      </a>
+      <a class="btn btn-outline-primary" href="{{ student_wallet_url }}">
+        <i class="ri-secure-payment-line"></i>
+        Cobrar
+      </a>
+      <button class="btn btn-primary-600" type="button" onclick="window.print()">
+        <i class="ri-printer-line"></i>
+        Imprimir
+      </button>
+    </div>
+  </header>
+
+  <section class="payment-receipt">
+    <header class="payment-receipt-header">
+      <div>
+        <span>{{ pago.empresa.nombre_display }}</span>
+        <h2>Comprobante de pago</h2>
+      </div>
+      <div class="payment-receipt-number">
+        <span>No. comprobante</span>
+        <strong>{{ pago.numero_documento|default:"-" }}</strong>
+      </div>
+    </header>
+
+    <section class="payment-receipt-summary">
+      <div>
+        <span>Valor pagado</span>
+        <strong>${{ pago.valor|floatformat:2 }}</strong>
+      </div>
+      <div>
+        <span>Fecha</span>
+        <strong>{{ pago.fecha_registro|date:"d/m/Y H:i" }}</strong>
+      </div>
+      <div>
+        <span>Forma de pago</span>
+        <strong>{{ pago.forma_pago }}</strong>
+      </div>
+    </section>
+
+    <section class="payment-receipt-grid">
+      <div class="payment-receipt-block">
+        <span>Estudiante</span>
+        <strong>{{ ficha.estudiante }}</strong>
+        <p>C.I.: {{ ficha.estudiante.identificacion|default:"-" }}</p>
+      </div>
+      <div class="payment-receipt-block">
+        <span>Representante</span>
+        <strong>{{ ficha.representante|default:ficha.cliente }}</strong>
+        <p>Ficha {{ ficha.numero }} · {{ ficha.aula|default:"Sin aula" }}</p>
+      </div>
+      <div class="payment-receipt-block">
+        <span>Cuota</span>
+        <strong>Cuota {{ pago.cuota.numero }}</strong>
+        <p>Vence: {{ pago.cuota.fecha_pago_debito|date:"d/m/Y" }} · Estado: {{ pago.cuota.get_estado_display }}</p>
+      </div>
+      <div class="payment-receipt-block">
+        <span>Plan de pago</span>
+        <strong>Saldo actual: ${{ pago.cuota.plan_pago.saldo|floatformat:2 }}</strong>
+        <p>Total: ${{ pago.cuota.plan_pago.valor_total|floatformat:2 }} · Abonado: ${{ pago.cuota.plan_pago.abono|floatformat:2 }}</p>
+      </div>
+    </section>
+
+    {% if pago.comentario or pago.comprobante %}
+      <section class="payment-receipt-notes">
+        {% if pago.comentario %}
+          <div>
+            <span>Comentario</span>
+            <p>{{ pago.comentario }}</p>
+          </div>
+        {% endif %}
+        {% if pago.comprobante %}
+          <a class="payment-receipt-file no-print" href="{{ pago.comprobante.url }}" target="_blank" rel="noopener">
+            <i class="ri-attachment-2"></i>
+            Descargar comprobante adjunto
+          </a>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <footer class="payment-receipt-footer">
+      <div>
+        <span>Registrado por</span>
+        <strong>{% if pago.usuario %}{{ pago.usuario.get_full_name|default:pago.usuario.username }}{% else %}-{% endif %}</strong>
+      </div>
+      <div>
+        <span>Registro</span>
+        <strong>{{ pago.created|date:"d/m/Y H:i" }}</strong>
+      </div>
+    </footer>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .payment-receipt {
+      background: #ffffff;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      display: grid;
+      gap: 18px;
+      margin: 0 auto;
+      max-width: 920px;
+      padding: 22px;
+    }
+
+    .payment-receipt-header {
+      align-items: flex-start;
+      border-bottom: 2px solid #0f766e;
+      display: flex;
+      gap: 16px;
+      justify-content: space-between;
+      padding-bottom: 16px;
+    }
+
+    .payment-receipt-header span,
+    .payment-receipt-number span,
+    .payment-receipt-summary span,
+    .payment-receipt-block span,
+    .payment-receipt-notes span,
+    .payment-receipt-footer span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .payment-receipt-header h2 {
+      color: #111827;
+      font-size: 28px;
+      line-height: 1.1;
+      margin: 4px 0 0;
+    }
+
+    .payment-receipt-number {
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      min-width: 210px;
+      padding: 12px;
+      text-align: right;
+    }
+
+    .payment-receipt-number strong {
+      color: #1d4ed8;
+      display: block;
+      font-size: 20px;
+      margin-top: 6px;
+      overflow-wrap: anywhere;
+    }
+
+    .payment-receipt-summary {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .payment-receipt-summary div,
+    .payment-receipt-block,
+    .payment-receipt-notes div,
+    .payment-receipt-footer div {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .payment-receipt-summary strong {
+      color: #111827;
+      display: block;
+      font-size: 20px;
+      line-height: 1.1;
+      margin-top: 8px;
+      overflow-wrap: anywhere;
+    }
+
+    .payment-receipt-summary div:first-child strong {
+      color: #0f766e;
+      font-size: 30px;
+    }
+
+    .payment-receipt-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .payment-receipt-block strong {
+      color: #111827;
+      display: block;
+      font-size: 17px;
+      line-height: 1.2;
+      margin-top: 7px;
+      overflow-wrap: anywhere;
+    }
+
+    .payment-receipt-block p,
+    .payment-receipt-notes p {
+      color: #475467;
+      font-weight: 700;
+      line-height: 1.35;
+      margin: 6px 0 0;
+    }
+
+    .payment-receipt-notes {
+      display: grid;
+      gap: 12px;
+    }
+
+    .payment-receipt-file {
+      align-items: center;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      color: #1d4ed8;
+      display: inline-flex;
+      font-weight: 900;
+      gap: 8px;
+      min-height: 42px;
+      padding: 10px 12px;
+      text-decoration: none;
+      width: fit-content;
+    }
+
+    .payment-receipt-file:hover {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .payment-receipt-footer {
+      border-top: 1px solid #e2e8f0;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      padding-top: 14px;
+    }
+
+    .payment-receipt-footer strong {
+      color: #111827;
+      display: block;
+      margin-top: 6px;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 767.98px) {
+      .payment-receipt-header,
+      .payment-detail-page-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .payment-receipt-number {
+        min-width: 0;
+        text-align: left;
+        width: 100%;
+      }
+
+      .payment-receipt-summary,
+      .payment-receipt-grid,
+      .payment-receipt-footer {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+      }
+
+      .no-print,
+      .sidebar,
+      .topbar,
+      .page-header {
+        display: none !important;
+      }
+
+      .main-content,
+      .content-wrapper {
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      .payment-receipt {
+        border: 1px solid #111827;
+        box-shadow: none;
+        max-width: none;
+      }
+    }
+  </style>
+{% endblock %}

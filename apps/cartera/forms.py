@@ -48,6 +48,31 @@ def prepare_pago_comprobante_file(uploaded_file, pago, original_name=None):
     return uploaded_file
 
 
+def pago_comprobante_duplicado(numero_documento, empresa=None, exclude_pk=None):
+    numero_documento = (numero_documento or "").strip()
+    if not numero_documento:
+        return None
+    pagos = Pago.objects.select_related(
+        "cuota__plan_pago__ficha_inscripcion__estudiante",
+        "forma_pago",
+    ).filter(numero_documento__iexact=numero_documento)
+    if empresa:
+        pagos = pagos.filter(empresa=empresa)
+    if exclude_pk:
+        pagos = pagos.exclude(pk=exclude_pk)
+    return pagos.order_by("-fecha_registro", "-pk").first()
+
+
+def pago_comprobante_duplicado_message(pago):
+    try:
+        estudiante = pago.cuota.plan_pago.ficha_inscripcion.estudiante
+    except Exception:
+        estudiante = None
+    estudiante_nombre = getattr(estudiante, "nombre", None) or "otro estudiante"
+    numero_documento = pago.numero_documento or f"#{pago.pk}"
+    return f"Este comprobante ya está relacionado al pago {numero_documento} por {pago.valor:.2f} de {estudiante_nombre}."
+
+
 class ComprobantePagoFileInput(forms.ClearableFileInput):
     def get_file_icon(self, file_name):
         extension = Path(file_name).suffix.lower()
@@ -124,6 +149,7 @@ class RegistrarPagoCuotasForm(BootstrapFormMixin, forms.Form):
         cuotas_queryset = kwargs.pop("cuotas_queryset", Cuota.objects.none())
         empresa = kwargs.pop("empresa", None)
         super().__init__(*args, **kwargs)
+        self.empresa = empresa
         self.fields["cuotas"].queryset = cuotas_queryset
         self.fields["fecha_registro"].initial = timezone.localtime().strftime("%Y-%m-%dT%H:%M")
         formas_pago = FormaPago.objects.filter(activo=True, es_pago=True)
@@ -133,6 +159,12 @@ class RegistrarPagoCuotasForm(BootstrapFormMixin, forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
+        numero_documento = (cleaned_data.get("numero_documento") or "").strip()
+        cleaned_data["numero_documento"] = numero_documento
+        pago_duplicado = pago_comprobante_duplicado(numero_documento, empresa=self.empresa)
+        if pago_duplicado:
+            self.add_error("numero_documento", pago_comprobante_duplicado_message(pago_duplicado))
+
         cuotas = cleaned_data.get("cuotas")
         valor = cleaned_data.get("valor")
         if not cuotas and not valor:
@@ -258,6 +290,19 @@ class PagoForm(BootstrapFormMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["fecha_registro"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+
+    def clean(self):
+        cleaned_data = super().clean()
+        numero_documento = (cleaned_data.get("numero_documento") or "").strip()
+        cleaned_data["numero_documento"] = numero_documento
+        pago_duplicado = pago_comprobante_duplicado(
+            numero_documento,
+            empresa=cleaned_data.get("empresa"),
+            exclude_pk=self.instance.pk,
+        )
+        if pago_duplicado:
+            self.add_error("numero_documento", pago_comprobante_duplicado_message(pago_duplicado))
+        return cleaned_data
 
     def save(self, commit=True):
         comprobante = self.cleaned_data.get("comprobante")

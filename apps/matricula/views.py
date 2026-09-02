@@ -316,6 +316,27 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     def get_session_data(self, request):
         return request.session.get(self.session_key, {})
 
+    def get_saved_partner_form_kwargs(self, session_data):
+        return {
+            "estudiante_guardado_id": session_data.get("estudiante", {}).get("partner_id"),
+            "representante_guardado_id": session_data.get("representante", {}).get("partner_id"),
+        }
+
+    def add_same_identification_error(self, form, session_data):
+        estudiante_identificacion = (session_data.get("estudiante", {}).get("estudiante_identificacion") or "").strip()
+        representante_identificacion = (form.cleaned_data.get("representante_identificacion") or "").strip()
+        if (
+            estudiante_identificacion
+            and representante_identificacion
+            and estudiante_identificacion.lower() == representante_identificacion.lower()
+        ):
+            form.add_error(
+                "representante_identificacion",
+                "La identificacion del representante no puede ser igual a la del estudiante.",
+            )
+            return True
+        return False
+
     def get_initial_for_step(self, request, empresa, form_class):
         initial = {}
         initial.update(self.get_initial(empresa))
@@ -354,20 +375,31 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     def get(self, request):
         empresa = self.get_empresa()
         step_key, step_label, form_class = self.get_step(request)
-        form = form_class(empresa=empresa, initial=self.get_initial_for_step(request, empresa, form_class))
+        session_data = self.get_session_data(request)
+        form = form_class(
+            empresa=empresa,
+            initial=self.get_initial_for_step(request, empresa, form_class),
+            **self.get_saved_partner_form_kwargs(session_data),
+        )
         return render(request, self.template_name, self.get_context(request, form, step_key, step_label, empresa))
 
     @transaction.atomic
     def post(self, request):
         empresa = self.get_empresa()
         step_key, step_label, form_class = self.get_step(request)
-        form = form_class(request.POST, empresa=empresa)
+        session_data = self.get_session_data(request)
+        form = form_class(
+            request.POST,
+            empresa=empresa,
+            **self.get_saved_partner_form_kwargs(session_data),
+        )
         if not empresa:
             form.add_error(None, "Debe existir una empresa activa para registrar matriculas.")
         if not form.is_valid():
             return render(request, self.template_name, self.get_context(request, form, step_key, step_label, empresa))
+        if step_key == "representante" and self.add_same_identification_error(form, session_data):
+            return render(request, self.template_name, self.get_context(request, form, step_key, step_label, empresa))
 
-        session_data = self.get_session_data(request)
         session_data[step_key] = self.serialize_step(form)
         if step_key == "estudiante":
             session_data[step_key]["partner_id"] = str(self.guardar_estudiante(form.cleaned_data, empresa).pk)
@@ -381,7 +413,11 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             next_step = self.steps[step_index + 1][0]
             return redirect(f"{reverse_lazy('matricula:matricula_proceso')}?paso={next_step}")
 
-        full_form = MatriculaProcesoForm(self.combined_querydict(session_data), empresa=empresa)
+        full_form = MatriculaProcesoForm(
+            self.combined_querydict(session_data),
+            empresa=empresa,
+            **self.get_saved_partner_form_kwargs(session_data),
+        )
         if not full_form.is_valid():
             messages.error(request, "Revise los datos de la matricula antes de confirmar.")
             return redirect("matricula:matricula_proceso")

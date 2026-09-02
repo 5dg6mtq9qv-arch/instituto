@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from apps.core.forms import BootstrapFormMixin
 from apps.core.models import Partner
+from apps.cartera.forms import pago_comprobante_duplicado, pago_comprobante_duplicado_message
 from apps.cartera.models import FormaPago
 
 from .models import Aula, Curso, FichaInscripcion, PeriodoAcademico
@@ -210,6 +211,8 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
 
     def __init__(self, *args, **kwargs):
         empresa = kwargs.pop("empresa", None)
+        self.estudiante_guardado_id = kwargs.pop("estudiante_guardado_id", None)
+        self.representante_guardado_id = kwargs.pop("representante_guardado_id", None)
         super().__init__(*args, **kwargs)
         self.empresa = empresa
         if empresa:
@@ -298,6 +301,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         cleaned_data = super().clean()
         self.clean_estudiante(cleaned_data)
         self.clean_representante(cleaned_data)
+        self.clean_identificaciones_distintas(cleaned_data)
         self.clean_matricula(cleaned_data)
         fecha_nacimiento = cleaned_data.get("estudiante_fecha_nacimiento")
         cleaned_data["edad"] = calcular_edad(fecha_nacimiento)
@@ -311,7 +315,17 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         cleaned_data["descuento"] = Decimal("0.00")
         if abono > 0 and not cleaned_data.get("forma_pago_abono"):
             self.add_error("forma_pago_abono", "Seleccione la forma de pago del abono.")
+        self.clean_comprobante_abono(cleaned_data)
         return cleaned_data
+
+    def partner_identificacion_duplicada(self, identificacion, exclude_pk=None):
+        identificacion = (identificacion or "").strip()
+        if not identificacion:
+            return None
+        partners = Partner.objects.filter(identificacion__iexact=identificacion)
+        if exclude_pk:
+            partners = partners.exclude(pk=exclude_pk)
+        return partners.first()
 
     def clean_matricula(self, cleaned_data):
         if "periodo_academico" not in self.fields:
@@ -348,8 +362,15 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             cleaned_data["estudiante_email"] = partner.email
             cleaned_data["estudiante_telefono"] = partner.telefono_celular
             return
-        if not cleaned_data.get("estudiante_identificacion"):
+        identificacion = (cleaned_data.get("estudiante_identificacion") or "").strip()
+        cleaned_data["estudiante_identificacion"] = identificacion
+        if not identificacion:
             self.add_error("estudiante_identificacion", "Ingrese la identificacion del estudiante.")
+        elif self.partner_identificacion_duplicada(identificacion, self.estudiante_guardado_id):
+            self.add_error(
+                "estudiante_identificacion",
+                "Ya existe un registro con esta identificacion. Seleccione el estudiante registrado en lugar de crear uno nuevo.",
+            )
         if not cleaned_data.get("estudiante_nombre"):
             self.add_error("estudiante_nombre", "Ingrese el nombre del estudiante.")
 
@@ -373,10 +394,39 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             cleaned_data["nombre_conyuge"] = cleaned_data.get("nombre_conyuge") or conyuge["nombre_conyuge"]
             cleaned_data["ocupacion_conyuge"] = cleaned_data.get("ocupacion_conyuge") or conyuge["ocupacion_conyuge"]
             return
-        if not cleaned_data.get("representante_identificacion"):
+        identificacion = (cleaned_data.get("representante_identificacion") or "").strip()
+        cleaned_data["representante_identificacion"] = identificacion
+        if not identificacion:
             self.add_error("representante_identificacion", "Ingrese la identificacion del representante.")
+        elif self.partner_identificacion_duplicada(identificacion, self.representante_guardado_id):
+            self.add_error(
+                "representante_identificacion",
+                "Ya existe un registro con esta identificacion. Seleccione el representante registrado en lugar de crear uno nuevo.",
+            )
         if not cleaned_data.get("representante_nombre"):
             self.add_error("representante_nombre", "Ingrese el nombre del representante.")
+
+    def clean_comprobante_abono(self, cleaned_data):
+        if "numero_documento_abono" not in self.fields:
+            return
+        numero_documento = (cleaned_data.get("numero_documento_abono") or "").strip()
+        cleaned_data["numero_documento_abono"] = numero_documento
+        if not numero_documento or (cleaned_data.get("abono") or 0) <= 0:
+            return
+        pago_duplicado = pago_comprobante_duplicado(numero_documento, empresa=self.empresa)
+        if pago_duplicado:
+            self.add_error("numero_documento_abono", pago_comprobante_duplicado_message(pago_duplicado))
+
+    def clean_identificaciones_distintas(self, cleaned_data):
+        if "estudiante_identificacion" not in self.fields or "representante_identificacion" not in self.fields:
+            return
+        estudiante_identificacion = (cleaned_data.get("estudiante_identificacion") or "").strip().lower()
+        representante_identificacion = (cleaned_data.get("representante_identificacion") or "").strip().lower()
+        if estudiante_identificacion and estudiante_identificacion == representante_identificacion:
+            self.add_error(
+                "representante_identificacion",
+                "La identificacion del representante no puede ser igual a la del estudiante.",
+            )
 
 
 def calcular_edad(fecha_nacimiento):

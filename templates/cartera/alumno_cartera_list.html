@@ -21,6 +21,11 @@
       <span>Saldo por cobrar</span>
       <strong>${{ student_payment_summary.saldo|floatformat:2 }}</strong>
     </div>
+    <a class="student-payment-stat is-paid" href="{{ payments_list_url }}">
+      <span>Pagos realizados</span>
+      <strong>${{ student_payment_summary.total_pagado|floatformat:2 }}</strong>
+      <small>{{ student_payment_summary.pagos_realizados }} comprobante(s)</small>
+    </a>
     <div class="student-payment-stat is-overdue">
       <span>Vencidos</span>
       <strong>{{ student_payment_summary.vencidos }}</strong>
@@ -72,7 +77,14 @@
     {% if student_payment_cards %}
       <div class="student-payment-list">
         {% for card in student_payment_cards %}
-          <a class="student-payment-card status-{{ card.status_key }}" href="{{ card.url }}" aria-label="Abrir cobro de {{ card.ficha.estudiante }}">
+          <article
+            class="student-payment-card status-{{ card.status_key }}"
+            data-student-payment-card
+            data-card-url="{{ card.url }}"
+            role="link"
+            tabindex="0"
+            aria-label="Abrir cobro de {{ card.ficha.estudiante }}"
+          >
             <div class="student-payment-card-main">
               <span class="student-payment-avatar"><i class="ri-graduation-cap-line"></i></span>
               <div>
@@ -101,16 +113,26 @@
                 <strong>${{ card.overdue_balance|floatformat:2 }}</strong>
               </div>
               <div>
+                <span>Pagado</span>
+                <strong>${{ card.paid_amount|floatformat:2 }}</strong>
+              </div>
+              <div>
                 <span>Cuotas</span>
                 <strong>{{ card.pending_count }}</strong>
               </div>
             </div>
 
-            <span class="student-payment-action">
-              Cobrar
-              <i class="ri-arrow-right-line"></i>
-            </span>
-          </a>
+            <div class="student-payment-card-actions">
+              <a class="student-payment-action is-secondary" href="{{ card.payments_url }}" aria-label="Ver pagos de {{ card.ficha.estudiante }}">
+                <i class="ri-file-list-3-line"></i>
+                Ver pagos
+              </a>
+              <a class="student-payment-action" href="{{ card.url }}" aria-label="Cobrar a {{ card.ficha.estudiante }}">
+                Cobrar
+                <i class="ri-arrow-right-line"></i>
+              </a>
+            </div>
+          </article>
         {% endfor %}
       </div>
     {% else %}
@@ -147,11 +169,40 @@
 {% endblock %}
 
 {% block extra_scripts %}
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const cards = Array.from(document.querySelectorAll("[data-student-payment-card]"));
+
+      function openCard(card) {
+        const url = card.dataset.cardUrl;
+        if (url) {
+          window.location.href = url;
+        }
+      }
+
+      cards.forEach(function (card) {
+        card.addEventListener("click", function (event) {
+          if (event.target.closest("a, button, input, label, select, textarea")) {
+            return;
+          }
+          openCard(card);
+        });
+
+        card.addEventListener("keydown", function (event) {
+          if (event.key !== "Enter" && event.key !== " ") {
+            return;
+          }
+          event.preventDefault();
+          openCard(card);
+        });
+      });
+    });
+  </script>
   <style>
     .student-payment-summary {
       display: grid;
       gap: 12px;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       margin-bottom: 16px;
     }
 
@@ -159,8 +210,11 @@
       background: #ffffff;
       border: 1px solid #e5e7eb;
       border-radius: 8px;
+      color: inherit;
+      display: block;
       min-height: 92px;
       padding: 14px;
+      text-decoration: none;
     }
 
     .student-payment-stat span,
@@ -182,8 +236,26 @@
       overflow-wrap: anywhere;
     }
 
+    .student-payment-stat small {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      margin-top: 7px;
+      text-transform: uppercase;
+    }
+
+    a.student-payment-stat:hover {
+      border-color: #0369a1;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+
     .student-payment-stat.is-balance strong {
       color: #0f766e;
+    }
+
+    .student-payment-stat.is-paid strong {
+      color: #0369a1;
     }
 
     .student-payment-stat.is-overdue strong {
@@ -338,6 +410,7 @@
       grid-template-columns: minmax(240px, 1.1fr) minmax(190px, 0.8fr) minmax(270px, 1fr) auto;
       min-width: 0;
       padding: 14px;
+      cursor: pointer;
       text-decoration: none;
       transition: border-color 0.15s ease, box-shadow 0.15s ease;
     }
@@ -411,7 +484,7 @@
     .student-payment-card-numbers {
       display: grid;
       gap: 8px;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       min-width: 0;
     }
 
@@ -432,14 +505,42 @@
       overflow-wrap: anywhere;
     }
 
+    .student-payment-card-actions {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
     .student-payment-action {
       align-items: center;
+      border: 1px solid #0f766e;
+      border-radius: 8px;
       color: #0f766e;
       display: inline-flex;
       font-weight: 900;
       gap: 6px;
-      justify-content: flex-end;
+      justify-content: center;
+      min-height: 38px;
+      padding: 8px 10px;
+      text-decoration: none;
       white-space: nowrap;
+    }
+
+    .student-payment-action:hover {
+      background: #f0fdfa;
+      color: #0f766e;
+    }
+
+    .student-payment-action.is-secondary {
+      border-color: #bfdbfe;
+      color: #1d4ed8;
+    }
+
+    .student-payment-action.is-secondary:hover {
+      background: #eff6ff;
+      color: #1d4ed8;
     }
 
     .student-payment-pagination {
@@ -467,7 +568,7 @@
         grid-template-columns: 1fr;
       }
 
-      .student-payment-action {
+      .student-payment-card-actions {
         justify-content: flex-start;
       }
     }
