@@ -10,6 +10,7 @@ from django.conf import settings
 
 TEMPLATE_PATH = settings.BASE_DIR / "templates_odt" / "matricula_ficha.odt"
 SOFFICE_BIN = "/usr/bin/soffice"
+SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 
 def formato_moneda(value):
@@ -127,6 +128,10 @@ def convert_odt_to_pdf(odt_path, output_dir):
     if not Path(SOFFICE_BIN).is_file():
         raise RuntimeError("No se encontró LibreOffice en /usr/bin/soffice.")
 
+    entorno = os.environ.copy()
+    entorno["HOME"] = "/tmp"
+    entorno["PATH"] = SYSTEM_PATH
+
     with tempfile.TemporaryDirectory(prefix="libreoffice_") as profile_dir:
         result = subprocess.run(
             [
@@ -141,10 +146,7 @@ def convert_odt_to_pdf(odt_path, output_dir):
                 str(output_dir),
                 str(odt_path),
             ],
-            env={
-                **os.environ,
-                "HOME": "/tmp",
-            },
+            env=entorno,
             capture_output=True,
             text=True,
             timeout=120,

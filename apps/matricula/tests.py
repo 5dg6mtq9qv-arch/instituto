@@ -15,7 +15,7 @@ from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacio
 
 from .forms import MatriculaDatosForm
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
-from .odt import SOFFICE_BIN, convert_odt_to_pdf
+from .odt import SOFFICE_BIN, SYSTEM_PATH, convert_odt_to_pdf
 
 
 class ConvertOdtToPdfTests(SimpleTestCase):
@@ -37,6 +37,7 @@ class ConvertOdtToPdfTests(SimpleTestCase):
         self.assertIn("--nofirststartwizard", args)
         self.assertIn("pdf:writer_pdf_Export", args)
         self.assertEqual(mock_run.call_args.kwargs["env"]["HOME"], "/tmp")
+        self.assertEqual(mock_run.call_args.kwargs["env"]["PATH"], SYSTEM_PATH)
         self.assertFalse(profile_path.exists())
         self.assertEqual(result.name, "ficha.pdf")
 
