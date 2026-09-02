@@ -1,4 +1,5 @@
 import html
+import os
 import shutil
 import subprocess
 import tempfile
@@ -123,15 +124,34 @@ def render_ficha_odt(ficha, output_path):
 
 
 def convert_odt_to_pdf(odt_path, output_dir):
-    binary = shutil.which("libreoffice") or shutil.which("soffice")
+    binary = shutil.which("soffice") or shutil.which("libreoffice")
     if not binary:
         raise RuntimeError("LibreOffice no esta instalado en el servidor.")
-    subprocess.run(
-        [binary, "--headless", "--convert-to", "pdf", "--outdir", str(output_dir), str(odt_path)],
-        check=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+
+    with tempfile.TemporaryDirectory(prefix="libreoffice_") as profile_dir:
+        result = subprocess.run(
+            [
+                binary,
+                "--headless",
+                "--nologo",
+                "--nofirststartwizard",
+                f"-env:UserInstallation={Path(profile_dir).as_uri()}",
+                "--convert-to",
+                "pdf:writer_pdf_Export",
+                "--outdir",
+                str(output_dir),
+                str(odt_path),
+            ],
+            env={
+                **os.environ,
+                "HOME": "/tmp",
+            },
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    if result.returncode != 0:
+        raise RuntimeError(f"Error al convertir con LibreOffice: {result.stderr or result.stdout}")
     return Path(output_dir) / (Path(odt_path).stem + ".pdf")
 
 

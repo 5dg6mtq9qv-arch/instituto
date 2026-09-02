@@ -1,7 +1,12 @@
+import subprocess
+import tempfile
 from decimal import Decimal
+from pathlib import Path
+from unittest.mock import patch
+from urllib.parse import unquote, urlparse
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
 from apps.cartera.models import Cuota, FormaPago
@@ -10,6 +15,38 @@ from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacio
 
 from .forms import MatriculaDatosForm
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
+from .odt import convert_odt_to_pdf
+
+
+class ConvertOdtToPdfTests(SimpleTestCase):
+    @patch("apps.matricula.odt.subprocess.run")
+    @patch("apps.matricula.odt.shutil.which", return_value="/usr/bin/soffice")
+    def test_uses_temporary_libreoffice_profile(self, mock_which, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as output_dir:
+            odt_path = Path(output_dir) / "ficha.odt"
+            result = convert_odt_to_pdf(odt_path, output_dir)
+
+        args = mock_run.call_args.args[0]
+        profile_arg = next(arg for arg in args if arg.startswith("-env:UserInstallation="))
+        profile_uri = profile_arg.removeprefix("-env:UserInstallation=")
+        profile_path = Path(unquote(urlparse(profile_uri).path))
+
+        self.assertEqual(mock_which.call_args.args[0], "soffice")
+        self.assertIn("--nofirststartwizard", args)
+        self.assertIn("pdf:writer_pdf_Export", args)
+        self.assertEqual(mock_run.call_args.kwargs["env"]["HOME"], "/tmp")
+        self.assertFalse(profile_path.exists())
+        self.assertEqual(result.name, "ficha.pdf")
+
+    @patch("apps.matricula.odt.subprocess.run")
+    @patch("apps.matricula.odt.shutil.which", return_value="/usr/bin/soffice")
+    def test_raises_conversion_error_with_libreoffice_output(self, mock_which, mock_run):
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="fallo real")
+
+        with self.assertRaisesMessage(RuntimeError, "fallo real"):
+            convert_odt_to_pdf(Path("/tmp/ficha.odt"), "/tmp")
 
 
 class MatriculaProcesoTests(TestCase):
