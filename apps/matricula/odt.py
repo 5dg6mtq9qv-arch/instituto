@@ -126,7 +126,7 @@ def render_ficha_odt(ficha, output_path):
 def convert_odt_to_pdf(odt_path, output_dir):
     binary = shutil.which("soffice") or shutil.which("libreoffice")
     if not binary:
-        raise RuntimeError("LibreOffice no esta instalado en el servidor.")
+        raise RuntimeError("No se encontro el ejecutable de LibreOffice (soffice/libreoffice) en el PATH del servidor.")
 
     with tempfile.TemporaryDirectory(prefix="libreoffice_") as profile_dir:
         result = subprocess.run(
