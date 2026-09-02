@@ -1,6 +1,5 @@
 import html
 import os
-import shutil
 import subprocess
 import tempfile
 import zipfile
@@ -10,6 +9,7 @@ from django.conf import settings
 
 
 TEMPLATE_PATH = settings.BASE_DIR / "templates_odt" / "matricula_ficha.odt"
+SOFFICE_BIN = "/usr/bin/soffice"
 
 
 def formato_moneda(value):
@@ -124,14 +124,13 @@ def render_ficha_odt(ficha, output_path):
 
 
 def convert_odt_to_pdf(odt_path, output_dir):
-    binary = shutil.which("soffice") or shutil.which("libreoffice")
-    if not binary:
-        raise RuntimeError("No se encontro el ejecutable de LibreOffice (soffice/libreoffice) en el PATH del servidor.")
+    if not Path(SOFFICE_BIN).is_file():
+        raise RuntimeError("No se encontró LibreOffice en /usr/bin/soffice.")
 
     with tempfile.TemporaryDirectory(prefix="libreoffice_") as profile_dir:
         result = subprocess.run(
             [
-                binary,
+                SOFFICE_BIN,
                 "--headless",
                 "--nologo",
                 "--nofirststartwizard",

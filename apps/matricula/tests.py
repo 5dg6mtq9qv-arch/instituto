@@ -15,13 +15,13 @@ from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacio
 
 from .forms import MatriculaDatosForm
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
-from .odt import convert_odt_to_pdf
+from .odt import SOFFICE_BIN, convert_odt_to_pdf
 
 
 class ConvertOdtToPdfTests(SimpleTestCase):
     @patch("apps.matricula.odt.subprocess.run")
-    @patch("apps.matricula.odt.shutil.which", return_value="/usr/bin/soffice")
-    def test_uses_temporary_libreoffice_profile(self, mock_which, mock_run):
+    @patch("apps.matricula.odt.Path.is_file", return_value=True)
+    def test_uses_temporary_libreoffice_profile(self, mock_is_file, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
 
         with tempfile.TemporaryDirectory() as output_dir:
@@ -33,7 +33,7 @@ class ConvertOdtToPdfTests(SimpleTestCase):
         profile_uri = profile_arg.removeprefix("-env:UserInstallation=")
         profile_path = Path(unquote(urlparse(profile_uri).path))
 
-        self.assertEqual(mock_which.call_args.args[0], "soffice")
+        self.assertEqual(args[0], SOFFICE_BIN)
         self.assertIn("--nofirststartwizard", args)
         self.assertIn("pdf:writer_pdf_Export", args)
         self.assertEqual(mock_run.call_args.kwargs["env"]["HOME"], "/tmp")
@@ -41,11 +41,16 @@ class ConvertOdtToPdfTests(SimpleTestCase):
         self.assertEqual(result.name, "ficha.pdf")
 
     @patch("apps.matricula.odt.subprocess.run")
-    @patch("apps.matricula.odt.shutil.which", return_value="/usr/bin/soffice")
-    def test_raises_conversion_error_with_libreoffice_output(self, mock_which, mock_run):
+    @patch("apps.matricula.odt.Path.is_file", return_value=True)
+    def test_raises_conversion_error_with_libreoffice_output(self, mock_is_file, mock_run):
         mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="fallo real")
 
         with self.assertRaisesMessage(RuntimeError, "fallo real"):
+            convert_odt_to_pdf(Path("/tmp/ficha.odt"), "/tmp")
+
+    @patch("apps.matricula.odt.Path.is_file", return_value=False)
+    def test_raises_when_libreoffice_binary_is_missing(self, mock_is_file):
+        with self.assertRaisesMessage(RuntimeError, "No se encontró LibreOffice en /usr/bin/soffice."):
             convert_odt_to_pdf(Path("/tmp/ficha.odt"), "/tmp")
 
 
