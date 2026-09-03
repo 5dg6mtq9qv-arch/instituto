@@ -1,5 +1,5 @@
 from calendar import monthrange
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -356,7 +356,23 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         initial.update(self.get_initial(empresa))
         for step_data in self.get_session_data(request).values():
             initial.update(step_data)
+        today = timezone.localdate()
+        if "fecha" in form_class.field_names:
+            initial["fecha"] = today
+        if "fecha_inicio_cobro" in form_class.field_names:
+            saved_date = self.safe_date(initial.get("fecha_inicio_cobro"))
+            if saved_date is None or saved_date < today:
+                initial["fecha_inicio_cobro"] = today
         return {field: initial.get(field) for field in form_class.field_names if field in initial}
+
+    @staticmethod
+    def safe_date(value):
+        if isinstance(value, date):
+            return value
+        try:
+            return date.fromisoformat(str(value or ""))
+        except ValueError:
+            return None
 
     def get_context(self, request, form, step_key, step_label, empresa):
         step_index = self.get_step_index(step_key)
@@ -414,6 +430,8 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             return render(request, self.template_name, self.get_context(request, form, step_key, step_label, empresa))
         if step_key == "representante" and self.add_same_identification_error(form, session_data):
             return render(request, self.template_name, self.get_context(request, form, step_key, step_label, empresa))
+        if step_key == "matricula":
+            form.cleaned_data["fecha"] = timezone.localdate()
 
         session_data[step_key] = self.serialize_step(form)
         if step_key == "estudiante":
@@ -431,6 +449,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         full_form = MatriculaProcesoForm(
             self.combined_querydict(session_data),
             empresa=empresa,
+            initial=self.get_initial(empresa),
             **self.get_saved_partner_form_kwargs(session_data),
         )
         if not full_form.is_valid():
@@ -542,6 +561,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         return data
 
     def crear_matricula(self, data, empresa, user, session_data):
+        data["fecha"] = timezone.localdate()
         estudiante_id = session_data.get("estudiante", {}).get("partner_id")
         representante_id = session_data.get("representante", {}).get("partner_id")
         estudiante = get_object_or_404(Partner, pk=estudiante_id) if estudiante_id else self.guardar_estudiante(data, empresa)

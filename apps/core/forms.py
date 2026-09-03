@@ -23,6 +23,8 @@ class BootstrapFormMixin:
             else:
                 widget.attrs.setdefault("class", "form-control")
                 if isinstance(widget, forms.DateInput) and not isinstance(widget, forms.DateTimeInput):
+                    if widget.format is None:
+                        widget.format = "%Y-%m-%d"
                     add_widget_class(widget, "js-date-picker")
                     widget.attrs.setdefault("autocomplete", "off")
                     widget.attrs.setdefault("placeholder", "dd/mm/aaaa")

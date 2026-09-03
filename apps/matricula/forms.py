@@ -154,7 +154,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     representante_direccion = forms.CharField(label="Direccion", max_length=200, required=False)
 
     numero = forms.CharField(label="No. ficha", max_length=30, required=False)
-    fecha = forms.DateField(label="Fecha", widget=forms.DateInput(attrs={"type": "date"}))
+    fecha = forms.DateField(label="Fecha", initial=timezone.localdate, widget=forms.DateInput(attrs={"type": "date"}))
     periodo_academico = forms.ModelChoiceField(label="Periodo", queryset=PeriodoAcademico.objects.none(), required=False)
     curso = forms.ModelChoiceField(
         label="Curso",
@@ -208,7 +208,11 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     )
     numero_documento_abono = forms.CharField(label="No. recibo/factura/deposito inicial", max_length=60, required=False)
     numero_cuotas = forms.IntegerField(label="Numero de cuotas", min_value=1, initial=1)
-    fecha_inicio_cobro = forms.DateField(label="Fecha primera cuota", widget=forms.DateInput(attrs={"type": "date"}))
+    fecha_inicio_cobro = forms.DateField(
+        label="Fecha primera cuota",
+        initial=timezone.localdate,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
     promo = forms.BooleanField(required=False)
     autorizacion_imagen = forms.BooleanField(label="Autoriza uso de imagen", required=False)
     acepta_garantia = forms.BooleanField(label="Acepta garantia", required=False)
@@ -275,6 +279,9 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         self.fields["numero"].disabled = True
         self.fields["numero"].widget.attrs["readonly"] = "readonly"
         self.fields["numero"].widget.attrs["aria-readonly"] = "true"
+        self.fields["fecha"].disabled = True
+        self.fields["fecha"].widget.attrs["readonly"] = "readonly"
+        self.fields["fecha"].widget.attrs["aria-readonly"] = "true"
         self.fields["curso"].widget.attrs["data-curso-select"] = "true"
         self.fields["aula"].widget.attrs["data-aula-select"] = "true"
         self.fields["horario"].widget.attrs["data-aula-horario"] = "horario"

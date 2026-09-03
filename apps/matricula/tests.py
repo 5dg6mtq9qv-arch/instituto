@@ -301,6 +301,42 @@ class MatriculaProcesoTests(TestCase):
         self.assertEqual(form.cleaned_data["numero"], "")
         self.assertEqual(next_ficha_numero(self.empresa), "000001")
 
+    @patch("django.utils.timezone.localdate", return_value=date(2026, 9, 2))
+    def test_matricula_data_uses_current_date(self, _mock_localdate):
+        form = MatriculaDatosForm(
+            data={
+                "numero": "999999",
+                "fecha": "2026-01-01",
+                "colegio": "Colegio Prueba",
+                "curso_grado": "Tercero",
+                "nota_grado": "9.5",
+                "carrera": "Medicina",
+                "universidad": "Universidad Central",
+            },
+            empresa=self.empresa,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(form.fields["fecha"].disabled)
+        self.assertEqual(form.cleaned_data["fecha"], date(2026, 9, 2))
+
+    @patch("django.utils.timezone.localdate", return_value=date(2026, 9, 2))
+    def test_process_date_fields_render_current_iso_values(self, _mock_localdate):
+        self.client.force_login(self.user)
+        url = reverse("matricula:matricula_proceso")
+        session = self.client.session
+        session["matricula_proceso"] = {
+            "matricula": {"fecha": "2026-01-01"},
+            "convenio": {"fecha_inicio_cobro": "2026-01-05"},
+        }
+        session.save()
+
+        response = self.client.get(f"{url}?paso=matricula", HTTP_HOST="localhost")
+        self.assertContains(response, 'name="fecha" value="2026-09-02"')
+
+        response = self.client.get(f"{url}?paso=convenio", HTTP_HOST="localhost")
+        self.assertContains(response, 'name="fecha_inicio_cobro" value="2026-09-02"')
+
     def test_ficha_edit_number_is_read_only(self):
         estudiante = self.create_partner("1002003010", "Alumno Uno", es_estudiante=True)
         representante = self.create_partner("1002003011", "Representante Uno", es_cliente=True, es_representante=True)
@@ -331,7 +367,8 @@ class MatriculaProcesoTests(TestCase):
         self.assertContains(response, "assets/js/flatpickr.js")
         self.assertContains(response, "js-date-picker")
 
-    def test_process_creates_ficha_without_academic_assignment_and_fixed_installments(self):
+    @patch("django.utils.timezone.localdate", return_value=date(2026, 8, 28))
+    def test_process_creates_ficha_without_academic_assignment_and_fixed_installments(self, _mock_localdate):
         self.client.force_login(self.user)
         url = reverse("matricula:matricula_proceso")
 
