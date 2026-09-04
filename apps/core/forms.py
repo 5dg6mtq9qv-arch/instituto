@@ -65,6 +65,7 @@ class PartnerForm(BootstrapFormMixin, forms.ModelForm):
             "tipo_identificacion",
             "identificacion",
             "nombre",
+            "apellido",
             "direccion",
             "telefono",
             "telefono_celular",
@@ -80,8 +81,13 @@ class PartnerForm(BootstrapFormMixin, forms.ModelForm):
         ]
         widgets = {
             "nombre": forms.Textarea(attrs={"rows": 2}),
+            "apellido": forms.Textarea(attrs={"rows": 2}),
             "email": forms.Textarea(attrs={"rows": 2}),
             "fecha_nacimiento": forms.DateInput(attrs={"type": "date"}),
+        }
+        labels = {
+            "nombre": "Nombres",
+            "apellido": "Apellidos",
         }
 
 
@@ -93,6 +99,7 @@ class PartnerTypedForm(BootstrapFormMixin, forms.ModelForm):
             "tipo_identificacion",
             "identificacion",
             "nombre",
+            "apellido",
             "direccion",
             "telefono",
             "telefono_celular",
@@ -105,11 +112,14 @@ class PartnerTypedForm(BootstrapFormMixin, forms.ModelForm):
         labels = {
             "telefono": "Telefono fijo",
             "telefono_celular": "Celular",
+            "nombre": "Nombres",
+            "apellido": "Apellidos",
             "fecha_nacimiento": "Fecha de nacimiento",
             "genero": "Genero",
         }
         widgets = {
             "nombre": forms.Textarea(attrs={"rows": 2}),
+            "apellido": forms.Textarea(attrs={"rows": 2}),
             "email": forms.Textarea(attrs={"rows": 2}),
             "fecha_nacimiento": forms.DateInput(attrs={"type": "date"}),
         }
@@ -138,6 +148,7 @@ class EstudianteForm(PartnerTypedForm):
             "tipo_identificacion",
             "identificacion",
             "nombre",
+            "apellido",
             "direccion",
             "telefono",
             "telefono_celular",
@@ -196,6 +207,7 @@ class DocenteForm(PartnerTypedForm):
             "tipo_identificacion",
             "identificacion",
             "nombre",
+            "apellido",
             "direccion",
             "telefono",
             "telefono_celular",
@@ -257,7 +269,7 @@ class DocenteForm(PartnerTypedForm):
         user.username = self.cleaned_data["username"]
         user.email = partner.email or ""
         user.first_name = partner.nombre[:150]
-        user.last_name = ""
+        user.last_name = partner.apellido[:150]
         user.is_active = partner.activo
         password = self.cleaned_data.get("password")
         if password:
@@ -276,6 +288,7 @@ class MiPerfilPartnerForm(BootstrapFormMixin, forms.ModelForm):
         fields = [
             "foto",
             "nombre",
+            "apellido",
             "direccion",
             "telefono",
             "telefono_celular",
@@ -286,8 +299,13 @@ class MiPerfilPartnerForm(BootstrapFormMixin, forms.ModelForm):
         ]
         widgets = {
             "nombre": forms.Textarea(attrs={"rows": 2}),
+            "apellido": forms.Textarea(attrs={"rows": 2}),
             "email": forms.Textarea(attrs={"rows": 2}),
             "fecha_nacimiento": forms.DateInput(attrs={"type": "date"}),
+        }
+        labels = {
+            "nombre": "Nombres",
+            "apellido": "Apellidos",
         }
 
 
@@ -510,8 +528,9 @@ class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
                 tipo_identificacion = TipoIdentificacion.objects.create(nombre="Cedula", codigo="CED")
             partner = Partner(tipo_identificacion=tipo_identificacion, identificacion=identificacion)
 
-        nombre = user.get_full_name() or user.username
+        nombre = user.first_name or user.get_full_name() or user.username
         partner.nombre = nombre
+        partner.apellido = user.last_name or partner.apellido
         partner.email = user.email or partner.email
         partner.usuario = user
         partner.es_docente = True

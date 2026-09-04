@@ -66,6 +66,7 @@ class Partner(models.Model):
     codigo_aux = models.CharField(max_length=20, blank=True, null=True)
     foto = models.ImageField(upload_to="core/partners/", blank=True, null=True)
     nombre = models.TextField()
+    apellido = models.TextField(blank=True, default="")
     tipo_identificacion = models.ForeignKey(
         TipoIdentificacion,
         db_column="id_tipo_identificacion",
@@ -127,10 +128,13 @@ class Partner(models.Model):
         ordering = ["nombre"]
 
     def __str__(self):
-        return self.nombre
+        return self.nombre_completo()
+
+    def nombre_completo(self):
+        return " ".join(part for part in [self.nombre, self.apellido] if part).strip()
 
     def nombre_corto(self):
-        return self.nombre
+        return self.nombre_completo()
 
 
 class PartnerPartner(models.Model):

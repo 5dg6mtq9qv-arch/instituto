@@ -64,13 +64,13 @@ class PartnerTypeListView(InstitutoListView):
     create_url_name = None
     update_url_name = None
     columns = (
-        ("Nombre", "nombre"),
+        ("Nombre", "nombre_completo"),
         ("Identificacion", "identificacion"),
         ("Celular", "telefono_celular"),
         ("Email", "email"),
         ("Estado", "estado_operativo"),
     )
-    search_fields = ("nombre", "identificacion", "telefono", "telefono_celular", "email")
+    search_fields = ("nombre", "apellido", "identificacion", "telefono", "telefono_celular", "email")
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("tipo_identificacion", "empresa")
@@ -85,6 +85,8 @@ class PartnerTypeListView(InstitutoListView):
     def get_column_value(self, obj, attr):
         if attr == "estado_operativo":
             return "Activo" if obj.activo else "Inactivo"
+        if attr == "nombre_completo":
+            return obj.nombre_completo()
         if attr == "usuario_acceso":
             return obj.usuario.username if obj.usuario_id else "-"
         if attr == "representante_principal":
@@ -100,7 +102,7 @@ class PartnerTypeListView(InstitutoListView):
 
     def get_representante_principal(self, obj):
         representantes = [
-            relacion.partner_b.nombre
+            relacion.partner_b.nombre_completo()
             for relacion in obj.relaciones_a.all()
             if relacion.activo and relacion.relacion == "representante" and relacion.partner_b.es_representante
         ]
@@ -108,7 +110,7 @@ class PartnerTypeListView(InstitutoListView):
 
     def get_estudiantes_vinculados(self, obj):
         estudiantes = [
-            relacion.partner_a.nombre
+            relacion.partner_a.nombre_completo()
             for relacion in obj.relaciones_b.all()
             if relacion.activo and relacion.relacion == "representante" and relacion.partner_a.es_estudiante
         ]
@@ -119,7 +121,7 @@ class EstudianteListView(PartnerTypeListView):
     title = "Estudiantes"
     update_url_name = "core:estudiante_editar"
     columns = (
-        ("Nombre", "nombre"),
+        ("Nombre", "nombre_completo"),
         ("Identificacion", "identificacion"),
         ("Celular", "telefono_celular"),
         ("Email", "email"),
@@ -140,7 +142,7 @@ class RepresentanteListView(PartnerTypeListView):
     title = "Representantes"
     update_url_name = "core:representante_editar"
     columns = (
-        ("Nombre", "nombre"),
+        ("Nombre", "nombre_completo"),
         ("Identificacion", "identificacion"),
         ("Celular", "telefono_celular"),
         ("Email", "email"),
@@ -227,7 +229,7 @@ class DocenteListView(DocenteManagementMixin, PartnerTypeListView):
     create_label = "Nuevo docente"
     update_url_name = "core:docente_editar"
     columns = (
-        ("Nombre", "nombre"),
+        ("Nombre", "nombre_completo"),
         ("Identificacion", "identificacion"),
         ("Celular", "telefono_celular"),
         ("Email", "email"),

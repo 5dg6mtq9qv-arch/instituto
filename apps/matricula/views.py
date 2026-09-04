@@ -274,8 +274,8 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         saldo = max(valor_matricula + total_cuotas - abono, Decimal("0"))
         return {
             "empresa": str(empresa) if empresa else "Pendiente",
-            "estudiante": data.get("estudiante_nombre") or "Pendiente",
-            "representante": data.get("representante_nombre") or "Pendiente",
+            "estudiante": self.partner_nombre_display(data.get("estudiante_nombre"), data.get("estudiante_apellido")),
+            "representante": self.partner_nombre_display(data.get("representante_nombre"), data.get("representante_apellido")),
             "numero": data.get("numero") or "Pendiente",
             "fecha": data.get("fecha") or "",
             "asignacion": "Pendiente",
@@ -301,6 +301,10 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             return int(value or 0)
         except (TypeError, ValueError):
             return 0
+
+    @staticmethod
+    def partner_nombre_display(nombre, apellido):
+        return " ".join(part for part in [nombre, apellido] if part).strip() or "Pendiente"
 
     def get_step_index(self, step):
         keys = [key for key, _, _ in self.steps]
@@ -487,6 +491,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             tipo_identificacion=self.get_tipo_identificacion(),
             identificacion=data["estudiante_identificacion"],
             nombre=data["estudiante_nombre"],
+            apellido=data["estudiante_apellido"],
             email=data["estudiante_email"],
             telefono_celular=data["estudiante_telefono"],
             fecha_nacimiento=data["estudiante_fecha_nacimiento"],
@@ -521,6 +526,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             tipo_identificacion=self.get_tipo_identificacion(),
             identificacion=data["representante_identificacion"],
             nombre=data["representante_nombre"],
+            apellido=data["representante_apellido"],
             email=data["representante_email"],
             telefono=data["representante_telefono"],
             telefono_celular=data["representante_celular"],
@@ -835,6 +841,7 @@ def representante_prefill(request, pk):
         {
             "identificacion": representante.identificacion,
             "nombre": representante.nombre,
+            "apellido": representante.apellido,
             "telefono": representante.telefono or "",
             "celular": representante.telefono_celular or "",
             "email": representante.email or "",

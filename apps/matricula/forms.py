@@ -162,7 +162,8 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         required=False,
     )
     estudiante_identificacion = forms.CharField(label="C.I. estudiante", max_length=20, required=False)
-    estudiante_nombre = forms.CharField(label="Nombre estudiante", max_length=200, required=False)
+    estudiante_nombre = forms.CharField(label="Nombres estudiante", max_length=200, required=False)
+    estudiante_apellido = forms.CharField(label="Apellidos estudiante", max_length=200, required=False)
     estudiante_fecha_nacimiento = forms.DateField(
         label="Fecha de nacimiento estudiante",
         required=False,
@@ -191,7 +192,8 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         required=False,
     )
     representante_identificacion = forms.CharField(label="R.U.C./C.I. representante", max_length=20, required=False)
-    representante_nombre = forms.CharField(label="Nombre representante", max_length=200, required=False)
+    representante_nombre = forms.CharField(label="Nombres representante", max_length=200, required=False)
+    representante_apellido = forms.CharField(label="Apellidos representante", max_length=200, required=False)
     representante_telefono = forms.CharField(label="Telefono representante", max_length=50, required=False)
     representante_celular = forms.CharField(label="Celular representante", max_length=50, required=False)
     representante_email = forms.EmailField(label="Correo representante", required=False)
@@ -314,6 +316,8 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         self.fields["aula"].empty_label = "Asignar luego"
         self.fields["curso"].label_from_instance = self.curso_label
         self.fields["aula"].label_from_instance = self.aula_label
+        self.fields["fecha"].initial = timezone.localdate
+        self.fields["fecha_inicio_cobro"].initial = timezone.localdate
 
         if not self.is_bound and not self.initial.get("estudiante_modo") and not estudiantes.exists():
             self.fields["estudiante_modo"].initial = "crear"
@@ -424,6 +428,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
                 return
             cleaned_data["estudiante_identificacion"] = partner.identificacion
             cleaned_data["estudiante_nombre"] = partner.nombre
+            cleaned_data["estudiante_apellido"] = partner.apellido
             cleaned_data["estudiante_fecha_nacimiento"] = partner.fecha_nacimiento
             cleaned_data["estudiante_email"] = partner.email
             cleaned_data["estudiante_telefono"] = partner.telefono_celular
@@ -439,6 +444,8 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             )
         if not cleaned_data.get("estudiante_nombre"):
             self.add_error("estudiante_nombre", "Ingrese el nombre del estudiante.")
+        if not cleaned_data.get("estudiante_apellido"):
+            self.add_error("estudiante_apellido", "Ingrese el apellido del estudiante.")
 
     def clean_representante(self, cleaned_data):
         if "representante_modo" not in self.fields:
@@ -452,6 +459,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             conyuge = representante_conyuge_data(partner)
             cleaned_data["representante_identificacion"] = partner.identificacion
             cleaned_data["representante_nombre"] = partner.nombre
+            cleaned_data["representante_apellido"] = partner.apellido
             cleaned_data["representante_email"] = partner.email
             cleaned_data["representante_telefono"] = partner.telefono
             cleaned_data["representante_celular"] = partner.telefono_celular
@@ -471,6 +479,8 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             )
         if not cleaned_data.get("representante_nombre"):
             self.add_error("representante_nombre", "Ingrese el nombre del representante.")
+        if not cleaned_data.get("representante_apellido"):
+            self.add_error("representante_apellido", "Ingrese el apellido del representante.")
 
     def clean_comprobante_abono(self, cleaned_data):
         if "numero_documento_abono" not in self.fields:
@@ -548,6 +558,7 @@ class MatriculaEstudianteForm(MatriculaPasoForm):
         "estudiante_partner",
         "estudiante_identificacion",
         "estudiante_nombre",
+        "estudiante_apellido",
         "estudiante_fecha_nacimiento",
         "edad",
         "estudiante_telefono",
@@ -561,6 +572,7 @@ class MatriculaRepresentanteForm(MatriculaPasoForm):
         "representante_partner",
         "representante_identificacion",
         "representante_nombre",
+        "representante_apellido",
         "representante_telefono",
         "representante_celular",
         "representante_email",

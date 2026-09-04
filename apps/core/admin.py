@@ -29,6 +29,7 @@ class PartnerAdmin(admin.ModelAdmin):
     list_display = (
         "identificacion",
         "nombre",
+        "apellido",
         "empresa",
         "telefono_celular",
         "es_estudiante",
@@ -37,11 +38,11 @@ class PartnerAdmin(admin.ModelAdmin):
         "activo",
     )
     list_filter = ("empresa", "es_estudiante", "es_representante", "es_docente", "activo")
-    search_fields = ("identificacion", "nombre", "telefono", "telefono_celular", "email")
+    search_fields = ("identificacion", "nombre", "apellido", "telefono", "telefono_celular", "email")
 
 
 @admin.register(PartnerPartner)
 class PartnerPartnerAdmin(admin.ModelAdmin):
     list_display = ("partner_a", "partner_b", "relacion", "principal", "contacto_emergencia", "activo")
     list_filter = ("relacion", "principal", "contacto_emergencia", "activo")
-    search_fields = ("partner_a__nombre", "partner_b__nombre", "relacion")
+    search_fields = ("partner_a__nombre", "partner_a__apellido", "partner_b__nombre", "partner_b__apellido", "relacion")

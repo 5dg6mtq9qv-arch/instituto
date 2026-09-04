@@ -39,7 +39,8 @@
             </div>
 
             <div class="row g-3 profile-fields">
-              {% include "web/form_field.html" with field=form.nombre cols="col-12" %}
+              {% include "web/form_field.html" with field=form.nombre cols="col-md-6" %}
+              {% include "web/form_field.html" with field=form.apellido cols="col-md-6" %}
               {% include "web/form_field.html" with field=form.email cols="col-md-6" %}
               {% include "web/form_field.html" with field=form.telefono cols="col-md-6" %}
               {% include "web/form_field.html" with field=form.telefono_celular cols="col-md-6" %}

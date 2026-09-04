@@ -82,7 +82,8 @@
             </div>
             <div class="row g-3">
               {% include "web/form_field.html" with field=form.estudiante_identificacion cols="col-md-4" %}
-              {% include "web/form_field.html" with field=form.estudiante_nombre cols="col-md-8" %}
+              {% include "web/form_field.html" with field=form.estudiante_nombre cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.estudiante_apellido cols="col-md-4" %}
               {% include "web/form_field.html" with field=form.estudiante_fecha_nacimiento cols="col-md-4" %}
               {% include "web/form_field.html" with field=form.edad cols="col-md-2" %}
               {% include "web/form_field.html" with field=form.estudiante_telefono cols="col-md-3" %}
@@ -109,7 +110,8 @@
             </div>
             <div class="row g-3">
               {% include "web/form_field.html" with field=form.representante_identificacion cols="col-md-4" %}
-              {% include "web/form_field.html" with field=form.representante_nombre cols="col-md-8" %}
+              {% include "web/form_field.html" with field=form.representante_nombre cols="col-md-4" %}
+              {% include "web/form_field.html" with field=form.representante_apellido cols="col-md-4" %}
               {% include "web/form_field.html" with field=form.representante_telefono cols="col-md-3" %}
               {% include "web/form_field.html" with field=form.representante_celular cols="col-md-3" %}
               {% include "web/form_field.html" with field=form.representante_email cols="col-md-3" %}
@@ -319,6 +321,7 @@
           createFields: [
             "estudiante_identificacion",
             "estudiante_nombre",
+            "estudiante_apellido",
             "estudiante_fecha_nacimiento",
             "edad",
             "estudiante_telefono",
@@ -331,6 +334,7 @@
           createFields: [
             "representante_identificacion",
             "representante_nombre",
+            "representante_apellido",
             "representante_telefono",
             "representante_celular",
             "representante_email",
@@ -402,6 +406,7 @@
           .then(function (data) {
             setInputValue("id_representante_identificacion", data.identificacion, true);
             setInputValue("id_representante_nombre", data.nombre, true);
+            setInputValue("id_representante_apellido", data.apellido, true);
             setInputValue("id_representante_telefono", data.telefono, true);
             setInputValue("id_representante_celular", data.celular, true);
             setInputValue("id_representante_email", data.email, true);

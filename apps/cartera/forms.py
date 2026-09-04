@@ -17,7 +17,7 @@ def get_pago_file_owner_label(pago):
     except Exception:
         estudiante = None
     if estudiante and estudiante.nombre:
-        return estudiante.nombre
+        return estudiante.nombre_completo()
 
     user = getattr(pago, "usuario", None) or getattr(pago, "usuario_updated", None)
     if not user:
@@ -27,7 +27,7 @@ def get_pago_file_owner_label(pago):
     except Exception:
         partner = None
     if partner and partner.nombre:
-        return partner.nombre
+        return partner.nombre_completo()
     return user.get_full_name() or user.get_username()
 
 
@@ -68,7 +68,7 @@ def pago_comprobante_duplicado_message(pago):
         estudiante = pago.cuota.plan_pago.ficha_inscripcion.estudiante
     except Exception:
         estudiante = None
-    estudiante_nombre = getattr(estudiante, "nombre", None) or "otro estudiante"
+    estudiante_nombre = estudiante.nombre_completo() if estudiante else "otro estudiante"
     numero_documento = pago.numero_documento or f"#{pago.pk}"
     return f"Este comprobante ya está relacionado al pago {numero_documento} por {pago.valor:.2f} de {estudiante_nombre}."
 

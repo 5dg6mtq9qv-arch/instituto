@@ -4,7 +4,7 @@ SELECT
     pp.id_empresa,
     fi.id AS id_ficha_inscripcion,
     fi.numero AS numero_ficha,
-    estudiante.nombre AS estudiante,
+    trim(concat_ws(' ', estudiante.nombre, nullif(estudiante.apellido, ''))) AS estudiante,
     cu.numero,
     cu.fecha_pago_debito,
     cu.valor,
