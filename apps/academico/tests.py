@@ -2,6 +2,7 @@ import json
 import shutil
 import tempfile
 from datetime import timedelta, time
+from decimal import Decimal
 from io import BytesIO
 
 from django.contrib.auth import get_user_model
@@ -19,6 +20,7 @@ from apps.academico.models import (
     Clase,
     ClaseAsistencia,
     ClaseEstudianteMovimiento,
+    ClaseHoraDocente,
     Competencia,
     Curso,
     CursoPeriodo,
@@ -128,6 +130,11 @@ class DocenteHorariosPanelTests(TestCase):
     def create_coordinator(self):
         user = get_user_model().objects.create_user(username="coordinador", password="ClaveActual987!")
         user.groups.add(Group.objects.get_or_create(name="Coordinacion")[0])
+        return user
+
+    def create_director(self):
+        user = get_user_model().objects.create_user(username="director", password="ClaveActual987!")
+        user.groups.add(Group.objects.get_or_create(name="Director")[0])
         return user
 
     def create_periodo_for_course(self):
@@ -2396,6 +2403,123 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "Revision asistencia")
         self.assertGreaterEqual(response.context["attendance_stats"]["total"], 4)
         self.assertGreaterEqual(response.context["attendance_stats"]["pendientes_registro"], 4)
+
+    def test_director_can_register_teacher_replacement_hours(self):
+        director = self.create_director()
+        reemplazo, _ = self.create_docente()
+        clase = self.create_class_for_date(timezone.localdate(), time(10, 0), time(12, 0), aula_nombre="Aula pago")
+        self.client.force_login(director)
+
+        response = self.client.post(
+            reverse("academico:direccion_horas_docente"),
+            {
+                "fecha": clase.fecha.isoformat(),
+                "clase": clase.pk,
+                f"hora_{clase.pk}-estado": "reemplazo",
+                f"hora_{clase.pk}-docente": reemplazo.pk,
+                f"hora_{clase.pk}-horas": "1.50",
+                f"hora_{clase.pk}-observacion": "Reemplazo autorizado.",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        registro = ClaseHoraDocente.objects.get(clase=clase)
+        self.assertEqual(registro.estado, "reemplazo")
+        self.assertEqual(registro.docente, reemplazo)
+        self.assertEqual(registro.docente_reemplazado, self.docente)
+        self.assertEqual(registro.horas, Decimal("1.50"))
+        self.assertEqual(registro.registrado_por, director)
+
+    def test_teacher_hours_asistio_ignores_posted_replacement_teacher(self):
+        director = self.create_director()
+        reemplazo, _ = self.create_docente()
+        clase = self.create_class_for_date(timezone.localdate(), time(10, 0), time(12, 0), aula_nombre="Aula pago")
+        self.client.force_login(director)
+
+        response = self.client.post(
+            reverse("academico:direccion_horas_docente"),
+            {
+                "fecha": clase.fecha.isoformat(),
+                "clase": clase.pk,
+                f"hora_{clase.pk}-estado": "asistio",
+                f"hora_{clase.pk}-docente": reemplazo.pk,
+                f"hora_{clase.pk}-horas": "2.00",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        registro = ClaseHoraDocente.objects.get(clase=clase)
+        self.assertEqual(registro.estado, "asistio")
+        self.assertEqual(registro.docente, self.docente)
+        self.assertIsNone(registro.docente_reemplazado)
+
+    def test_docente_cannot_open_director_teacher_hours(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:direccion_horas_docente"),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_coordinator_cannot_open_director_teacher_hours(self):
+        self.client.force_login(self.create_coordinator())
+
+        response = self.client.get(
+            reverse("academico:direccion_horas_docente"),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_teacher_hours_report_renders_and_exports_excel(self):
+        director = self.create_director()
+        clase = self.create_class_for_date(timezone.localdate(), time(14, 0), time(16, 0), aula_nombre="Aula reporte")
+        ClaseHoraDocente.objects.create(
+            clase=clase,
+            docente=self.docente,
+            estado="asistio",
+            horas=Decimal("2.00"),
+            registrado_por=director,
+            fecha_registro=timezone.now(),
+            usuario_updated=director,
+        )
+        self.client.force_login(director)
+        params = {
+            "desde": clase.fecha.isoformat(),
+            "hasta": clase.fecha.isoformat(),
+        }
+
+        response = self.client.get(
+            reverse("academico:direccion_horas_docente_reporte"),
+            params,
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Reporte horas docente")
+        self.assertContains(response, "Docente Prueba")
+        self.assertEqual(response.context["stats"]["horas"], Decimal("2.00"))
+
+        export_response = self.client.get(
+            reverse("academico:direccion_horas_docente_reporte"),
+            {**params, "export": "excel"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(export_response.status_code, 200)
+        self.assertEqual(
+            export_response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        workbook = load_workbook(BytesIO(export_response.content))
+        values = [cell.value for row in workbook.active.iter_rows() for cell in row if cell.value]
+        self.assertIn("Docente Prueba", values)
+        self.assertIn("Matematicas", values)
+        self.assertIn(2, values)
 
     def test_coordinacion_review_detail_renders_visual_review_panel(self):
         coordinator = self.create_coordinator()

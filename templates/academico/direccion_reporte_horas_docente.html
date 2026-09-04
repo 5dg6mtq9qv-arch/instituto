@@ -1,0 +1,213 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header teacher-report-header">
+    <div>
+      <p class="eyebrow">Direccion</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="teacher-report-actions">
+      <a class="btn btn-outline-secondary" href="{{ daily_url }}">
+        <i class="ri-calendar-check-line"></i>
+        Diario
+      </a>
+      <a class="btn btn-primary-600" href="{{ export_url }}">
+        <i class="ri-file-excel-2-line"></i>
+        Excel
+      </a>
+    </div>
+  </header>
+
+  <section class="panel teacher-report-filter">
+    <form class="teacher-report-filter-grid" method="get">
+      <div>
+        <label class="form-label" for="teacher-report-from">Desde</label>
+        <input class="form-control" id="teacher-report-from" type="date" name="desde" value="{{ desde_value }}">
+      </div>
+      <div>
+        <label class="form-label" for="teacher-report-to">Hasta</label>
+        <input class="form-control" id="teacher-report-to" type="date" name="hasta" value="{{ hasta_value }}">
+      </div>
+      <div>
+        <label class="form-label" for="teacher-report-teacher">Docente</label>
+        <select class="form-select" id="teacher-report-teacher" name="docente">
+          <option value="">Todos los docentes</option>
+          {% for docente in docentes %}
+            <option value="{{ docente.pk }}"{% if selected_docente_id == docente.pk|stringformat:"s" %} selected{% endif %}>{{ docente.nombre_completo }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="teacher-report-filter-actions">
+        <button class="btn btn-primary-600" type="submit">
+          <i class="ri-search-line"></i>
+          Buscar
+        </button>
+        <a class="btn btn-outline-secondary" href="{% url 'academico:direccion_horas_docente_reporte' %}">Limpiar</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="teacher-report-stats">
+    <div>
+      <span>Registros</span>
+      <strong>{{ stats.registros }}</strong>
+    </div>
+    <div>
+      <span>Horas</span>
+      <strong>{{ stats.horas|floatformat:2 }}</strong>
+    </div>
+    <div>
+      <span>Docentes</span>
+      <strong>{{ stats.docentes }}</strong>
+    </div>
+    <div>
+      <span>Reemplazos</span>
+      <strong>{{ stats.reemplazos }}</strong>
+    </div>
+  </section>
+
+  <section class="panel teacher-report-table-panel">
+    <div class="table-responsive">
+      <table class="table teacher-report-table">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Horario</th>
+            <th>Grupo</th>
+            <th>Materia</th>
+            <th>Docente</th>
+            <th>Estado</th>
+            <th class="text-end">Horas</th>
+            <th>Reemplaza a</th>
+            <th>Observacion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td>{{ row.fecha|date:"d/m/Y" }}</td>
+              <td>{{ row.hora }}</td>
+              <td>{{ row.grupo.nombre }} · {{ row.aula }}</td>
+              <td>{{ row.materia.nombre }}</td>
+              <td>{% if row.docente %}{{ row.docente.nombre_completo }}{% else %}-{% endif %}</td>
+              <td><span class="teacher-report-badge state-{{ row.registro.estado }}">{{ row.estado }}</span></td>
+              <td class="text-end"><strong>{{ row.horas|floatformat:2 }}</strong></td>
+              <td>{% if row.docente_reemplazado %}{{ row.docente_reemplazado.nombre_completo }}{% else %}-{% endif %}</td>
+              <td>{{ row.observacion|default:"-" }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="9" class="text-center text-muted py-4">Sin horas registradas para este filtro.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .teacher-report-header,
+    .teacher-report-actions,
+    .teacher-report-filter-actions {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+    }
+
+    .teacher-report-filter {
+      margin-bottom: 16px;
+    }
+
+    .teacher-report-filter-grid {
+      align-items: end;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 170px 170px minmax(240px, 1fr) auto;
+    }
+
+    .teacher-report-stats {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .teacher-report-stats > div {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .teacher-report-stats span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-report-stats strong {
+      color: #111827;
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      margin-top: 10px;
+    }
+
+    .teacher-report-table-panel {
+      overflow: hidden;
+    }
+
+    .teacher-report-table {
+      margin: 0;
+      vertical-align: middle;
+    }
+
+    .teacher-report-table thead th {
+      background: #f8fafc;
+      color: #475467;
+      font-size: 12px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .teacher-report-badge {
+      border-radius: 999px;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+
+    .teacher-report-badge.state-asistio {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .teacher-report-badge.state-reemplazo {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    @media (max-width: 1000px) {
+      .teacher-report-header,
+      .teacher-report-actions,
+      .teacher-report-filter-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .teacher-report-filter-grid,
+      .teacher-report-stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+{% endblock %}

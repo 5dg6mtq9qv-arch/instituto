@@ -2,6 +2,7 @@ import calendar as calendar_module
 import json
 from io import BytesIO
 from datetime import date, timedelta
+from decimal import Decimal
 from urllib.parse import urlencode
 
 from django.http import HttpResponse
@@ -40,6 +41,7 @@ from .forms import (
     HorarioClaseForm,
     CoordinacionPlanificacionForm,
     CoordinacionTemaFormSet,
+    ClaseHoraDocenteForm,
     DocenteClasePlanificacionForm,
     PlanificacionDocenteBaseForm,
     PlanificacionDocenteFormSet,
@@ -56,6 +58,7 @@ from .models import (
     Clase,
     ClaseAsistencia,
     ClaseEstudianteMovimiento,
+    ClaseHoraDocente,
     Curso,
     CursoPeriodo,
     Dia,
@@ -86,10 +89,6 @@ from .models import (
 
 def can_view_all_horarios(user):
     return user.is_superuser or user.groups.filter(name="Director").exists() or user.has_perm("academico.view_all_horarioclase")
-
-
-def user_can_access_coordinacion(user):
-    return user.is_superuser or user.groups.filter(name__in=["Coordinacion", "Direccion", "Director"]).exists()
 
 
 UNASSIGNED_CLASS_ALERT_DAYS = 30
@@ -558,10 +557,16 @@ def clases_sin_docente_alert(curso=None, days=UNASSIGNED_CLASS_ALERT_DAYS, limit
 
 
 class CoordinacionRequiredMixin(LoginRequiredMixin):
+    permission_required = None
+
     def dispatch(self, request, *args, **kwargs):
-        if not user_can_access_coordinacion(request.user):
+        if not self.permission_required or not request.user.has_perm(self.permission_required):
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
+
+
+class DireccionRequiredMixin(CoordinacionRequiredMixin):
+    pass
 
 
 def readable_text_color(hex_color):
@@ -2616,6 +2621,7 @@ class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMi
 
 
 class CoordinacionPlanificacionListView(CoordinacionRequiredMixin, View):
+    permission_required = "academico.view_tema"
     template_name = "academico/coordinacion_planificacion_list.html"
 
     def get(self, request):
@@ -2656,6 +2662,7 @@ class CoordinacionPlanificacionListView(CoordinacionRequiredMixin, View):
 
 
 class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
+    permission_required = "academico.change_tema"
     template_name = "academico/coordinacion_planificacion_form.html"
 
     def get_materia_curso(self):
@@ -3937,6 +3944,377 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
         }.get(clase.estado_planificacion, "Abrir")
 
 
+class DireccionHorasDocenteView(DireccionRequiredMixin, View):
+    permission_required = "academico.change_clasehoradocente"
+    template_name = "academico/direccion_horas_docente.html"
+
+    def get(self, request):
+        return render(request, self.template_name, self.get_context())
+
+    def post(self, request):
+        clase = get_object_or_404(self.get_clases_queryset(), pk=request.POST.get("clase"))
+        registro = self.get_hora_docente(clase)
+        original_docente = self.get_docente_programado(clase)
+        form = ClaseHoraDocenteForm(
+            request.POST,
+            instance=registro,
+            clase=clase,
+            docente_programado=original_docente,
+            prefix=self.form_prefix(clase),
+        )
+        if form.is_valid():
+            self.save_hora_docente(form, clase, request.user)
+            messages.success(request, "Horas del docente guardadas correctamente.")
+        else:
+            messages.error(request, "Revisa los datos de horas del docente.")
+            return render(request, self.template_name, self.get_context(active_form=form, active_clase=clase))
+        return redirect(self.redirect_url())
+
+    def get_context(self, active_form=None, active_clase=None):
+        selected_fecha, fecha_value = self.get_date_value("fecha", timezone.localdate())
+        selected_grupo = self.get_selected_grupo()
+        selected_docente = self.get_selected_docente()
+        clases = self.get_clases_queryset().filter(fecha=selected_fecha)
+        if selected_grupo:
+            clases = clases.filter(materia_curso__grupo=selected_grupo)
+        if selected_docente:
+            clases = clases.filter(
+                docente_responsable_filter(selected_docente) | Q(hora_docente__docente=selected_docente)
+            )
+        rows = [self.build_row(clase, active_form, active_clase) for clase in clases.distinct()]
+        return {
+            "title": "Horas docente",
+            "fecha_value": fecha_value,
+            "selected_fecha": selected_fecha,
+            "selected_grupo": selected_grupo,
+            "selected_grupo_id": str(selected_grupo.pk) if selected_grupo else "",
+            "selected_docente": selected_docente,
+            "selected_docente_id": str(selected_docente.pk) if selected_docente else "",
+            "grupos": Curso.objects.filter(activo=True).order_by("nombre"),
+            "docentes": Partner.objects.filter(es_docente=True, activo=True).order_by("nombre", "apellido"),
+            "rows": rows,
+            "stats": self.get_stats(rows),
+            "report_url": reverse_lazy("academico:direccion_horas_docente_reporte"),
+        }
+
+    def get_clases_queryset(self):
+        return (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "docente",
+                "hora_docente__docente",
+                "hora_docente__docente_reemplazado",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
+            .order_by(
+                "fecha",
+                "horario_aula_curso__horario_dia__horario__hora_inicio",
+                "materia_curso__grupo__nombre",
+                "materia_curso__materia__nombre",
+            )
+        )
+
+    def build_row(self, clase, active_form=None, active_clase=None):
+        registro = self.get_hora_docente(clase)
+        original_docentes = get_clase_docentes(clase)
+        original_docente = self.get_docente_programado(clase, original_docentes)
+        form = active_form if active_clase and active_clase.pk == clase.pk else self.get_form(clase, registro, original_docente)
+        horario = clase.horario_aula_curso.horario_dia.horario
+        estado_value = form["estado"].value()
+        return {
+            "clase": clase,
+            "registro": registro,
+            "form": form,
+            "form_prefix": self.form_prefix(clase),
+            "docente_editable": estado_value == "reemplazo",
+            "horario": horario,
+            "horas_programadas": self.horas_programadas(clase),
+            "docentes_programados": original_docentes,
+            "estado_key": registro.estado if registro else "pendiente",
+            "estado_label": registro.get_estado_display() if registro else "Pendiente",
+            "docente_pagable": registro.docente if registro else None,
+        }
+
+    def get_form(self, clase, registro, original_docente):
+        initial = {}
+        if not registro:
+            initial = {
+                "estado": "asistio",
+                "docente": original_docente,
+                "horas": self.horas_programadas(clase),
+            }
+        return ClaseHoraDocenteForm(
+            instance=registro,
+            clase=clase,
+            docente_programado=original_docente,
+            prefix=self.form_prefix(clase),
+            initial=initial,
+        )
+
+    def save_hora_docente(self, form, clase, user):
+        registro = form.save(commit=False)
+        original_docentes = get_clase_docentes(clase)
+        original_docente = self.get_docente_programado(clase, original_docentes)
+        registro.clase = clase
+        if registro.estado == "asistio":
+            registro.docente = original_docente
+            registro.docente_reemplazado = None
+        elif registro.estado == "reemplazo":
+            registro.docente_reemplazado = original_docente if original_docente and original_docente != registro.docente else None
+        else:
+            registro.docente = None
+            registro.docente_reemplazado = None
+        registro.registrado_por = user
+        registro.fecha_registro = timezone.now()
+        registro.usuario_updated = user
+        registro.full_clean()
+        registro.save()
+        return registro
+
+    @staticmethod
+    def get_hora_docente(clase):
+        try:
+            return clase.hora_docente
+        except ClaseHoraDocente.DoesNotExist:
+            return None
+
+    @staticmethod
+    def get_docente_programado(clase, docentes=None):
+        docentes = docentes if docentes is not None else get_clase_docentes(clase)
+        return docentes[0] if docentes else None
+
+    @staticmethod
+    def form_prefix(clase):
+        return f"hora_{clase.pk}"
+
+    @staticmethod
+    def horas_programadas(clase):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        inicio = horario.hora_inicio.hour * 60 + horario.hora_inicio.minute
+        fin = horario.hora_fin.hour * 60 + horario.hora_fin.minute
+        return (Decimal(fin - inicio) / Decimal("60")).quantize(Decimal("0.01"))
+
+    def get_stats(self, rows):
+        stats = {
+            "clases": len(rows),
+            "registradas": 0,
+            "pendientes": 0,
+            "reemplazos": 0,
+            "horas": Decimal("0.00"),
+        }
+        for row in rows:
+            registro = row["registro"]
+            if not registro or registro.estado == "pendiente":
+                stats["pendientes"] += 1
+                continue
+            stats["registradas"] += 1
+            if registro.estado == "reemplazo":
+                stats["reemplazos"] += 1
+            if registro.estado in {"asistio", "reemplazo"}:
+                stats["horas"] += registro.horas
+        return stats
+
+    def get_date_value(self, key, default):
+        value = self.request.GET.get(key) or self.request.POST.get(key) or default.isoformat()
+        try:
+            parsed = date.fromisoformat(str(value))
+        except ValueError:
+            parsed = default
+            value = default.isoformat()
+        return parsed, value
+
+    def get_selected_grupo(self):
+        grupo_id = self.request.GET.get("grupo") or self.request.POST.get("grupo") or ""
+        if not grupo_id:
+            return None
+        try:
+            return Curso.objects.filter(pk=grupo_id, activo=True).first()
+        except (TypeError, ValueError):
+            return None
+
+    def get_selected_docente(self):
+        docente_id = self.request.GET.get("docente") or self.request.POST.get("docente") or ""
+        if not docente_id:
+            return None
+        try:
+            return Partner.objects.filter(pk=docente_id, es_docente=True, activo=True).first()
+        except (TypeError, ValueError):
+            return None
+
+    def redirect_url(self):
+        params = {"fecha": self.request.POST.get("fecha") or timezone.localdate().isoformat()}
+        grupo = self.request.POST.get("grupo") or ""
+        docente = self.request.POST.get("docente") or ""
+        if grupo:
+            params["grupo"] = grupo
+        if docente:
+            params["docente"] = docente
+        return f"{reverse_lazy('academico:direccion_horas_docente')}?{urlencode(params)}"
+
+
+class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
+    permission_required = "academico.report_clasehoradocente"
+    template_name = "academico/direccion_reporte_horas_docente.html"
+
+    def get(self, request):
+        context = self.get_context()
+        if request.GET.get("export") == "excel":
+            return self.export_excel(context)
+        return render(request, self.template_name, context)
+
+    def get_context(self):
+        today = timezone.localdate()
+        desde, desde_value = self.get_date_value("desde", today.replace(day=1))
+        hasta, hasta_value = self.get_date_value("hasta", today)
+        if desde > hasta:
+            desde, hasta = hasta, desde
+            desde_value, hasta_value = desde.isoformat(), hasta.isoformat()
+        selected_docente = self.get_selected_docente()
+        rows = self.get_rows(desde, hasta, selected_docente)
+        return {
+            "title": "Reporte horas docente",
+            "desde_value": desde_value,
+            "hasta_value": hasta_value,
+            "selected_docente": selected_docente,
+            "selected_docente_id": str(selected_docente.pk) if selected_docente else "",
+            "docentes": Partner.objects.filter(es_docente=True, activo=True).order_by("nombre", "apellido"),
+            "rows": rows,
+            "stats": self.get_stats(rows),
+            "export_url": self.export_url(desde_value, hasta_value, selected_docente),
+            "daily_url": reverse_lazy("academico:direccion_horas_docente"),
+        }
+
+    def get_rows(self, desde, hasta, selected_docente):
+        queryset = (
+            ClaseHoraDocente.objects.select_related(
+                "clase__materia_curso__materia",
+                "clase__materia_curso__grupo",
+                "clase__horario_aula_curso__aula_curso__aula",
+                "clase__horario_aula_curso__horario_dia__horario",
+                "docente",
+                "docente_reemplazado",
+                "registrado_por",
+            )
+            .filter(
+                clase__fecha__gte=desde,
+                clase__fecha__lte=hasta,
+                estado__in=["asistio", "reemplazo"],
+                horas__gt=0,
+            )
+            .order_by("clase__fecha", "docente__nombre", "clase__horario_aula_curso__horario_dia__horario__hora_inicio")
+        )
+        if selected_docente:
+            queryset = queryset.filter(docente=selected_docente)
+        return [self.build_row(registro) for registro in queryset]
+
+    def build_row(self, registro):
+        clase = registro.clase
+        horario = clase.horario_aula_curso.horario_dia.horario
+        return {
+            "registro": registro,
+            "clase": clase,
+            "fecha": clase.fecha,
+            "hora": f"{horario.hora_inicio:%H:%M} - {horario.hora_fin:%H:%M}",
+            "grupo": clase.materia_curso.grupo,
+            "aula": clase.horario_aula_curso.aula_curso.aula,
+            "materia": clase.materia_curso.materia,
+            "docente": registro.docente,
+            "docente_reemplazado": registro.docente_reemplazado,
+            "estado": registro.get_estado_display(),
+            "horas": registro.horas,
+            "observacion": registro.observacion or "",
+        }
+
+    def get_stats(self, rows):
+        docentes = {}
+        total_horas = Decimal("0.00")
+        reemplazos = 0
+        for row in rows:
+            total_horas += row["horas"]
+            if row["registro"].estado == "reemplazo":
+                reemplazos += 1
+            if row["docente"]:
+                docentes.setdefault(row["docente"].pk, Decimal("0.00"))
+                docentes[row["docente"].pk] += row["horas"]
+        return {
+            "registros": len(rows),
+            "horas": total_horas,
+            "docentes": len(docentes),
+            "reemplazos": reemplazos,
+        }
+
+    def export_excel(self, context):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = safe_sheet_title("Horas docente")
+        headers = ["Fecha", "Horario", "Grupo", "Aula", "Materia", "Docente", "Estado", "Horas", "Reemplaza a", "Observacion"]
+        for col, header in enumerate(headers, start=1):
+            cell = sheet.cell(row=1, column=col, value=header)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill("solid", fgColor="2563EB")
+            cell.alignment = Alignment(horizontal="center")
+
+        current_row = 2
+        for row in context["rows"]:
+            values = [
+                row["fecha"].strftime("%d/%m/%Y"),
+                row["hora"],
+                row["grupo"].nombre,
+                str(row["aula"]),
+                row["materia"].nombre,
+                row["docente"].nombre_completo() if row["docente"] else "",
+                row["estado"],
+                float(row["horas"]),
+                row["docente_reemplazado"].nombre_completo() if row["docente_reemplazado"] else "",
+                row["observacion"],
+            ]
+            for col, value in enumerate(values, start=1):
+                sheet.cell(row=current_row, column=col, value=value)
+            current_row += 1
+
+        sheet.cell(row=current_row + 1, column=7, value="Total horas").font = Font(bold=True)
+        sheet.cell(row=current_row + 1, column=8, value=float(context["stats"]["horas"])).font = Font(bold=True)
+        widths = [14, 18, 24, 18, 24, 28, 14, 10, 28, 36]
+        for col, width in enumerate(widths, start=1):
+            sheet.column_dimensions[get_column_letter(col)].width = width
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="reporte_horas_docente.xlsx"'
+        return response
+
+    def export_url(self, desde_value, hasta_value, selected_docente):
+        params = {"desde": desde_value, "hasta": hasta_value, "export": "excel"}
+        if selected_docente:
+            params["docente"] = selected_docente.pk
+        return f"{reverse_lazy('academico:direccion_horas_docente_reporte')}?{urlencode(params)}"
+
+    def get_date_value(self, key, default):
+        value = self.request.GET.get(key) or default.isoformat()
+        try:
+            parsed = date.fromisoformat(str(value))
+        except ValueError:
+            parsed = default
+            value = default.isoformat()
+        return parsed, value
+
+    def get_selected_docente(self):
+        docente_id = self.request.GET.get("docente") or ""
+        if not docente_id:
+            return None
+        try:
+            return Partner.objects.filter(pk=docente_id, es_docente=True, activo=True).first()
+        except (TypeError, ValueError):
+            return None
+
+
 class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
     template_name = "academico/docente_clase_asistencia.html"
 
@@ -4158,6 +4536,7 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
 
 
 class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
+    permission_required = "academico.view_claseasistencia"
     template_name = "academico/coordinacion_revision_asistencia.html"
     status_filters = (
         {"key": "todas", "label": "Todas", "icon": "ri-list-check-3"},
@@ -4408,6 +4787,7 @@ class CoordinacionReporteAsistenciaClaseView(CoordinacionRevisionAsistenciaView)
 
 
 class CoordinacionReporteAsistenciaAlumnoView(CoordinacionRequiredMixin, View):
+    permission_required = "academico.view_claseasistencia"
     template_name = "academico/coordinacion_reporte_asistencia_alumno.html"
     attendance_state_labels = {**dict(ClaseAsistencia.ESTADO_CHOICES), "pendiente": "Pendiente"}
 
@@ -5265,6 +5645,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
 
 
 class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
+    permission_required = "academico.review_planificacionclase"
     template_name = "academico/coordinacion_revision_planificaciones.html"
     status_filters = (
         {

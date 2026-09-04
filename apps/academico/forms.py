@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 from django.forms import formset_factory
 from django.utils import timezone
@@ -13,6 +15,7 @@ from .models import (
     Aula,
     BancoPregunta,
     Clase,
+    ClaseHoraDocente,
     Competencia,
     Curso,
     CursoPeriodo,
@@ -612,6 +615,63 @@ class DocenteClasePlanificacionForm(BootstrapFormMixin, forms.ModelForm):
             selected_subtemas.insert(0, legacy_subtema)
         clase.sync_subtemas_planificados(selected_subtemas)
         return clase
+
+
+class ClaseHoraDocenteForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = ClaseHoraDocente
+        fields = ["estado", "docente", "horas", "observacion"]
+        widgets = {
+            "observacion": forms.Textarea(attrs={"rows": 2}),
+        }
+        labels = {
+            "docente": "Docente que dio clase",
+            "horas": "Horas pagables",
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.clase = kwargs.pop("clase", None)
+        self.docente_programado = kwargs.pop("docente_programado", None)
+        super().__init__(*args, **kwargs)
+        docentes = Partner.objects.filter(es_docente=True, activo=True).order_by("nombre", "apellido")
+        self.fields["docente"].queryset = docentes
+        self.fields["docente"].required = False
+        self.fields["docente"].empty_label = "Sin docente"
+        self.fields["horas"].widget.attrs.update({"step": "0.25", "min": "0"})
+        self.fields["estado"].widget.attrs["data-teacher-hour-state"] = ""
+        self.fields["docente"].widget.attrs["data-teacher-hour-teacher"] = ""
+        estado_value = self.current_estado_value()
+        if estado_value != "reemplazo":
+            self.fields["docente"].disabled = True
+
+    def current_estado_value(self):
+        if self.is_bound:
+            return self.data.get(self.add_prefix("estado")) or "pendiente"
+        return self.initial.get("estado") or getattr(self.instance, "estado", "") or "pendiente"
+
+    def clean(self):
+        cleaned_data = super().clean()
+        estado = cleaned_data.get("estado")
+        docente = cleaned_data.get("docente")
+        horas = cleaned_data.get("horas") or Decimal("0")
+        if estado == "asistio":
+            cleaned_data["docente"] = self.docente_programado
+            if not self.docente_programado:
+                self.add_error("estado", "Esta clase no tiene docente programado. Usa reemplazo y selecciona el docente.")
+            if horas <= 0:
+                self.add_error("horas", "Ingresa las horas pagables.")
+        if estado == "reemplazo":
+            if not docente:
+                self.add_error("docente", "Selecciona el docente que dio la clase.")
+            if self.docente_programado and docente == self.docente_programado:
+                self.add_error("docente", "El reemplazo debe ser distinto al docente programado.")
+            if horas <= 0:
+                self.add_error("horas", "Ingresa las horas pagables.")
+        if estado in {"no_asistio", "suspendida", "pendiente"}:
+            cleaned_data["horas"] = Decimal("0.00")
+            if estado in {"no_asistio", "suspendida"}:
+                cleaned_data["docente"] = None
+        return cleaned_data
 
 
 class TemarioForm(BootstrapFormMixin, forms.ModelForm):

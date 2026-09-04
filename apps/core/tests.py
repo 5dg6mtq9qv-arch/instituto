@@ -257,6 +257,41 @@ class SecurityGroupViewTests(TestCase):
 
         self.assertIn("Empresas", labels)
 
+    def test_coordinacion_menu_uses_group_permissions_not_group_names(self):
+        custom_group = Group.objects.create(name="Secretaria academica")
+        custom_group.permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="review_planificacionclase",
+            )
+        )
+        user = get_user_model().objects.create_user(username="secretaria", password="ClaveActual987!")
+        user.groups.add(custom_group)
+
+        groups = permitted_menu_groups(user)
+        coordinacion = next(group for group in groups if group["label"] == "Coordinacion")
+
+        self.assertEqual([item["label"] for item in coordinacion["items"]], ["Revision docente"])
+
+    def test_coordinacion_view_accepts_permission_from_custom_group(self):
+        custom_group = Group.objects.create(name="Supervision academica")
+        custom_group.permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="review_planificacionclase",
+            )
+        )
+        user = get_user_model().objects.create_user(username="supervisor", password="ClaveActual987!")
+        user.groups.add(custom_group)
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_revision_planificaciones"),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
 
 class PartnerRoleViewTests(TestCase):
     def setUp(self):

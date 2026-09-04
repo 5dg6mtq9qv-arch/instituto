@@ -1,0 +1,351 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header teacher-hours-header">
+    <div>
+      <p class="eyebrow">Direccion</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <a class="btn btn-outline-primary" href="{{ report_url }}">
+      <i class="ri-file-chart-line"></i>
+      Reporte
+    </a>
+  </header>
+
+  <section class="panel teacher-hours-filter">
+    <form class="teacher-hours-filter-grid" method="get">
+      <div>
+        <label class="form-label" for="teacher-hours-date">Fecha</label>
+        <input class="form-control" id="teacher-hours-date" type="date" name="fecha" value="{{ fecha_value }}">
+      </div>
+      <div>
+        <label class="form-label" for="teacher-hours-group">Grupo</label>
+        <select class="form-select" id="teacher-hours-group" name="grupo">
+          <option value="">Todos los grupos</option>
+          {% for grupo in grupos %}
+            <option value="{{ grupo.pk }}"{% if selected_grupo_id == grupo.pk|stringformat:"s" %} selected{% endif %}>{{ grupo.nombre }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="teacher-hours-teacher">Docente</label>
+        <select class="form-select" id="teacher-hours-teacher" name="docente">
+          <option value="">Todos los docentes</option>
+          {% for docente in docentes %}
+            <option value="{{ docente.pk }}"{% if selected_docente_id == docente.pk|stringformat:"s" %} selected{% endif %}>{{ docente.nombre_completo }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="teacher-hours-filter-actions">
+        <button class="btn btn-primary-600" type="submit">
+          <i class="ri-search-line"></i>
+          Buscar
+        </button>
+        <a class="btn btn-outline-secondary" href="{% url 'academico:direccion_horas_docente' %}">Limpiar</a>
+      </div>
+    </form>
+  </section>
+
+  <section class="teacher-hours-stats">
+    <div>
+      <span>Clases</span>
+      <strong>{{ stats.clases }}</strong>
+    </div>
+    <div>
+      <span>Registradas</span>
+      <strong>{{ stats.registradas }}</strong>
+    </div>
+    <div>
+      <span>Pendientes</span>
+      <strong>{{ stats.pendientes }}</strong>
+    </div>
+    <div>
+      <span>Reemplazos</span>
+      <strong>{{ stats.reemplazos }}</strong>
+    </div>
+    <div>
+      <span>Horas</span>
+      <strong>{{ stats.horas|floatformat:2 }}</strong>
+    </div>
+  </section>
+
+  <section class="teacher-hours-list">
+    {% for row in rows %}
+      <article class="teacher-hour-card status-{{ row.estado_key }}">
+        <div class="teacher-hour-card-main">
+          <div class="teacher-hour-subject">
+            <span class="subject-color" style="background: {{ row.clase.materia_curso.materia.color }}"></span>
+            <div>
+              <h2>{{ row.clase.materia_curso.materia }}</h2>
+              <p>{{ row.clase.materia_curso.grupo }} · {{ row.clase.horario_aula_curso.aula_curso.aula }}</p>
+            </div>
+          </div>
+          <div class="teacher-hour-meta">
+            <span><i class="ri-time-line"></i>{{ row.horario.hora_inicio|time:"H:i" }} - {{ row.horario.hora_fin|time:"H:i" }}</span>
+            <span><i class="ri-timer-line"></i>{{ row.horas_programadas|floatformat:2 }} h</span>
+            <span class="teacher-hour-status">{{ row.estado_label }}</span>
+          </div>
+          <div class="teacher-hour-teachers">
+            <span>Programado</span>
+            {% for docente in row.docentes_programados %}
+              <strong>{{ docente.nombre_completo }}</strong>
+            {% empty %}
+              <strong>Sin docente</strong>
+            {% endfor %}
+            {% if row.docente_pagable %}
+              <span>Pagable</span>
+              <strong>{{ row.docente_pagable.nombre_completo }}</strong>
+            {% endif %}
+          </div>
+        </div>
+
+        <form class="teacher-hour-form" method="post">
+          {% csrf_token %}
+          <input type="hidden" name="clase" value="{{ row.clase.pk }}">
+          <input type="hidden" name="fecha" value="{{ fecha_value }}">
+          <input type="hidden" name="grupo" value="{{ selected_grupo_id }}">
+          <input type="hidden" name="docente" value="{{ selected_docente_id }}">
+          <div>
+            <label class="form-label" for="{{ row.form.estado.id_for_label }}">{{ row.form.estado.label }}</label>
+            {{ row.form.estado }}
+            {{ row.form.estado.errors }}
+          </div>
+          <div>
+            <label class="form-label" for="{{ row.form.docente.id_for_label }}">{{ row.form.docente.label }}</label>
+            {{ row.form.docente }}
+            <small class="teacher-hour-help">Solo editable cuando el estado es Reemplazo.</small>
+            {{ row.form.docente.errors }}
+          </div>
+          <div>
+            <label class="form-label" for="{{ row.form.horas.id_for_label }}">{{ row.form.horas.label }}</label>
+            {{ row.form.horas }}
+            {{ row.form.horas.errors }}
+          </div>
+          <div class="teacher-hour-observation">
+            <label class="form-label" for="{{ row.form.observacion.id_for_label }}">{{ row.form.observacion.label }}</label>
+            {{ row.form.observacion }}
+            {{ row.form.observacion.errors }}
+          </div>
+          <button class="btn btn-primary-600" type="submit">
+            <i class="ri-save-3-line"></i>
+            Guardar
+          </button>
+        </form>
+      </article>
+    {% empty %}
+      <section class="panel academic-empty-state">
+        Sin clases para la fecha seleccionada.
+      </section>
+    {% endfor %}
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .teacher-hours-header {
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .teacher-hours-filter {
+      margin-bottom: 16px;
+    }
+
+    .teacher-hours-filter-grid {
+      align-items: end;
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 180px minmax(180px, 1fr) minmax(220px, 1fr) auto;
+    }
+
+    .teacher-hours-filter-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .teacher-hours-stats {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .teacher-hours-stats > div {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .teacher-hours-stats span {
+      color: #667085;
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-hours-stats strong {
+      color: #111827;
+      display: block;
+      font-size: 28px;
+      line-height: 1;
+      margin-top: 10px;
+    }
+
+    .teacher-hours-list {
+      display: grid;
+      gap: 14px;
+    }
+
+    .teacher-hour-card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-left: 5px solid #f59e0b;
+      border-radius: 8px;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(260px, 0.8fr) minmax(420px, 1.2fr);
+      padding: 16px;
+    }
+
+    .teacher-hour-card.status-asistio {
+      border-left-color: #16a34a;
+    }
+
+    .teacher-hour-card.status-reemplazo {
+      border-left-color: #2563eb;
+    }
+
+    .teacher-hour-card.status-no_asistio,
+    .teacher-hour-card.status-suspendida {
+      border-left-color: #dc2626;
+    }
+
+    .teacher-hour-subject {
+      align-items: flex-start;
+      display: flex;
+      gap: 10px;
+    }
+
+    .teacher-hour-subject h2 {
+      color: #111827;
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    .teacher-hour-subject p {
+      color: #667085;
+      margin: 4px 0 0;
+    }
+
+    .subject-color {
+      border-radius: 999px;
+      display: inline-flex;
+      flex: 0 0 12px;
+      height: 12px;
+      margin-top: 5px;
+      width: 12px;
+    }
+
+    .teacher-hour-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .teacher-hour-meta span {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 999px;
+      color: #334155;
+      display: inline-flex;
+      gap: 6px;
+      min-height: 30px;
+      padding: 4px 10px;
+    }
+
+    .teacher-hour-status {
+      font-weight: 800;
+    }
+
+    .teacher-hour-teachers {
+      display: grid;
+      gap: 5px;
+      margin-top: 14px;
+    }
+
+    .teacher-hour-teachers span {
+      color: #667085;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .teacher-hour-teachers strong {
+      color: #111827;
+      font-size: 14px;
+    }
+
+    .teacher-hour-form {
+      align-items: end;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) minmax(100px, 0.5fr) auto;
+    }
+
+    .teacher-hour-observation {
+      grid-column: 1 / -1;
+    }
+
+    .teacher-hour-form .errorlist {
+      color: #b42318;
+      font-size: 12px;
+      list-style: none;
+      margin: 4px 0 0;
+      padding: 0;
+    }
+
+    .teacher-hour-help {
+      color: #667085;
+      display: block;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    @media (max-width: 1100px) {
+      .teacher-hours-filter-grid,
+      .teacher-hour-card,
+      .teacher-hour-form,
+      .teacher-hours-stats {
+        grid-template-columns: 1fr;
+      }
+
+      .teacher-hours-header,
+      .teacher-hours-filter-actions {
+        align-items: stretch;
+        flex-direction: column;
+      }
+    }
+  </style>
+  <script>
+    document.querySelectorAll(".teacher-hour-form").forEach((form) => {
+      const state = form.querySelector("[data-teacher-hour-state]");
+      const teacher = form.querySelector("[data-teacher-hour-teacher]");
+      if (!state || !teacher) return;
+
+      const syncTeacher = () => {
+        teacher.disabled = state.value !== "reemplazo";
+      };
+
+      state.addEventListener("change", syncTeacher);
+      syncTeacher();
+    });
+  </script>
+{% endblock %}

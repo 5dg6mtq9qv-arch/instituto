@@ -8,6 +8,7 @@ from .models import (
     ClaseEstudianteMovimiento,
     Clase,
     ClaseEstrategia,
+    ClaseHoraDocente,
     ClasePlanificacion,
     Competencia,
     Curso,
@@ -224,6 +225,21 @@ class ClaseAsistenciaAdmin(admin.ModelAdmin):
     list_display = ("clase", "estudiante", "estado", "registrado_por", "updated_at")
     list_filter = ("estado", "clase__fecha", "clase__materia_curso__grupo", "clase__materia_curso__materia")
     search_fields = ("estudiante__nombre", "estudiante__identificacion", "clase__materia_curso__materia__nombre")
+
+
+@admin.register(ClaseHoraDocente)
+class ClaseHoraDocenteAdmin(admin.ModelAdmin):
+    list_display = ("clase", "docente", "docente_reemplazado", "estado", "horas", "registrado_por", "fecha_registro")
+    list_filter = ("estado", "clase__fecha", "clase__materia_curso__grupo", "clase__materia_curso__materia")
+    search_fields = (
+        "docente__nombre",
+        "docente__apellido",
+        "docente_reemplazado__nombre",
+        "docente_reemplazado__apellido",
+        "clase__materia_curso__materia__nombre",
+        "clase__materia_curso__grupo__nombre",
+    )
+    date_hierarchy = "fecha_registro"
 
 
 @admin.register(Clase)

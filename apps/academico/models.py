@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -1288,6 +1290,84 @@ class ClaseAsistencia(models.Model):
 
     def __str__(self):
         return f"{self.clase} - {self.estudiante} - {self.estado}"
+
+
+class ClaseHoraDocente(models.Model):
+    ESTADO_CHOICES = (
+        ("pendiente", "Pendiente"),
+        ("asistio", "Asistio"),
+        ("reemplazo", "Reemplazo"),
+        ("no_asistio", "No asistio"),
+        ("suspendida", "Suspendida"),
+    )
+
+    id = models.BigAutoField(primary_key=True)
+    clase = models.OneToOneField(
+        Clase,
+        db_column="id_clase",
+        on_delete=models.CASCADE,
+        related_name="hora_docente",
+    )
+    docente = models.ForeignKey(
+        "core.Partner",
+        db_column="id_docente",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="horas_docente",
+    )
+    docente_reemplazado = models.ForeignKey(
+        "core.Partner",
+        db_column="id_docente_reemplazado",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="horas_docente_reemplazadas",
+    )
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="pendiente")
+    horas = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    observacion = models.TextField(blank=True, null=True)
+    registrado_por = models.ForeignKey(
+        "auth.User",
+        db_column="id_registrado_por",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="horas_docente_registradas",
+    )
+    fecha_registro = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    usuario_updated = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario_updated",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="horas_docente_actualizadas",
+    )
+
+    class Meta:
+        db_table = '"academico"."clase_hora_docente"'
+        ordering = ["clase"]
+        permissions = (("report_clasehoradocente", "Puede ver reporte de horas docente"),)
+
+    def clean(self):
+        super().clean()
+        if self.horas is not None and self.horas < Decimal("0"):
+            raise ValidationError({"horas": "Las horas no pueden ser negativas."})
+        if self.estado in {"asistio", "reemplazo"} and not self.docente_id:
+            raise ValidationError({"docente": "Selecciona el docente que dio la clase."})
+        if (
+            self.estado == "reemplazo"
+            and self.docente_id
+            and self.docente_reemplazado_id
+            and self.docente_id == self.docente_reemplazado_id
+        ):
+            raise ValidationError({"docente": "El reemplazo debe ser distinto al docente original."})
+
+    def __str__(self):
+        return f"{self.clase} - {self.docente} - {self.horas}"
 
 
 class PlanificacionDocente(models.Model):

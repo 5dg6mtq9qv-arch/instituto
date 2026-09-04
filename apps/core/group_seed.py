@@ -36,6 +36,21 @@ DIRECTOR_PERMISSIONS = (
     ("academico", "profesormateriacurso", "change"),
     ("academico", "profesormateriacurso", "view"),
     ("academico", "tema", "add"),
+    ("academico", "tema", "change"),
+    ("academico", "tema", "view"),
+    ("academico", "clasehoradocente", "change"),
+    ("academico", "clasehoradocente", "report"),
+)
+
+DIRECCION_SPECIAL_PERMISSIONS = (
+    ("academico", "tema", "change"),
+    ("academico", "planificacionclase", "review"),
+    ("academico", "clasehoradocente", "change"),
+    ("academico", "clasehoradocente", "report"),
+)
+
+COORDINACION_SPECIAL_PERMISSIONS = (
+    ("academico", "planificacionclase", "review"),
 )
 
 
@@ -49,9 +64,9 @@ def permissions_for(app_labels=None, actions=None):
     return queryset
 
 
-def director_permissions():
+def permissions_from_specs(specs):
     permissions = []
-    for app_label, model_name, action in DIRECTOR_PERMISSIONS:
+    for app_label, model_name, action in specs:
         model = django_apps.get_model(app_label, model_name)
         codename = get_permission_codename(action, model._meta)
         try:
@@ -72,11 +87,13 @@ def seed_default_groups():
 
     groups["Administrador"].permissions.add(*Permission.objects.all())
     groups["Direccion"].permissions.add(*permissions_for(actions=("view",)))
+    groups["Direccion"].permissions.add(*permissions_from_specs(DIRECCION_SPECIAL_PERMISSIONS))
     groups["Coordinacion"].permissions.add(
         *permissions_for(app_labels=("core", "matricula", "academico"), actions=("add", "change", "view"))
     )
+    groups["Coordinacion"].permissions.add(*permissions_from_specs(COORDINACION_SPECIAL_PERMISSIONS))
     groups["Docente"].permissions.clear()
-    groups["Director"].permissions.add(*director_permissions())
+    groups["Director"].permissions.add(*permissions_from_specs(DIRECTOR_PERMISSIONS))
 
 
 @receiver(post_migrate)
