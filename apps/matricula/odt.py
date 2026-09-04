@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import zipfile
 from decimal import Decimal, InvalidOperation
+from xml.etree import ElementTree
 from functools import lru_cache
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 
 TEMPLATE_PATH = settings.BASE_DIR / "templates_odt" / "matricula_ficha.odt"
+CONTRATO_TEMPLATE_PATH = settings.BASE_DIR / "templates_odt" / "contrato_prestacion_servicios.docx"
 SOFFICE_BIN = "/usr/bin/soffice"
 SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 LOGO_MEMBER = "Pictures/10000000000000DA000000D10D8D22B23910EC67.png"
@@ -25,6 +27,8 @@ PDF_SIZE = (2480, 3508)
 REFERENCE_SIZE = (1092, 1600)
 BLUE = (22, 65, 122)
 RED = (128, 61, 71)
+WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ElementTree.register_namespace("w", WORD_NS)
 
 
 def formato_moneda(value):
@@ -52,6 +56,11 @@ def documento_checkbox(value):
 def odt_text(value):
     escaped = html.escape(str(value or ""), quote=False)
     return escaped.replace("\n", "<text:line-break/>")
+
+
+def docx_text(value):
+    escaped = html.escape(str(value or ""), quote=False)
+    return escaped.replace("\n", '<w:br/>')
 
 
 def identificacion_numero(value):
@@ -244,6 +253,53 @@ def ficha_context(ficha):
     }
 
 
+MESES = [
+    "",
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+]
+
+
+def contrato_forma_pago(context):
+    detalles = context["cuotas_detalle"]
+    if not detalles:
+        return ""
+    return "; ".join(
+        f'{cuota["numero"]}: {cuota["valor"]} USD, fecha {cuota["fecha"]}' for cuota in detalles if cuota["valor"]
+    )
+
+
+def contrato_context(ficha):
+    context = ficha_context(ficha)
+    fecha = ficha.fecha or None
+    periodo = ficha.periodo_academico
+    context.update(
+        {
+            "contrato_dia": fecha.day if fecha else "",
+            "contrato_mes": MESES[fecha.month] if fecha else "",
+            "contrato_anio": fecha.year if fecha else "",
+            "periodo_nombre": periodo.nombre if periodo else context["fecha"][:0],
+            "periodo_regimen": periodo.regimen if periodo else "",
+            "periodo_anio": periodo.fecha_inicio.year if periodo and periodo.fecha_inicio else (fecha.year if fecha else ""),
+            "curso_inicio_dia": periodo.fecha_inicio.day if periodo and periodo.fecha_inicio else "",
+            "curso_inicio_mes": MESES[periodo.fecha_inicio.month] if periodo and periodo.fecha_inicio else "",
+            "contrato_valor": f'{context["total"]} USD',
+            "contrato_forma_pago": contrato_forma_pago(context),
+        }
+    )
+    return context
+
+
 def empresa_titulo(nombre):
     nombre = (nombre or "").strip()
     if not nombre:
@@ -274,6 +330,76 @@ def render_odt(template_path, output_path, context):
 
 def render_ficha_odt(ficha, output_path):
     render_odt(TEMPLATE_PATH, output_path, ficha_context(ficha))
+
+
+def render_docx(template_path, output_path, replacements):
+    if not template_path.exists():
+        raise FileNotFoundError(f"No existe la plantilla DOCX: {template_path}")
+    with zipfile.ZipFile(template_path, "r") as source, zipfile.ZipFile(output_path, "w") as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename == "word/document.xml":
+                root = ElementTree.fromstring(data)
+                for paragraph in root.findall(f".//{{{WORD_NS}}}p"):
+                    text_nodes = paragraph.findall(f".//{{{WORD_NS}}}t")
+                    if not text_nodes:
+                        continue
+                    original = "".join(node.text or "" for node in text_nodes)
+                    rendered = replacements(original)
+                    if rendered == original:
+                        continue
+                    text_nodes[0].text = rendered
+                    for node in text_nodes[1:]:
+                        node.text = ""
+                data = ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+            target.writestr(item, data)
+
+
+def render_contrato_docx(ficha, output_path):
+    context = contrato_context(ficha)
+
+    def replacements(text):
+        text = re.sub(
+            r"a los _+ días del mes de _+ del año 202_+",
+            f'a los {context["contrato_dia"]} días del mes de {context["contrato_mes"]} del año {context["contrato_anio"]}',
+            text,
+            count=1,
+        )
+        text = re.sub(r"Sr\./Sra\. _+", f'Sr./Sra. {context["representante"]}', text, count=1)
+        text = re.sub(
+            r"cédula de identidad N\.° _+",
+            f'cédula de identidad N.° {context["representante_identificacion"]}',
+            text,
+            count=1,
+        )
+        text = re.sub(r"Sr\./Srta\. _+", f'Sr./Srta. {context["estudiante"]}', text, count=1)
+        text = re.sub(
+            r"para el _+ período, régimen _+\. Periodo, establecido.*?año 202_+",
+            (
+                f'para el {context["periodo_nombre"]} período, régimen {context["periodo_regimen"]}. '
+                f'Periodo, establecido para la admisión a las instituciones de educación superior del año {context["periodo_anio"]}'
+            ),
+            text,
+            count=1,
+        )
+        text = re.sub(
+            r"desde los _+ días del mes de _+",
+            f'desde los {context["curso_inicio_dia"]} días del mes de {context["curso_inicio_mes"]}',
+            text,
+            count=1,
+        )
+        text = re.sub(
+            r"cantidad de _+\. La misma que se cancelará de la siguiente forma:_+\.",
+            (
+                f'cantidad de {context["contrato_valor"]}. '
+                f'La misma que se cancelará de la siguiente forma: {context["contrato_forma_pago"]}.'
+            ),
+            text,
+            count=1,
+        )
+        return text
+
+    render_docx(CONTRATO_TEMPLATE_PATH, output_path, replacements)
 
 
 @lru_cache(maxsize=None)
@@ -694,6 +820,10 @@ def render_ficha_pdf(ficha, output_path):
 
 
 def convert_odt_to_pdf(odt_path, output_dir):
+    return convert_office_to_pdf(odt_path, output_dir)
+
+
+def convert_office_to_pdf(document_path, output_dir):
     if not Path(SOFFICE_BIN).is_file():
         raise RuntimeError("No se encontró LibreOffice en /usr/bin/soffice.")
 
@@ -713,7 +843,7 @@ def convert_odt_to_pdf(odt_path, output_dir):
                 "pdf:writer_pdf_Export",
                 "--outdir",
                 str(output_dir),
-                str(odt_path),
+                str(document_path),
             ],
             env=entorno,
             capture_output=True,
@@ -722,7 +852,7 @@ def convert_odt_to_pdf(odt_path, output_dir):
         )
     if result.returncode != 0:
         raise RuntimeError(f"Error al convertir con LibreOffice: {result.stderr or result.stdout}")
-    return Path(output_dir) / (Path(odt_path).stem + ".pdf")
+    return Path(output_dir) / (Path(document_path).stem + ".pdf")
 
 
 def build_document_response_file(ficha, extension):
@@ -735,3 +865,13 @@ def build_document_response_file(ficha, extension):
     odt_path = Path(temp_dir.name) / f"{base_name}.odt"
     render_ficha_odt(ficha, odt_path)
     return temp_dir, odt_path
+
+
+def build_contract_response_file(ficha, extension):
+    temp_dir = tempfile.TemporaryDirectory()
+    base_name = f"contrato_{ficha.numero}"
+    docx_path = Path(temp_dir.name) / f"{base_name}.docx"
+    render_contrato_docx(ficha, docx_path)
+    if extension == "pdf":
+        return temp_dir, convert_office_to_pdf(docx_path, temp_dir.name)
+    return temp_dir, docx_path

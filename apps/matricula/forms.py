@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django import forms
+from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import Q
 from django.utils import timezone
 
@@ -46,6 +47,13 @@ class AulaForm(BootstrapFormMixin, forms.ModelForm):
 
 
 class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
+    estudiante_es_de_ibarra = forms.BooleanField(
+        label="Es de Ibarra",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "js-switch"}),
+    )
+
     class Meta:
         model = FichaInscripcion
         fields = [
@@ -60,6 +68,7 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             "representante",
             "edad",
             "colegio",
+            "estudiante_es_de_ibarra",
             "curso_grado",
             "nota_grado",
             "carrera",
@@ -102,6 +111,36 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["numero"].disabled = True
         self.fields["numero"].widget.attrs["readonly"] = "readonly"
         self.fields["numero"].widget.attrs["aria-readonly"] = "true"
+        if self.instance.pk and self.instance.estudiante_id:
+            self.fields["estudiante_es_de_ibarra"].initial = self.instance.estudiante.es_de_ibarra
+        self.payment_fields_locked = self.has_registered_payments()
+        if self.payment_fields_locked:
+            for field_name in [
+                "forma_pago_convenio",
+                "fecha_proximo_pago",
+                "valor_proximo_pago",
+                "abono",
+                "saldo",
+            ]:
+                self.fields[field_name].disabled = True
+                self.fields[field_name].widget.attrs["readonly"] = "readonly"
+                self.fields[field_name].help_text = "Bloqueado porque esta ficha ya tiene pagos registrados."
+
+    def has_registered_payments(self):
+        if not self.instance.pk:
+            return False
+        try:
+            return self.instance.plan_pago.cuotas.filter(pagos__isnull=False).exists()
+        except ObjectDoesNotExist:
+            return False
+
+    def save(self, commit=True):
+        ficha = super().save(commit=commit)
+        estudiante = self.cleaned_data.get("estudiante")
+        if commit and estudiante:
+            estudiante.es_de_ibarra = self.cleaned_data.get("estudiante_es_de_ibarra", False)
+            estudiante.save(update_fields=["es_de_ibarra"])
+        return ficha
 
 
 class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
@@ -132,6 +171,12 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
     estudiante_email = forms.EmailField(label="Correo estudiante", required=False)
     estudiante_telefono = forms.CharField(label="Celular estudiante", max_length=50, required=False)
     colegio = forms.CharField(max_length=200, required=False)
+    estudiante_es_de_ibarra = forms.BooleanField(
+        label="Es de Ibarra",
+        required=False,
+        initial=True,
+        widget=forms.CheckboxInput(attrs={"class": "js-switch"}),
+    )
     curso_grado = forms.CharField(label="Curso/Grado", max_length=120, required=False)
 
     representante_modo = forms.ChoiceField(
@@ -531,6 +576,7 @@ class MatriculaDatosForm(MatriculaPasoForm):
         "numero",
         "fecha",
         "colegio",
+        "estudiante_es_de_ibarra",
         "curso_grado",
         "nota_grado",
         "carrera",

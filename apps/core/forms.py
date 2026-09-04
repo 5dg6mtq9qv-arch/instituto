@@ -12,7 +12,7 @@ class BootstrapFormMixin:
         for field_name, field in self.fields.items():
             widget = field.widget
             if isinstance(widget, forms.CheckboxInput):
-                if field_name in {"activo", "activa", "is_active"}:
+                if field_name in {"activo", "activa", "is_active", "es_de_ibarra"}:
                     add_widget_class(widget, "js-switch")
                 else:
                     widget.attrs.setdefault("class", "form-check-input")
@@ -132,6 +132,28 @@ class PartnerTypedForm(BootstrapFormMixin, forms.ModelForm):
 
 
 class EstudianteForm(PartnerTypedForm):
+    class Meta(PartnerTypedForm.Meta):
+        fields = [
+            "empresa",
+            "tipo_identificacion",
+            "identificacion",
+            "nombre",
+            "direccion",
+            "telefono",
+            "telefono_celular",
+            "email",
+            "fecha_nacimiento",
+            "genero",
+            "ocupacion",
+            "es_de_ibarra",
+            "activo",
+        ]
+        labels = {
+            **PartnerTypedForm.Meta.labels,
+            "es_de_ibarra": "Es de Ibarra",
+        }
+        widgets = PartnerTypedForm.Meta.widgets
+
     def save(self, commit=True):
         partner = super().save(commit=False)
         partner.es_estudiante = True

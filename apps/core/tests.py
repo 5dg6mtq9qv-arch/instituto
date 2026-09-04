@@ -335,6 +335,8 @@ class PartnerRoleViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="es_de_ibarra"')
+        self.assertContains(response, "Es de Ibarra")
         self.assertNotContains(response, 'name="es_estudiante"')
         self.assertNotContains(response, 'name="es_representante"')
         self.assertNotContains(response, 'name="es_docente"')

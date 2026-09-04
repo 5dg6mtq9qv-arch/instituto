@@ -77,9 +77,9 @@
         {% with input_type=field.field.widget.input_type|default:'' %}
         <div class="col-md-6{% if input_type == 'checkbox' %} d-flex align-items-end{% endif %}">
           {% if input_type == 'checkbox' %}
-            <div class="{% if field.name == 'activo' or field.name == 'activa' or field.name == 'is_active' %}switch-field{% else %}form-check mb-2{% endif %}">
+            <div class="{% if field.name == 'activo' or field.name == 'activa' or field.name == 'is_active' or field.name == 'es_de_ibarra' %}switch-field{% else %}form-check mb-2{% endif %}">
               {{ field }}
-              <label class="{% if field.name == 'activo' or field.name == 'activa' or field.name == 'is_active' %}{% else %}form-check-label{% endif %}" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              <label class="{% if field.name == 'activo' or field.name == 'activa' or field.name == 'is_active' or field.name == 'es_de_ibarra' %}{% else %}form-check-label{% endif %}" for="{{ field.id_for_label }}">{{ field.label }}</label>
             </div>
           {% else %}
             <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>

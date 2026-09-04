@@ -1,0 +1,173 @@
+{% extends "web/base.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
+{% endblock %}
+
+{% block content %}
+  <header class="page-header ficha-edit-header">
+    <div>
+      <p class="eyebrow">Ficha</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="topbar-actions">
+      <a class="btn btn-outline-primary ficha-edit-action" href="{% url 'matricula:ficha_documentos' object.pk %}">
+        <i class="ri-folder-2-line"></i>
+        Documentos
+      </a>
+      <a class="btn btn-outline-secondary ficha-edit-action" href="{{ cancel_url }}">
+        <i class="ri-arrow-left-line"></i>
+        Volver
+      </a>
+    </div>
+  </header>
+
+  <form class="ficha-edit-shell" method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <section class="ficha-edit-summary">
+      <div>
+        <span class="document-status">Edicion</span>
+        <h2>{{ object.estudiante|default:"Ficha de inscripcion" }}</h2>
+        <p>{{ object.representante|default:object.cliente|default:"Sin representante" }} · {{ object.fecha|date:"d/m/Y" }}</p>
+      </div>
+      <div class="ficha-edit-total">
+        <span>Restante</span>
+        <strong>${{ object.saldo|default:"0.00" }}</strong>
+      </div>
+    </section>
+
+    <section class="ficha-edit-grid">
+      <div class="panel ficha-edit-section">
+        <div class="section-heading">
+          <h2>Registro</h2>
+        </div>
+        <div class="row g-3">
+          {% include "web/form_field.html" with field=form.empresa cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.numero cols="col-md-3" %}
+          {% include "web/form_field.html" with field=form.fecha cols="col-md-3" %}
+          {% include "web/form_field.html" with field=form.estado cols="col-md-4" %}
+        </div>
+      </div>
+
+      <div class="panel ficha-edit-section">
+        <div class="section-heading">
+          <h2>Personas</h2>
+        </div>
+        <div class="row g-3">
+          {% include "web/form_field.html" with field=form.cliente cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.estudiante cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.representante cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.edad cols="col-md-3" %}
+          {% include "web/form_field.html" with field=form.colegio cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.estudiante_es_de_ibarra cols="col-md-3" %}
+          {% include "web/form_field.html" with field=form.correo_estudiante cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.correo_representante cols="col-md-6" %}
+        </div>
+      </div>
+
+      <div class="panel ficha-edit-section">
+        <div class="section-heading">
+          <h2>Academico</h2>
+        </div>
+        <div class="row g-3">
+          {% include "web/form_field.html" with field=form.periodo_academico cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.curso cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.aula cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.curso_grado cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.nota_grado cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.carrera cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.universidad cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.horario cols="col-md-2" %}
+          {% include "web/form_field.html" with field=form.hora cols="col-md-2" %}
+          {% include "web/form_field.html" with field=form.duracion cols="col-md-2" %}
+        </div>
+      </div>
+
+      <div class="panel ficha-edit-section">
+        <div class="section-heading">
+          <h2>Convenio</h2>
+        </div>
+        {% if form.payment_fields_locked %}
+          <div class="alert alert-warning ficha-payment-lock">
+            <i class="ri-lock-line"></i>
+            <span>Los valores de pago estan bloqueados porque esta ficha ya tiene pagos registrados.</span>
+          </div>
+        {% endif %}
+        <div class="row g-3">
+          {% include "web/form_field.html" with field=form.forma_pago_convenio cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.fecha_proximo_pago cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.valor_proximo_pago cols="col-md-4" %}
+          {% include "web/form_field.html" with field=form.abono cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.saldo cols="col-md-6" %}
+        </div>
+      </div>
+
+      <div class="panel ficha-edit-section">
+        <div class="section-heading">
+          <h2>Referencias</h2>
+        </div>
+        <div class="row g-3">
+          {% include "web/form_field.html" with field=form.nombre_conyuge cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.ocupacion_conyuge cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.observacion cols="col-12" %}
+        </div>
+      </div>
+
+      <div class="panel ficha-edit-section">
+        <div class="section-heading">
+          <h2>Autorizaciones y archivos</h2>
+        </div>
+        <div class="row g-3">
+          {% include "web/form_field.html" with field=form.promo cols="col-md-3" %}
+          {% include "web/form_field.html" with field=form.autorizacion_imagen cols="col-md-3" %}
+          {% include "web/form_field.html" with field=form.acepta_garantia cols="col-md-3" %}
+          {% include "web/form_field.html" with field=form.acepta_no_devolucion cols="col-md-3" %}
+          {% include "web/form_field.html" with field=form.archivo_contrato cols="col-md-6" %}
+          {% include "web/form_field.html" with field=form.archivo_ficha_firmada cols="col-md-6" %}
+        </div>
+      </div>
+    </section>
+
+    <div class="ficha-edit-footer">
+      <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
+      {% if show_save_button %}
+        <button class="btn btn-primary" type="submit">
+          <i class="ri-save-line"></i>
+          Guardar
+        </button>
+      {% endif %}
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      if (window.InstitutoDatePicker) {
+        window.InstitutoDatePicker.init(document);
+      }
+      if (window.Switchery) {
+        document.querySelectorAll(".js-switch").forEach(function (element) {
+          if (element.dataset.switchery === "true") return;
+          new Switchery(element, {
+            color: "#487FFF",
+            secondaryColor: "#d1d5db",
+            jackColor: "#ffffff",
+            size: "small"
+          });
+        });
+      }
+    });
+  </script>
+{% endblock %}

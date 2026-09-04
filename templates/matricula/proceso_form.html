@@ -5,6 +5,7 @@
 
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
+  <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
   <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}">
 {% endblock %}
 
@@ -143,6 +144,15 @@
             </div>
             <div class="row g-3">
               {% include "web/form_field.html" with field=form.colegio cols="col-md-6" %}
+              <div class="col-md-3 field-estudiante_es_de_ibarra d-flex align-items-end">
+                <div class="switch-field mb-2">
+                  {{ form.estudiante_es_de_ibarra }}
+                  <label for="{{ form.estudiante_es_de_ibarra.id_for_label }}">{{ form.estudiante_es_de_ibarra.label }}</label>
+                </div>
+                {% for error in form.estudiante_es_de_ibarra.errors %}
+                  <div class="invalid-feedback d-block">{{ error }}</div>
+                {% endfor %}
+              </div>
               {% include "web/form_field.html" with field=form.curso_grado cols="col-md-3" %}
               {% include "web/form_field.html" with field=form.nota_grado cols="col-md-3" %}
               {% include "web/form_field.html" with field=form.carrera cols="col-md-6" %}
@@ -280,10 +290,18 @@
 
 {% block extra_scripts %}
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
   <script>
     (function () {
       if (window.InstitutoDatePicker) {
         window.InstitutoDatePicker.init(document);
+      }
+
+      if (window.Switchery) {
+        document.querySelectorAll(".js-switch").forEach(function (element) {
+          if (element.dataset.switchery === "true") return;
+          new Switchery(element, {color: "#487FFF", secondaryColor: "#d1d5db", size: "small"});
+        });
       }
 
       function qs(selector) {

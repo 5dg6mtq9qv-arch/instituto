@@ -8,6 +8,7 @@ from unittest.mock import patch
 from urllib.parse import unquote, urlparse
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -356,6 +357,148 @@ class MatriculaProcesoTests(TestCase):
         self.assertTrue(form.fields["numero"].disabled)
         self.assertEqual(form.fields["numero"].widget.attrs["readonly"], "readonly")
 
+    def test_ficha_edit_locks_payment_fields_when_payments_exist(self):
+        estudiante = self.create_partner("1002003012", "Alumno Pago", es_estudiante=True)
+        representante = self.create_partner("1002003013", "Representante Pago", es_cliente=True, es_representante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000101",
+            fecha=date(2026, 8, 28),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            forma_pago_convenio="mensual",
+            fecha_proximo_pago=date(2026, 9, 1),
+            valor_proximo_pago=Decimal("50.00"),
+            abono=Decimal("20.00"),
+            saldo=Decimal("80.00"),
+            estado="activa",
+            activo=True,
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("100.00"),
+            abono=Decimal("20.00"),
+            saldo=Decimal("80.00"),
+            estado="activo",
+        )
+        cuota = Cuota.objects.create(
+            plan_pago=plan,
+            numero=1,
+            fecha_pago_debito=date(2026, 9, 1),
+            valor=Decimal("100.00"),
+            valor_pagado=Decimal("20.00"),
+            estado="parcial",
+        )
+        Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota,
+            forma_pago=self.forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("20.00"),
+            numero_documento="REC-LOCK",
+            usuario=self.user,
+        )
+
+        form = FichaInscripcionForm(instance=ficha)
+
+        self.assertTrue(form.payment_fields_locked)
+        for field_name in ["forma_pago_convenio", "fecha_proximo_pago", "valor_proximo_pago", "abono", "saldo"]:
+            self.assertTrue(form.fields[field_name].disabled)
+
+    def test_ficha_edit_updates_student_city_switch(self):
+        estudiante = self.create_partner("1002003014", "Alumno Ibarra", es_estudiante=True, es_de_ibarra=True)
+        representante = self.create_partner("1002003015", "Representante Ibarra", es_cliente=True, es_representante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000102",
+            fecha=date(2026, 8, 28),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            estado="activa",
+            activo=True,
+        )
+        data = {
+            "empresa": self.empresa.pk,
+            "numero": ficha.numero,
+            "fecha": "2026-08-28",
+            "cliente": representante.pk,
+            "estudiante": estudiante.pk,
+            "representante": representante.pk,
+            "edad": "",
+            "colegio": "Colegio Prueba",
+            "curso_grado": "",
+            "nota_grado": "",
+            "carrera": "",
+            "universidad": "",
+            "nombre_conyuge": "",
+            "ocupacion_conyuge": "",
+            "correo_estudiante": "",
+            "correo_representante": "",
+            "horario": "",
+            "hora": "",
+            "duracion": "",
+            "forma_pago_convenio": "mensual",
+            "fecha_proximo_pago": "",
+            "valor_proximo_pago": "0.00",
+            "abono": "0.00",
+            "saldo": "0.00",
+            "estado": "activa",
+            "observacion": "",
+        }
+
+        form = FichaInscripcionForm(data=data, instance=ficha)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        estudiante.refresh_from_db()
+        self.assertFalse(estudiante.es_de_ibarra)
+
+    def test_ficha_list_opens_documents_and_keeps_edit_action(self):
+        estudiante = self.create_partner("1002003020", "Alumno Lista", es_estudiante=True)
+        representante = self.create_partner("1002003021", "Representante Lista", es_cliente=True, es_representante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000777",
+            fecha=date(2026, 8, 28),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            estado="activa",
+            activo=True,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("matricula:ficha_list"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}))
+        self.assertContains(response, reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk}))
+
+    def test_ficha_documents_edit_button_requires_change_permission(self):
+        estudiante = self.create_partner("1002003022", "Alumno Permiso", es_estudiante=True)
+        representante = self.create_partner("1002003023", "Representante Permiso", es_cliente=True, es_representante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000778",
+            fecha=date(2026, 8, 28),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            estado="activa",
+            activo=True,
+        )
+        view_only = get_user_model().objects.create_user(username="solo_lectura", password="ClaveActual987!")
+        view_only.user_permissions.add(Permission.objects.get(codename="view_fichainscripcion"))
+        self.client.force_login(view_only)
+
+        response = self.client.get(reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk}))
+
     def test_process_uses_custom_datepicker_assets(self):
         self.client.force_login(self.user)
 
@@ -410,6 +553,7 @@ class MatriculaProcesoTests(TestCase):
                 "numero": "999999",
                 "fecha": "2026-08-28",
                 "colegio": "Colegio Prueba",
+                "estudiante_es_de_ibarra": "on",
                 "curso_grado": "Tercero",
                 "nota_grado": "9.5",
                 "carrera": "Medicina",
@@ -461,6 +605,7 @@ class MatriculaProcesoTests(TestCase):
         estudiante = Partner.objects.get(identificacion="1002003001")
         representante = Partner.objects.get(identificacion="1002003002")
         self.assertTrue(estudiante.es_estudiante)
+        self.assertTrue(estudiante.es_de_ibarra)
         self.assertTrue(representante.es_cliente)
         self.assertTrue(representante.es_representante)
         self.assertTrue(
@@ -478,6 +623,7 @@ class MatriculaProcesoTests(TestCase):
         cuota_matricula = Cuota.objects.get(plan_pago=ficha.plan_pago, numero=Cuota.NUMERO_MATRICULA)
         self.assertEqual(cuota_matricula.valor, Decimal("80.00"))
         self.assertEqual(cuota_matricula.valor_pagado, Decimal("80.00"))
+
         self.assertEqual(cuota_matricula.observacion, "Matricula")
         self.assertEqual(cuota_matricula.pagos.get().comentario, "Pago de matricula")
         primera_cuota = Cuota.objects.get(plan_pago=ficha.plan_pago, numero=1)
@@ -524,3 +670,51 @@ class MatriculaProcesoTests(TestCase):
                 },
             ],
         )
+
+    def test_matricula_step_saves_student_city_switch_off(self):
+        self.client.force_login(self.user)
+        url = reverse("matricula:matricula_proceso")
+
+        self.client.post(
+            url,
+            {
+                "estudiante_modo": "crear",
+                "estudiante_identificacion": "1002003051",
+                "estudiante_nombre": "Alumno Switch",
+                "estudiante_fecha_nacimiento": "2008-05-02",
+                "estudiante_email": "alumno-switch@example.com",
+                "estudiante_telefono": "0991112222",
+            },
+            HTTP_HOST="localhost",
+        )
+        self.client.post(
+            f"{url}?paso=representante",
+            {
+                "representante_modo": "crear",
+                "representante_identificacion": "1002003052",
+                "representante_nombre": "Representante Fuera",
+                "representante_telefono": "062222222",
+                "representante_celular": "0993334444",
+                "representante_email": "fuera@example.com",
+                "representante_ocupacion": "Comerciante",
+                "representante_direccion": "Calle 1",
+            },
+            HTTP_HOST="localhost",
+        )
+        response = self.client.post(
+            f"{url}?paso=matricula",
+            {
+                "numero": "999999",
+                "fecha": "2026-08-28",
+                "colegio": "Colegio Prueba",
+                "curso_grado": "Tercero",
+                "nota_grado": "9.5",
+                "carrera": "Medicina",
+                "universidad": "Universidad Central",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        estudiante = Partner.objects.get(identificacion="1002003051")
+        self.assertFalse(estudiante.es_de_ibarra)

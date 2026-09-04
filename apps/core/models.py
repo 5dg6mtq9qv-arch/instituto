@@ -106,6 +106,7 @@ class Partner(models.Model):
     es_cliente = models.BooleanField(default=True)
     es_estudiante = models.BooleanField(default=False)
     es_representante = models.BooleanField(default=False)
+    es_de_ibarra = models.BooleanField(default=True)
     es_docente = models.BooleanField(default=False)
     ingresar_portal = models.BooleanField(default=True)
     activo = models.BooleanField(default=True)

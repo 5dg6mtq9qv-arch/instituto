@@ -32,7 +32,7 @@ from .forms import (
     representante_conyuge_data,
 )
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
-from .odt import TEMPLATE_PATH, build_document_response_file
+from .odt import build_contract_response_file, build_document_response_file
 
 
 def add_months(value, months):
@@ -156,6 +156,12 @@ class FichaInscripcionListView(InstitutoListView):
             )
         return queryset
 
+    def get_primary_url(self, obj):
+        return reverse("matricula:ficha_documentos", kwargs={"pk": obj.pk})
+
+    def get_action_label(self, obj):
+        return "Documentos"
+
 
 class FichaInscripcionCreateView(InstitutoCreateView):
     model = FichaInscripcion
@@ -174,15 +180,12 @@ class FichaInscripcionCreateView(InstitutoCreateView):
 class FichaInscripcionUpdateView(InstitutoUpdateView):
     model = FichaInscripcion
     form_class = FichaInscripcionForm
+    template_name = "matricula/ficha_form.html"
     title = "Editar ficha de inscripcion"
     cancel_url = reverse_lazy("matricula:ficha_list")
 
     def get_success_url(self):
-        if self.request.POST.get("_after_save") == "print":
-            return reverse("matricula:ficha_pdf", kwargs={"pk": self.object.pk})
-        if self.request.POST.get("_after_save") == "documents":
-            return reverse("matricula:ficha_documentos", kwargs={"pk": self.object.pk})
-        return reverse("matricula:ficha_editar", kwargs={"pk": self.object.pk})
+        return reverse("matricula:ficha_documentos", kwargs={"pk": self.object.pk})
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -192,27 +195,8 @@ class FichaInscripcionUpdateView(InstitutoUpdateView):
                 "url": reverse("matricula:ficha_documentos", kwargs={"pk": self.object.pk}),
                 "class": "btn-outline-primary",
             },
-            {
-                "label": "Imprimir ficha",
-                "url": reverse("matricula:ficha_pdf", kwargs={"pk": self.object.pk}),
-                "class": "btn-primary",
-                "target": "_blank",
-            },
         ]
-        context["submit_actions"] = [
-            {
-                "label": "Guardar y ver documentos",
-                "name": "_after_save",
-                "value": "documents",
-                "class": "btn-outline-primary",
-            },
-            {
-                "label": "Guardar e imprimir ficha",
-                "name": "_after_save",
-                "value": "print",
-                "class": "btn-outline-primary",
-            },
-        ]
+        context["submit_actions"] = []
         return context
 
 
@@ -363,6 +347,12 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             saved_date = self.safe_date(initial.get("fecha_inicio_cobro"))
             if saved_date is None or saved_date < today:
                 initial["fecha_inicio_cobro"] = today
+        if "estudiante_es_de_ibarra" in form_class.field_names and "estudiante_es_de_ibarra" not in initial:
+            estudiante_id = self.get_session_data(request).get("estudiante", {}).get("partner_id")
+            if estudiante_id:
+                initial["estudiante_es_de_ibarra"] = (
+                    Partner.objects.filter(pk=estudiante_id).values_list("es_de_ibarra", flat=True).first()
+                )
         return {field: initial.get(field) for field in form_class.field_names if field in initial}
 
     @staticmethod
@@ -432,6 +422,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             return render(request, self.template_name, self.get_context(request, form, step_key, step_label, empresa))
         if step_key == "matricula":
             form.cleaned_data["fecha"] = timezone.localdate()
+            self.actualizar_estudiante_ibarra(session_data, form.cleaned_data)
 
         session_data[step_key] = self.serialize_step(form)
         if step_key == "estudiante":
@@ -501,6 +492,12 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             fecha_nacimiento=data["estudiante_fecha_nacimiento"],
             es_estudiante=True,
         )
+
+    def actualizar_estudiante_ibarra(self, session_data, data):
+        estudiante_id = session_data.get("estudiante", {}).get("partner_id")
+        if not estudiante_id:
+            return
+        Partner.objects.filter(pk=estudiante_id).update(es_de_ibarra=data.get("estudiante_es_de_ibarra", False))
 
     def guardar_representante(self, data, empresa):
         if data.get("representante_modo") == "seleccionar" and data.get("representante_partner"):
@@ -797,7 +794,11 @@ def ficha_documentos(request, pk):
     return render(
         request,
         "matricula/ficha_documentos.html",
-        {"ficha": ficha, "cuotas": cuotas, "template_path": TEMPLATE_PATH},
+        {
+            "ficha": ficha,
+            "cuotas": cuotas,
+            "can_edit_ficha": request.user.has_perm("matricula.change_fichainscripcion"),
+        },
     )
 
 
@@ -811,6 +812,18 @@ def ficha_odt(request, pk):
 @permission_required("matricula.view_fichainscripcion", raise_exception=True)
 def ficha_pdf(request, pk):
     return ficha_documento_descarga(pk, "pdf")
+
+
+@login_required
+@permission_required("matricula.view_fichainscripcion", raise_exception=True)
+def contrato_docx(request, pk):
+    return contrato_documento_descarga(pk, "docx")
+
+
+@login_required
+@permission_required("matricula.view_fichainscripcion", raise_exception=True)
+def contrato_pdf(request, pk):
+    return contrato_documento_descarga(pk, "pdf")
 
 
 @login_required
@@ -854,4 +867,21 @@ def ficha_documento_descarga(pk, extension):
     content_type = "application/vnd.oasis.opendocument.text" if extension == "odt" else "application/pdf"
     response = HttpResponse(payload, content_type=content_type)
     response["Content-Disposition"] = f'attachment; filename="matricula_{ficha.numero}.{extension}"'
+    return response
+
+
+def contrato_documento_descarga(pk, extension):
+    ficha = get_ficha_documento(pk)
+    temp_dir, path = build_contract_response_file(ficha, extension)
+    try:
+        payload = path.read_bytes()
+    finally:
+        temp_dir.cleanup()
+    content_type = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        if extension == "docx"
+        else "application/pdf"
+    )
+    response = HttpResponse(payload, content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="contrato_{ficha.numero}.{extension}"'
     return response

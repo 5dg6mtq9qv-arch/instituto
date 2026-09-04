@@ -9,18 +9,29 @@
       <h1>Matricula {{ ficha.numero }}</h1>
     </div>
     <div class="topbar-actions">
-      <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">Fichas</a>
-      <a class="btn btn-outline-primary" href="{% url 'matricula:ficha_odt' ficha.pk %}">Descargar ODT</a>
-      <a class="btn btn-primary" href="{% url 'matricula:ficha_pdf' ficha.pk %}">Descargar PDF</a>
+      {% if can_edit_ficha %}
+        <a class="btn btn-primary document-back-btn" href="{% url 'matricula:ficha_editar' ficha.pk %}">
+          <i class="ri-edit-line"></i>
+          Editar
+        </a>
+      {% endif %}
+      <a class="btn btn-outline-secondary document-back-btn" href="{% url 'matricula:ficha_list' %}">
+        <i class="ri-arrow-left-line"></i>
+        Fichas
+      </a>
     </div>
   </header>
 
-  <section class="panel document-summary">
-    <div>
+  <section class="document-hero">
+    <div class="document-hero-main">
+      <span class="document-status">Lista para imprimir</span>
       <h2>{{ ficha.estudiante }}</h2>
-      <p>{{ ficha.representante|default:ficha.cliente }} · {{ ficha.fecha }}</p>
+      <p>
+        <i class="ri-user-heart-line"></i>
+        {{ ficha.representante|default:ficha.cliente }} · {{ ficha.fecha|date:"d/m/Y" }}
+      </p>
     </div>
-    <dl>
+    <dl class="document-money-grid">
       <div>
         <dt>Curso</dt>
         <dd>{{ ficha.curso|default:"-" }}</dd>
@@ -31,45 +42,90 @@
       </div>
       <div>
         <dt>Matricula</dt>
-        <dd>{{ ficha.valor_matricula }}</dd>
+        <dd>${{ ficha.valor_matricula }}</dd>
       </div>
       <div>
         <dt>Abono</dt>
-        <dd>{{ ficha.abono }}</dd>
+        <dd>${{ ficha.abono }}</dd>
       </div>
       <div>
         <dt>Restante</dt>
-        <dd>{{ ficha.saldo }}</dd>
+        <dd>${{ ficha.saldo }}</dd>
       </div>
     </dl>
   </section>
 
-  <section class="document-data-grid mt-3">
+  <section class="document-download-grid">
+    <article class="document-download-card">
+      <div class="document-download-icon document-download-icon-blue">
+        <i class="ri-file-list-3-line"></i>
+      </div>
+      <div>
+        <h3>Ficha de matricula</h3>
+        <p>Anexo con datos academicos, convenio de pago y cuotas generadas.</p>
+      </div>
+      <div class="document-download-actions">
+        <a class="btn document-btn document-btn-light" href="{% url 'matricula:ficha_odt' ficha.pk %}">
+          <i class="ri-file-word-line"></i>
+          ODT
+        </a>
+        <a class="btn document-btn document-btn-primary" href="{% url 'matricula:ficha_pdf' ficha.pk %}">
+          <i class="ri-file-pdf-line"></i>
+          PDF
+        </a>
+      </div>
+    </article>
+
+    <article class="document-download-card">
+      <div class="document-download-icon document-download-icon-red">
+        <i class="ri-file-text-line"></i>
+      </div>
+      <div>
+        <h3>Contrato de servicios</h3>
+        <p>Contrato completo con representante, estudiante y detalle de valores.</p>
+      </div>
+      <div class="document-download-actions">
+        <a class="btn document-btn document-btn-light" href="{% url 'matricula:contrato_docx' ficha.pk %}">
+          <i class="ri-file-word-line"></i>
+          DOCX
+        </a>
+        <a class="btn document-btn document-btn-primary" href="{% url 'matricula:contrato_pdf' ficha.pk %}">
+          <i class="ri-file-pdf-line"></i>
+          PDF
+        </a>
+      </div>
+    </article>
+  </section>
+
+  <section class="document-data-grid">
     <div>
+      <i class="ri-calendar-event-line"></i>
       <span>Periodo</span>
       <strong>{{ ficha.periodo_academico|default:"Pendiente" }}</strong>
     </div>
     <div>
+      <i class="ri-time-line"></i>
       <span>Horario</span>
       <strong>{{ ficha.horario|default:"-" }}</strong>
     </div>
     <div>
+      <i class="ri-timer-line"></i>
       <span>Hora</span>
       <strong>{{ ficha.hora|default:"-" }}</strong>
     </div>
     <div>
+      <i class="ri-hourglass-line"></i>
       <span>Duracion</span>
       <strong>{{ ficha.duracion|default:"-" }}</strong>
     </div>
   </section>
 
-  <section class="panel mt-3">
+  <section class="panel document-table-panel">
     <div class="section-heading">
       <h2>Cuotas generadas</h2>
-      <span class="text-muted">Plantilla: {{ template_path }}</span>
     </div>
     <div class="table-responsive">
-      <table class="table table-hover align-middle">
+      <table class="table table-hover align-middle document-table">
         <thead>
           <tr>
             <th>No.</th>
@@ -84,10 +140,10 @@
           {% for cuota in cuotas %}
             <tr>
               <td>{{ cuota.numero_pago }}</td>
-              <td>{{ cuota.fecha_pago_debito }}</td>
-              <td>{{ cuota.valor }}</td>
-              <td>{{ cuota.valor_pagado }}</td>
-              <td>{{ cuota.estado }}</td>
+              <td>{{ cuota.fecha_pago_debito|date:"d/m/Y" }}</td>
+              <td>${{ cuota.valor }}</td>
+              <td>${{ cuota.valor_pagado }}</td>
+              <td><span class="status-badge status-{{ cuota.estado }}">{{ cuota.get_estado_display }}</span></td>
               <td>{{ cuota.observacion }}</td>
             </tr>
           {% empty %}
