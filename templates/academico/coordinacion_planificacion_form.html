@@ -45,6 +45,7 @@
       {% for error in form.materia.errors %}
         <div class="invalid-feedback d-block">{{ error }}</div>
       {% endfor %}
+      <p class="text-muted mt-2">El temario se comparte con todos los grupos que tienen esta materia asignada.</p>
       {% if materia_curso %}
         <div class="topic-context-strip">
           <span><i class="ri-group-line"></i> {{ materia_curso.grupo }}</span>

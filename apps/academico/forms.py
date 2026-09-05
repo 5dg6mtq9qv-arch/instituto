@@ -497,8 +497,9 @@ class CoordinacionPlanificacionForm(BootstrapFormMixin, forms.Form):
     def __init__(self, *args, **kwargs):
         materia = kwargs.pop("materia", None)
         materia_curso = kwargs.pop("materia_curso", None)
+        materias = kwargs.pop("materias", None)
         super().__init__(*args, **kwargs)
-        self.fields["materia"].queryset = Materia.objects.order_by("nombre")
+        self.fields["materia"].queryset = materias if materias is not None else Materia.objects.order_by("nombre")
         if materia_curso:
             self.fields["materia"].initial = materia_curso.materia
             self.fields["materia"].disabled = True

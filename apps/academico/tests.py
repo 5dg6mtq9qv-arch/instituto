@@ -6,7 +6,7 @@ from decimal import Decimal
 from io import BytesIO
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -613,6 +613,23 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(response.context["planificacion_stats"]["total"], 4)
         self.assertEqual(response.context["planificacion_stats"]["por_atender"], 3)
 
+    def test_docente_dashboard_shows_assigned_subject_without_topics(self):
+        materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
+        materia_curso = MateriaCurso.objects.create(materia=materia, grupo=self.curso)
+        ProfesorMateriaCurso.objects.create(partner=self.docente, materia_curso=materia_curso)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("academico:docente_horarios"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Materias asignadas")
+        self.assertContains(response, "Lenguaje")
+        self.assertContains(response, "Completa el temario para acceder a las planificaciones.")
+        card = next(card for card in response.context["materia_cards"] if card["materia"] == materia)
+        self.assertFalse(card["has_topics"])
+        self.assertEqual(card["tema_cards"], [])
+        self.assertContains(response, "Abrir planificacion")
+
     def test_docente_dashboard_groups_planifications_by_topic(self):
         self.client.force_login(self.user)
 
@@ -624,6 +641,46 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(len(response.context["tema_cards"]), 1)
         self.assertEqual(response.context["tema_cards"][0]["tema"], self.tema)
         self.assertEqual(response.context["tema_cards"][0]["available_count"], 3)
+
+    def test_docente_dashboard_filters_by_own_group(self):
+        grupo = Curso.objects.create(nombre="Grupo B", activo=True)
+        materia = Materia.objects.create(nombre="Lenguaje grupo B", nombre_corto="LB")
+        asignacion = MateriaCurso.objects.create(grupo=grupo, materia=materia)
+        ProfesorMateriaCurso.objects.create(partner=self.docente, materia_curso=asignacion)
+        ajeno = Curso.objects.create(nombre="Grupo ajeno", activo=True)
+        MateriaCurso.objects.create(grupo=ajeno, materia=materia)
+        self.client.force_login(self.user)
+        url = reverse("academico:docente_horarios")
+        response = self.client.get(url, {"grupo": grupo.pk}, HTTP_HOST="localhost")
+        self.assertEqual(response.context["grupos"], [self.curso, grupo])
+        self.assertEqual(response.context["selected_grupo"], grupo)
+        self.assertEqual([card["materia"] for card in response.context["materia_cards"]], [materia])
+        self.assertEqual(response.context["planificacion_stats"]["total"], 0)
+        self.assertEqual(response.context["tema_cards"], [])
+        self.assertNotContains(response, "Grupo ajeno")
+        for tab in response.context["status_tabs"]:
+            self.assertIn(f"grupo={grupo.pk}", tab["url"])
+        response = self.client.get(url, {"grupo": self.curso.pk, "estado": "trabajo"}, HTTP_HOST="localhost")
+        self.assertEqual(response.context["planificacion_stats"]["total"], 4)
+        self.assertNotContains(response, "Lenguaje grupo B")
+        response = self.client.get(url, {"grupo": ajeno.pk}, HTTP_HOST="localhost")
+        self.assertEqual(response.context["selected_grupo"], self.curso)
+
+    def test_docente_dashboard_temario_link_requires_edit_permission(self):
+        materia = Materia.objects.create(nombre="Sin temario", nombre_corto="ST")
+        asignacion = MateriaCurso.objects.create(grupo=self.curso, materia=materia)
+        ProfesorMateriaCurso.objects.create(partner=self.docente, materia_curso=asignacion)
+        self.client.force_login(self.user)
+        url = reverse("academico:docente_horarios")
+        response = self.client.get(url, HTTP_HOST="localhost")
+        self.assertNotContains(response, "Editar temario")
+        self.assertContains(response, "Solicita a coordinación")
+        self.grant_assigned_topic_permissions()
+        response = self.client.get(url, HTTP_HOST="localhost")
+        edit_url = reverse("academico:coordinacion_planificacion_materia_editar", args=[materia.pk])
+        self.assertContains(response, f'href="{edit_url}"')
+        self.assertContains(response, "Editar temario")
+        self.assertEqual(self.client.get(edit_url, HTTP_HOST="localhost").status_code, 200)
 
     def test_docente_calendar_view_renders_week_calendar_and_export_link(self):
         self.client.force_login(self.user)
@@ -751,7 +808,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIsNone(self.pendiente.tema)
         self.assertFalse(self.pendiente.recursos.exists())
 
-    def test_academic_planning_selector_only_lists_subjects_with_topics(self):
+    def test_academic_planning_selector_lists_subjects_without_topics(self):
         self.create_periodo_for_course()
         self.make_superuser()
         nueva_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
@@ -765,10 +822,10 @@ class DocenteHorariosPanelTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f'<option value="{self.materia.pk}">Matematicas</option>', html=True)
-        self.assertNotContains(response, f'<option value="{nueva_materia.pk}">Lenguaje</option>', html=True)
-        self.assertEqual(response.context["materias_asignables"], [self.materia])
+        self.assertContains(response, f'<option value="{nueva_materia.pk}">Lenguaje</option>', html=True)
+        self.assertEqual(response.context["materias_asignables"], [nueva_materia, self.materia])
 
-    def test_academic_planning_rejects_subject_without_topics(self):
+    def test_academic_planning_assigns_subject_without_topics(self):
         self.create_periodo_for_course()
         self.make_superuser()
         nueva_materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
@@ -788,9 +845,9 @@ class DocenteHorariosPanelTests(TestCase):
         self.pendiente.refresh_from_db()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.pendiente.materia_curso, self.materia_curso)
-        self.assertFalse(MateriaCurso.objects.filter(materia=nueva_materia, grupo=self.curso).exists())
-        self.assertContains(response, "Solo puedes asignar materias que ya tienen temas cargados para este grupo.")
+        self.assertEqual(self.pendiente.materia_curso.materia, nueva_materia)
+        self.assertEqual(self.pendiente.materia_curso.grupo, self.curso)
+        self.assertIsNone(self.pendiente.tema)
 
     def test_academic_planning_can_assign_subject_with_base_topics_to_group(self):
         self.create_periodo_for_course()
@@ -901,6 +958,77 @@ class DocenteHorariosPanelTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Materia.objects.get(nombre="Historia").color, "#0f766e")
+
+    def grant_assigned_topic_permissions(self):
+        group = Group.objects.create(name="Temas propios prueba")
+        group.permissions.add(*Permission.objects.filter(
+            content_type__app_label="academico",
+            codename__in=["view_tema", "change_tema", "add_tema", "restrict_to_assigned_materiatema"],
+        ))
+        self.user.groups.add(group)
+        self.client.force_login(self.user)
+
+    def test_assigned_topics_scope_filters_list_selector_and_suggestions(self):
+        other = Materia.objects.create(nombre="Materia ajena", nombre_corto="AJ")
+        other_course = MateriaCurso.objects.create(materia=other, grupo=self.curso)
+        MateriaTema.objects.create(materia=other, nombre="Tema privado")
+        self.grant_assigned_topic_permissions()
+        response = self.client.get(reverse("academico:coordinacion_planificacion_list"), HTTP_HOST="localhost")
+        self.assertEqual(list(response.context["asignaciones"]), [self.materia_curso])
+        response = self.client.get(reverse("academico:coordinacion_planificacion_nueva"), HTTP_HOST="localhost")
+        self.assertEqual(list(response.context["form"].fields["materia"].queryset), [self.materia])
+        self.assertNotIn("Tema privado", response.context["tema_suggestions"])
+        other_plan = PlanificacionDocente.objects.create(materia_curso=other_course, nombre="Plan ajeno")
+        other_topic = Tema.objects.create(planificacion=other_plan, nombre="Tema ajeno")
+        response = self.client.get(reverse("academico:tema_list"), HTTP_HOST="localhost")
+        self.assertNotContains(response, "Tema ajeno")
+        url = reverse("academico:tema_editar", args=[other_topic.pk])
+        self.assertEqual(self.client.get(url, HTTP_HOST="localhost").status_code, 404)
+        response = self.client.post(reverse("academico:tema_nuevo"), {
+            "planificacion": other_plan.pk, "nombre": "No autorizado", "orden": 1,
+        }, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Tema.objects.filter(nombre="No autorizado").exists())
+        for name, pk in [("coordinacion_planificacion_materia_editar", other.pk), ("coordinacion_planificacion_editar", other_course.pk)]:
+            url = reverse("academico:" + name, args=[pk])
+            self.assertEqual(self.client.get(url, HTTP_HOST="localhost").status_code, 404)
+            self.assertEqual(self.client.post(url, {}, HTTP_HOST="localhost").status_code, 404)
+
+    def test_assigned_topics_scope_validates_post_and_allows_own_topics(self):
+        other = Materia.objects.create(nombre="Materia ajena", nombre_corto="AJ")
+        self.grant_assigned_topic_permissions()
+        payload = {
+            "materia": other.pk, "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "0",
+            "form-0-nombre": "Tema nuevo", "form-0-orden": "1",
+            "form-0-subtemas-TOTAL_FORMS": "1", "form-0-subtemas-0-nombre": "Subtema nuevo",
+        }
+        url = reverse("academico:coordinacion_planificacion_nueva")
+        response = self.client.post(url, payload, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("materia", response.context["form"].errors)
+        self.assertFalse(MateriaTema.objects.filter(materia=other).exists())
+        payload["materia"] = self.materia.pk
+        response = self.client.post(url, payload, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 302)
+        tema = MateriaTema.objects.get(materia=self.materia, nombre="Tema nuevo")
+        self.assertTrue(tema.subtemas_base.filter(nombre="Subtema nuevo").exists())
+
+    def test_assigned_topics_scope_without_partner_is_empty(self):
+        self.grant_assigned_topic_permissions()
+        self.docente.usuario = None
+        self.docente.save(update_fields=["usuario"])
+        response = self.client.get(reverse("academico:coordinacion_planificacion_nueva"), HTTP_HOST="localhost")
+        self.assertFalse(response.context["form"].fields["materia"].queryset.exists())
+
+    def test_coordinator_sees_all_topic_assignments(self):
+        other = Materia.objects.create(nombre="Materia ajena", nombre_corto="AJ")
+        other_course = MateriaCurso.objects.create(materia=other, grupo=self.curso)
+        self.client.force_login(self.create_coordinator())
+        response = self.client.get(reverse("academico:coordinacion_planificacion_list"), HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(other_course, response.context["asignaciones"])
+        response = self.client.get(reverse("academico:coordinacion_planificacion_materia_editar", args=[other.pk]), HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 200)
 
     def test_coordinacion_topic_create_only_selects_subject(self):
         coordinator = self.create_coordinator()

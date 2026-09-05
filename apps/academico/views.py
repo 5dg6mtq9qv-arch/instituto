@@ -1348,9 +1348,9 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
 
             materia_grupo = None
             if materia_id:
-                materia_grupo = self.get_materia_curso_with_temas(curso, materia_id)
+                materia_grupo = self.get_materia_curso_for_assignment(curso, materia_id)
                 if not materia_grupo:
-                    messages.error(request, "Solo puedes asignar materias que ya tienen temas cargados para este grupo.")
+                    messages.error(request, "La materia seleccionada no existe.")
                     return redirect(f"{reverse_lazy('academico:planificacion_academica')}?curso={curso.pk}")
             docente = None
             if docente_value and docente_value != "__none__":
@@ -1748,32 +1748,18 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         }
 
     def get_assignable_materias(self, curso):
-        return (
-            Materia.objects.filter(
-                Q(temas_base__isnull=False)
-                | Q(
-                    materia_cursos__grupo=curso,
-                    materia_cursos__planificaciones__temas_planificacion__isnull=False,
-                )
-            )
-            .distinct()
-            .order_by("nombre")
-        )
+        return Materia.objects.order_by("nombre")
 
-    def get_materia_curso_with_temas(self, curso, materia_id):
+    def get_materia_curso_for_assignment(self, curso, materia_id):
         if not str(materia_id or "").isdigit():
             return None
         materia = Materia.objects.filter(pk=materia_id).first()
         if not materia:
             return None
-        materia_curso = MateriaCurso.objects.filter(grupo=curso, materia=materia).first()
+        materia_curso, _ = MateriaCurso.objects.get_or_create(grupo=curso, materia=materia)
         if MateriaTema.objects.filter(materia=materia).exists():
-            materia_curso, _ = MateriaCurso.objects.get_or_create(grupo=curso, materia=materia)
             sync_materia_temas_to_materia_curso(materia_curso)
-            return materia_curso
-        if materia_curso and materia_curso.planificaciones.filter(temas_planificacion__isnull=False).exists():
-            return materia_curso
-        return None
+        return materia_curso
 
     def get_docente_field_value(self, clase):
         if not clase or not clase.docente_override:
@@ -2620,14 +2606,36 @@ class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMi
         }
 
 
-class CoordinacionPlanificacionListView(CoordinacionRequiredMixin, View):
+class TemasAsignadosMixin:
+    def temas_restringidos(self):
+        return not self.request.user.is_superuser and self.request.user.has_perm(
+            "academico.restrict_to_assigned_materiatema"
+        )
+
+    def get_materias_curso_permitidas(self):
+        queryset = MateriaCurso.objects.all()
+        if self.temas_restringidos():
+            docente = getattr(self.request.user, "partner", None)
+            if not docente:
+                return queryset.none()
+            queryset = queryset.filter(profesor_materia_cursos__partner=docente).distinct()
+        return queryset
+
+    def get_materias_permitidas(self):
+        queryset = Materia.objects.order_by("nombre")
+        if self.temas_restringidos():
+            queryset = queryset.filter(pk__in=self.get_materias_curso_permitidas().values("materia_id"))
+        return queryset
+
+
+class CoordinacionPlanificacionListView(TemasAsignadosMixin, CoordinacionRequiredMixin, View):
     permission_required = "academico.view_tema"
     template_name = "academico/coordinacion_planificacion_list.html"
 
     def get(self, request):
         q = request.GET.get("q")
         asignaciones = (
-            MateriaCurso.objects.select_related(
+            self.get_materias_curso_permitidas().select_related(
                 "materia",
                 "grupo",
             )
@@ -2661,7 +2669,7 @@ class CoordinacionPlanificacionListView(CoordinacionRequiredMixin, View):
         )
 
 
-class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
+class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequiredMixin, View):
     permission_required = "academico.change_tema"
     template_name = "academico/coordinacion_planificacion_form.html"
 
@@ -2669,7 +2677,7 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
         pk = self.kwargs.get("materia_curso_pk")
         if pk:
             return get_object_or_404(
-                MateriaCurso.objects.select_related("materia", "grupo").prefetch_related(
+                self.get_materias_curso_permitidas().select_related("materia", "grupo").prefetch_related(
                     Prefetch(
                         "profesor_materia_cursos",
                         queryset=ProfesorMateriaCurso.objects.select_related("partner")
@@ -2693,7 +2701,7 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
     def get_materia(self, materia_curso=None):
         pk = self.kwargs.get("materia_pk")
         if pk:
-            return get_object_or_404(Materia, pk=pk)
+            return get_object_or_404(self.get_materias_permitidas(), pk=pk)
         if materia_curso:
             return materia_curso.materia
         return None
@@ -2705,14 +2713,14 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
         materia_curso = self.get_materia_curso()
         materia = self.get_materia(materia_curso)
         planificacion = self.get_planificacion(materia_curso)
-        form = CoordinacionPlanificacionForm(materia=materia, materia_curso=materia_curso)
+        form = CoordinacionPlanificacionForm(materia=materia, materia_curso=materia_curso, materias=self.get_materias_permitidas())
         formset = CoordinacionTemaFormSet(initial=self.get_tema_initial(materia, planificacion))
         return render(request, self.template_name, self.get_context(form, formset, materia, materia_curso, planificacion))
 
     def post(self, request, *args, **kwargs):
         materia_curso = self.get_materia_curso()
         materia = self.get_materia(materia_curso)
-        form = CoordinacionPlanificacionForm(request.POST, materia=materia, materia_curso=materia_curso)
+        form = CoordinacionPlanificacionForm(request.POST, materia=materia, materia_curso=materia_curso, materias=self.get_materias_permitidas())
         formset = CoordinacionTemaFormSet(request.POST)
         if form.is_valid() and formset.is_valid():
             materia = materia or form.cleaned_data["materia"]
@@ -2846,7 +2854,7 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
         if materia:
             tema_count = MateriaTema.objects.filter(materia=materia).count()
             subtema_count = MateriaSubtema.objects.filter(tema__materia=materia).count()
-            applied_group_count = MateriaCurso.objects.filter(materia=materia).count()
+            applied_group_count = self.get_materias_curso_permitidas().filter(materia=materia).count()
         return {
             "title": "Temas y subtemas",
             "form": form,
@@ -2858,7 +2866,7 @@ class CoordinacionPlanificacionEditorView(CoordinacionRequiredMixin, View):
             "tema_count": tema_count,
             "subtema_count": subtema_count,
             "applied_group_count": applied_group_count,
-            "tema_suggestions": MateriaTema.objects.order_by("nombre").values_list("nombre", flat=True).distinct(),
+            "tema_suggestions": MateriaTema.objects.filter(materia__in=self.get_materias_permitidas()).order_by("nombre").values_list("nombre", flat=True).distinct(),
             "list_url": reverse_lazy("academico:coordinacion_planificacion_list"),
         }
 
@@ -2933,10 +2941,36 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             .distinct()
             .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
         )
+        materias_asignadas = {
+            asignacion.materia_curso_id: asignacion.materia_curso
+            for asignacion in ProfesorMateriaCurso.objects.select_related(
+                "materia_curso__materia", "materia_curso__grupo"
+            ).filter(partner=docente)
+        }
+        for clase in clases:
+            materias_asignadas[clase.materia_curso_id] = clase.materia_curso
+        grupos = sorted(
+            {item.grupo_id: item.grupo for item in materias_asignadas.values()}.values(),
+            key=lambda grupo: (grupo.nombre, grupo.pk),
+        )
+        grupo_id = request.GET.get("grupo")
+        selected_grupo = next((grupo for grupo in grupos if str(grupo.pk) == grupo_id), None)
+        if selected_grupo is None:
+            selected_grupo = grupos[0] if grupos else None
+        materias_asignadas = {
+            pk: item for pk, item in materias_asignadas.items()
+            if selected_grupo and item.grupo_id == selected_grupo.pk
+        }
+        clases = [clase for clase in clases if clase.materia_curso_id in materias_asignadas]
         stats = self.get_planificacion_stats(clases)
         selected_filter = self.get_selected_filter(request.GET.get("estado"), stats)
         status_tabs = self.get_status_tabs(selected_filter, stats)
-        planificaciones_tema = list(self.get_docente_planificaciones_tema_queryset(docente))
+        if selected_grupo:
+            for tab in status_tabs:
+                tab["url"] += f"&grupo={selected_grupo.pk}"
+        planificaciones_tema = list(self.get_docente_planificaciones_tema_queryset(docente).filter(
+            profesor_materia_curso__materia_curso_id__in=materias_asignadas
+        ))
         tema_cards = [
             self.build_tema_card(planificacion_tema, clases)
             for planificacion_tema in planificaciones_tema
@@ -2945,6 +2979,27 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             card
             for card in tema_cards
             if self.topic_matches_filter(card, selected_filter)
+        ]
+        materias_con_temas = set(
+            Tema.objects.filter(planificacion__materia_curso_id__in=materias_asignadas)
+            .values_list("planificacion__materia_curso_id", flat=True)
+        )
+        materia_cards = [
+            {
+                "materia": materia_curso.materia,
+                "grupo": materia_curso.grupo,
+                "has_topics": materia_curso.pk in materias_con_temas,
+                "temario_url": reverse_lazy(
+                    "academico:coordinacion_planificacion_materia_editar", args=[materia_curso.materia_id]
+                ) if request.user.has_perm("academico.change_tema") else None,
+                "tema_cards": [
+                    card for card in tema_cards
+                    if card["planificacion_tema"].profesor_materia_curso.materia_curso_id == materia_curso.pk
+                ],
+            }
+            for materia_curso in sorted(
+                materias_asignadas.values(), key=lambda item: (item.grupo.nombre, item.materia.nombre)
+            )
         ]
         planificacion_cards = [
             self.build_planificacion_card(clase)
@@ -2996,6 +3051,9 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                 "selected_filter": selected_filter,
                 "selected_filter_label": self.get_filter_label(selected_filter),
                 "tema_cards": tema_cards,
+                "materia_cards": materia_cards,
+                "grupos": grupos,
+                "selected_grupo": selected_grupo,
                 "planificacion_cards": planificacion_cards,
             },
         )
@@ -6490,7 +6548,23 @@ class HorarioCalendarioView(LoginRequiredMixin, PermissionRequiredMixin, View):
         )
 
 
-class TemaListView(InstitutoListView):
+class TemaAsignadoCrudMixin(TemasAsignadosMixin):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.temas_restringidos():
+            queryset = queryset.filter(planificacion__materia_curso__in=self.get_materias_curso_permitidas())
+        return queryset
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        if self.temas_restringidos():
+            form.fields["planificacion"].queryset = PlanificacionDocente.objects.filter(
+                materia_curso__in=self.get_materias_curso_permitidas()
+            )
+        return form
+
+
+class TemaListView(TemaAsignadoCrudMixin, InstitutoListView):
     model = Tema
     title = "Temas"
     create_url_name = "academico:tema_nuevo"
@@ -6500,7 +6574,7 @@ class TemaListView(InstitutoListView):
         return super().get_queryset().select_related("planificacion", "planificacion__materia_curso")
 
 
-class TemaCreateView(InstitutoCreateView):
+class TemaCreateView(TemaAsignadoCrudMixin, InstitutoCreateView):
     model = Tema
     form_class = TemaForm
     title = "Nuevo tema"
@@ -6508,7 +6582,7 @@ class TemaCreateView(InstitutoCreateView):
     cancel_url = reverse_lazy("academico:tema_list")
 
 
-class TemaUpdateView(InstitutoUpdateView):
+class TemaUpdateView(TemaAsignadoCrudMixin, InstitutoUpdateView):
     model = Tema
     form_class = TemaForm
     title = "Editar tema"

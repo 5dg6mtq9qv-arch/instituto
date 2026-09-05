@@ -29,20 +29,37 @@
       </div>
     </section>
 
+    {% if grupos %}
+      <section class="panel mb-3">
+        <form method="get" class="d-flex align-items-end gap-3 flex-wrap">
+          <div>
+            <label class="form-label" for="docente-grupo">Grupo</label>
+            <select class="form-select" id="docente-grupo" name="grupo" onchange="this.form.submit()">
+              {% for grupo in grupos %}
+                <option value="{{ grupo.pk }}"{% if grupo.pk == selected_grupo.pk %} selected{% endif %}>{{ grupo.nombre }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <input type="hidden" name="estado" value="{{ selected_filter }}">
+          <noscript><button class="btn btn-primary-600" type="submit">Ver grupo</button></noscript>
+        </form>
+      </section>
+    {% endif %}
+
     <section class="docente-stats-grid">
-      <a class="docente-stat-card is-action" href="{% url 'academico:docente_horarios' %}?estado=trabajo">
+      <a class="docente-stat-card is-action" href="{% url 'academico:docente_horarios' %}?estado=trabajo{% if selected_grupo %}&amp;grupo={{ selected_grupo.pk }}{% endif %}">
         <span>Por atender</span>
         <strong>{{ planificacion_stats.por_atender }}</strong>
       </a>
-      <a class="docente-stat-card is-review" href="{% url 'academico:docente_horarios' %}?estado=revision">
+      <a class="docente-stat-card is-review" href="{% url 'academico:docente_horarios' %}?estado=revision{% if selected_grupo %}&amp;grupo={{ selected_grupo.pk }}{% endif %}">
         <span>En revision</span>
         <strong>{{ planificacion_stats.revision }}</strong>
       </a>
-      <a class="docente-stat-card is-observed" href="{% url 'academico:docente_horarios' %}?estado=rechazada">
+      <a class="docente-stat-card is-observed" href="{% url 'academico:docente_horarios' %}?estado=rechazada{% if selected_grupo %}&amp;grupo={{ selected_grupo.pk }}{% endif %}">
         <span>Observadas</span>
         <strong>{{ planificacion_stats.rechazada }}</strong>
       </a>
-      <a class="docente-stat-card is-approved" href="{% url 'academico:docente_horarios' %}?estado=aprobada">
+      <a class="docente-stat-card is-approved" href="{% url 'academico:docente_horarios' %}?estado=aprobada{% if selected_grupo %}&amp;grupo={{ selected_grupo.pk }}{% endif %}">
         <span>Aprobadas</span>
         <strong>{{ planificacion_stats.aprobada }}</strong>
       </a>
@@ -51,10 +68,10 @@
     <section class="panel docente-work-panel">
       <header class="docente-panel-header">
         <div>
-          <span>Planificaciones por tema</span>
+          <span>Materias asignadas</span>
           <h2>{{ selected_filter_label }}</h2>
         </div>
-        <strong>{{ tema_cards|length }} tema(s)</strong>
+        <strong>{{ materia_cards|length }} materia(s)</strong>
       </header>
 
       <nav class="docente-status-tabs" aria-label="Estados de planificacion">
@@ -67,9 +84,22 @@
         {% endfor %}
       </nav>
 
-      {% if tema_cards %}
+      {% for subject in materia_cards %}
+        <section class="mt-4">
+          <h3>{{ subject.materia }} · {{ subject.grupo }}</h3>
+          {% if not subject.has_topics %}
+            <div class="alert alert-warning mt-3">
+              Tienes asignada esta materia, pero no tiene temario. Completa el temario para acceder a las planificaciones.
+              {% if subject.temario_url %}
+                <a class="btn btn-outline-primary d-inline-block mt-2" href="{{ subject.temario_url }}">Editar temario</a>
+              {% else %}
+                <span class="d-block mt-2">Solicita a coordinación que complete el temario.</span>
+              {% endif %}
+            </div>
+          {% elif subject.tema_cards %}
+        <p class="text-muted">Planificaciones por tema</p>
         <div class="docente-planning-grid">
-          {% for card in tema_cards %}
+          {% for card in subject.tema_cards %}
             <article class="docente-planning-card docente-topic-card estado-{{ card.status }}">
               <div class="docente-card-top">
                 <span class="subject-color" style="background: {{ card.materia.color }}"></span>
@@ -139,15 +169,13 @@
             </article>
           {% endfor %}
         </div>
-      {% else %}
-        <div class="academic-empty-state">
-          {% if has_events %}
-            Sin clases para este estado.
           {% else %}
-            No tienes clases asignadas o temas creados.
+            <p class="text-muted">No hay planificaciones por tema disponibles para este estado.</p>
           {% endif %}
-        </div>
-      {% endif %}
+        </section>
+      {% empty %}
+        <div class="academic-empty-state">No tienes materias asignadas.</div>
+      {% endfor %}
     </section>
   {% endif %}
 {% endblock %}

@@ -85,14 +85,19 @@ def permissions_from_specs(specs):
 def seed_default_groups():
     groups = {name: Group.objects.get_or_create(name=name)[0] for name in DEFAULT_GROUPS}
 
-    groups["Administrador"].permissions.add(*Permission.objects.all())
+    groups["Administrador"].permissions.add(*Permission.objects.exclude(codename="restrict_to_assigned_materiatema"))
     groups["Direccion"].permissions.add(*permissions_for(actions=("view",)))
     groups["Direccion"].permissions.add(*permissions_from_specs(DIRECCION_SPECIAL_PERMISSIONS))
     groups["Coordinacion"].permissions.add(
         *permissions_for(app_labels=("core", "matricula", "academico"), actions=("add", "change", "view"))
     )
     groups["Coordinacion"].permissions.add(*permissions_from_specs(COORDINACION_SPECIAL_PERMISSIONS))
-    groups["Docente"].permissions.clear()
+    groups["Docente"].permissions.add(*permissions_from_specs((
+        ("academico", "tema", "view"),
+        ("academico", "tema", "add"),
+        ("academico", "tema", "change"),
+        ("academico", "materiatema", "restrict_to_assigned"),
+    )))
     groups["Director"].permissions.add(*permissions_from_specs(DIRECTOR_PERMISSIONS))
 
 

@@ -1435,6 +1435,7 @@ class MateriaTema(models.Model):
         db_table = '"academico"."materia_tema"'
         unique_together = (("materia", "nombre"),)
         ordering = ["materia", "orden", "nombre"]
+        permissions = (("restrict_to_assigned_materiatema", "Ver y gestionar solo temas de materias asignadas"),)
 
     def __str__(self):
         return f"{self.materia} - {self.nombre}"
