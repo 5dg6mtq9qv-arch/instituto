@@ -116,7 +116,7 @@
       {% endif %}
 
       {% if can_delete_schedule and selected_curso %}
-        <form method="post" data-delete-schedule-form hidden onsubmit="return confirm(this.dataset.confirmMessage)">
+        <form method="post" data-delete-schedule-form hidden>
           {% csrf_token %}
           <input type="hidden" name="planning_action" value="delete_schedule">
           <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
@@ -256,6 +256,7 @@
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
   <script>
     (function () {
       if (window.flatpickr) {
@@ -569,6 +570,46 @@
       }
 
       const editScheduleButton = document.querySelector("[data-edit-schedule-button]");
+      const deleteScheduleForm = document.querySelector("[data-delete-schedule-form]");
+      if (deleteScheduleForm) {
+        let confirmingDelete = false;
+        deleteScheduleForm.addEventListener("submit", function (event) {
+          event.preventDefault();
+          if (confirmingDelete) return;
+          if (!window.Swal) {
+            showCalendarNotice("No se pudo cargar la confirmación. Recarga la página e inténtalo de nuevo.");
+            return;
+          }
+          confirmingDelete = true;
+          const panelElement = document.getElementById("planificacionMateriaOffcanvas");
+          const panel = bootstrap.Offcanvas.getOrCreateInstance(panelElement);
+          panelElement.addEventListener("hidden.bs.offcanvas", async function () {
+            try {
+              const result = await Swal.fire({
+                title: "¿Eliminar horario?",
+                text: deleteScheduleForm.dataset.confirmMessage,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "Sí, eliminar horario",
+                cancelButtonText: "Cancelar",
+                confirmButtonColor: "#dc3545",
+                cancelButtonColor: "#64748b",
+                focusCancel: true,
+                reverseButtons: true
+              });
+              if (result.isConfirmed) {
+                deleteScheduleForm.querySelector('button[type="submit"]').disabled = true;
+                HTMLFormElement.prototype.submit.call(deleteScheduleForm);
+              } else {
+                panel.show();
+              }
+            } finally {
+              confirmingDelete = false;
+            }
+          }, { once: true });
+          panel.hide();
+        });
+      }
       if (editScheduleButton) {
         editScheduleButton.addEventListener("click", function () {
           if (!activePlanningEvent || !window.bootstrap) return;
