@@ -115,6 +115,17 @@
         </button>
       {% endif %}
 
+      {% if can_delete_schedule and selected_curso %}
+        <form method="post" data-delete-schedule-form hidden onsubmit="return confirm(this.dataset.confirmMessage)">
+          {% csrf_token %}
+          <input type="hidden" name="planning_action" value="delete_schedule">
+          <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
+          <input type="hidden" name="schedule_horario_aula_curso" data-delete-schedule-id>
+          <p class="text-muted" data-delete-schedule-scope></p>
+          <button class="btn btn-outline-danger w-100 mb-3" type="submit">Eliminar horario</button>
+        </form>
+      {% endif %}
+
       {% if can_save and selected_curso %}
         <form method="post" novalidate>
           {% csrf_token %}
@@ -269,6 +280,7 @@
       const events = {{ calendar_events_json|safe }};
       const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
       const hasCalendar = document.getElementById("calendar");
+      const canDeleteSchedule = {{ can_delete_schedule|yesno:"true,false" }};
       const canSave = {{ can_save|yesno:"true,false" }};
       const canAddSchedule = {{ can_add_schedule|yesno:"true,false" }};
       const weekdayDiaIds = {{ weekday_dia_ids_json|safe }};
@@ -523,15 +535,25 @@
       }
 
       function openMateriaPanel(event) {
-        if (!canSave) return;
-        if (event.lockedReason) {
+        if (!canSave && !canDeleteSchedule) return;
+        if (event.lockedReason && !event.canDeleteSchedule) {
           showCalendarNotice(event.lockedReason);
           return;
         }
         activePlanningEvent = event;
         hideCalendarNotice();
-        document.querySelector("[data-planning-horario]").value = event.horarioId;
-        document.querySelector("[data-planning-fecha]").value = event.fecha;
+        const planningHorario = document.querySelector("[data-planning-horario]");
+        const planningFecha = document.querySelector("[data-planning-fecha]");
+        if (planningHorario) planningHorario.value = event.horarioId;
+        if (planningFecha) planningFecha.value = event.fecha;
+        const deleteForm = document.querySelector("[data-delete-schedule-form]");
+        if (deleteForm) {
+          deleteForm.hidden = !event.canDeleteSchedule;
+          deleteForm.querySelector("[data-delete-schedule-id]").value = event.horarioId;
+          const scope = event.singleDate ? "Se eliminará este horario puntual." : "Se eliminará este horario recurrente de todas las fechas en las que aparece.";
+          deleteForm.querySelector("[data-delete-schedule-scope]").textContent = scope;
+          deleteForm.dataset.confirmMessage = scope + " ¿Deseas continuar?";
+        }
         if (planningMateriaInput) {
           planningMateriaInput.value = event.materiaId || "";
           if (window.jQuery && jQuery.fn.select2) {

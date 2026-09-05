@@ -1034,6 +1034,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             if not self.can_add_schedule(request.user):
                 return self.handle_no_permission()
             return self.handle_add_schedule(request)
+        if action == "delete_schedule":
+            if not self.can_delete_schedule(request.user):
+                return self.handle_no_permission()
+            return self.handle_delete_schedule(request)
         if action == "update_schedule":
             if not self.can_add_schedule(request.user):
                 return self.handle_no_permission()
@@ -1058,6 +1062,29 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             or user.has_perm("academico.add_horarioaulacurso")
             or user.has_perm("academico.change_horarioaulacurso")
         )
+
+    def can_delete_schedule(self, user):
+        return user.is_superuser or user.has_perm("academico.delete_horarioaulacurso") or user.has_perm("academico.change_horarioaulacurso")
+
+    def handle_delete_schedule(self, request):
+        curso = self.get_request_curso(request)
+        if not curso:
+            messages.error(request, "Selecciona un grupo valido para eliminar el horario.")
+            return self.redirect_to_planning()
+        with transaction.atomic():
+            try:
+                horario = HorarioAulaCurso.objects.select_for_update().get(
+                    pk=request.POST.get("schedule_horario_aula_curso"), aula_curso__curso=curso
+                )
+            except (HorarioAulaCurso.DoesNotExist, TypeError, ValueError):
+                messages.error(request, "Selecciona un horario valido para eliminar.")
+                return self.redirect_to_planning(curso)
+            if Clase.objects.filter(horario_aula_curso=horario).exists():
+                messages.error(request, "No se puede eliminar el horario porque ya tiene clases asignadas o planificadas.")
+                return self.redirect_to_planning(curso)
+            horario.delete()
+        messages.success(request, "Horario eliminado correctamente.")
+        return self.redirect_to_planning(curso)
 
     def get_request_curso_id(self, request):
         return request.POST.get("curso") or request.GET.get("curso") or ""
@@ -1605,6 +1632,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     "aula_curso__aula__nombre",
                 )
             )
+            horarios_con_clases = set(
+                Clase.objects.filter(horario_aula_curso__in=horarios)
+                .values_list("horario_aula_curso_id", flat=True)
+            )
             clases = {}
             docentes_by_materia_curso = {}
             if selected_curso_periodo:
@@ -1691,6 +1722,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                             {
                                 "id": f"{horario_aula_curso.pk}-{current_date.isoformat()}",
                                 "horarioId": horario_aula_curso.pk,
+                                "canDeleteSchedule": self.can_delete_schedule(self.request.user) and horario_aula_curso.pk not in horarios_con_clases,
                                 "fecha": current_date.isoformat(),
                                 "title": " · ".join(title_parts),
                                 "start": f"{current_date.isoformat()}T{horario.hora_inicio:%H:%M:%S}",
@@ -1745,6 +1777,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "unassigned_alert": unassigned_alert,
             "can_save": self.can_save_class(self.request.user),
             "can_add_schedule": self.can_add_schedule(self.request.user),
+            "can_delete_schedule": self.can_delete_schedule(self.request.user),
         }
 
     def get_assignable_materias(self, curso):
