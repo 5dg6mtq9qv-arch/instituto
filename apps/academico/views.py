@@ -6021,6 +6021,7 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
 
 
 class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, View):
+    permission_required = "academico.review_planificacionclase"
     template_name = "academico/coordinacion_revision_planificacion_detalle.html"
 
     def get_clase(self):

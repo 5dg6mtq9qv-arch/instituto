@@ -2696,6 +2696,14 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIn("Matematicas", values)
         self.assertIn(2, values)
 
+    def test_coordinacion_review_detail_denies_user_without_review_permission(self):
+        self.client.force_login(self.user)
+        url = reverse("academico:coordinacion_revision_planificacion_detalle", args=[self.revision.pk])
+        self.assertEqual(self.client.get(url, HTTP_HOST="localhost").status_code, 403)
+        self.assertEqual(self.client.post(url, {"review_action": "aprobar"}, HTTP_HOST="localhost").status_code, 403)
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.estado_planificacion, "revision")
+
     def test_coordinacion_review_detail_renders_visual_review_panel(self):
         coordinator = self.create_coordinator()
         self.client.force_login(coordinator)
