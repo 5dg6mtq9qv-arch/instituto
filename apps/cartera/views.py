@@ -64,17 +64,21 @@ class AlumnoCarteraListView(InstitutoListView):
         )
 
     def apply_search(self, queryset):
-        q = self.request.GET.get("q")
-        if not q:
-            return queryset
-        return queryset.filter(
-            Q(estudiante__nombre__icontains=q)
-            | Q(estudiante__identificacion__icontains=q)
-            | Q(numero__icontains=q)
-            | Q(aula__nombre__icontains=q)
-            | Q(cliente__nombre__icontains=q)
-            | Q(representante__nombre__icontains=q)
+        fields = (
+            "estudiante__nombre", "estudiante__apellido", "estudiante__identificacion",
+            "estudiante__email", "estudiante__telefono", "estudiante__telefono_celular",
+            "estudiante__direccion", "estudiante__ocupacion", "estudiante__comentario",
+            "numero", "aula__nombre", "correo_estudiante", "colegio", "curso_grado",
+            "carrera", "universidad", "horario",
+            "cliente__nombre", "cliente__apellido", "cliente__identificacion",
+            "representante__nombre", "representante__apellido", "representante__identificacion",
         )
+        for term in self.request.GET.get("q", "").split():
+            matches = Q()
+            for field in fields:
+                matches |= Q(**{f"{field}__icontains": term})
+            queryset = queryset.filter(matches)
+        return queryset
 
     def get_selected_estado(self):
         selected = self.request.GET.get("estado", "todos")
