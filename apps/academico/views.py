@@ -2671,6 +2671,7 @@ class CoordinacionPlanificacionListView(TemasAsignadosMixin, CoordinacionRequire
             self.get_materias_curso_permitidas().select_related(
                 "materia",
                 "grupo",
+                "aula_moodle",
             )
             .prefetch_related(
                 Prefetch(
@@ -2700,6 +2701,51 @@ class CoordinacionPlanificacionListView(TemasAsignadosMixin, CoordinacionRequire
                 "asignaciones": asignaciones,
             },
         )
+
+
+class MoodleAccesosExcelView(TemasAsignadosMixin, CoordinacionRequiredMixin, View):
+    permission_required = "academico.exportar_moodlecuenta"
+
+    def get(self, request, *args, **kwargs):
+        from .moodle import MoodleError
+        from .moodle_exports import access_workbook
+        materia_curso = get_object_or_404(self.get_materias_curso_permitidas(), pk=kwargs["materia_curso_pk"])
+        try:
+            content = access_workbook(materia_curso)
+        except MoodleError as exc:
+            messages.error(request, str(exc))
+            return redirect("academico:coordinacion_planificacion_list")
+        response = HttpResponse(content, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response["Content-Disposition"] = f'attachment; filename="accesos_moodle_{materia_curso.pk}.xlsx"'
+        response["Cache-Control"] = "no-store, private"
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+class CoordinacionMoodleCursoView(TemasAsignadosMixin, CoordinacionRequiredMixin, View):
+    permission_required = "academico.crear_moodlecurso"
+    template_name = "academico/moodle_curso_confirmar.html"
+
+    def get_materia_curso(self):
+        return get_object_or_404(self.get_materias_curso_permitidas().select_related("materia", "grupo"),
+                                 pk=self.kwargs["materia_curso_pk"])
+
+    def get(self, request, *args, **kwargs):
+        from .moodle_courses import course_data
+        materia_curso = self.get_materia_curso()
+        return render(request, self.template_name, {"materia_curso": materia_curso, **course_data(materia_curso)})
+
+    def post(self, request, *args, **kwargs):
+        from .moodle import MoodleError
+        from .moodle_courses import create_moodle_course
+        materia_curso = self.get_materia_curso()
+        try:
+            create_moodle_course(materia_curso)
+        except MoodleError as exc:
+            messages.error(request, str(exc))
+            return redirect("academico:coordinacion_moodle_curso", materia_curso_pk=materia_curso.pk)
+        messages.success(request, "Curso Moodle, temario y participantes sincronizados.")
+        return redirect("academico:coordinacion_planificacion_list")
 
 
 class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequiredMixin, View):

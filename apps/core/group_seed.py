@@ -8,6 +8,7 @@ from django.dispatch import receiver
 DEFAULT_GROUPS = ("Administrador", "Direccion", "Coordinacion", "Docente", "Director")
 
 DIRECTOR_PERMISSIONS = (
+    ("academico", "moodlecuenta", "exportar"),
     ("academico", "aula", "view"),
     ("academico", "clase", "add"),
     ("academico", "clase", "change"),
@@ -43,6 +44,7 @@ DIRECTOR_PERMISSIONS = (
 )
 
 DIRECCION_SPECIAL_PERMISSIONS = (
+    ("academico", "moodlecuenta", "exportar"),
     ("academico", "tema", "change"),
     ("academico", "planificacionclase", "review"),
     ("academico", "clasehoradocente", "change"),
@@ -50,6 +52,7 @@ DIRECCION_SPECIAL_PERMISSIONS = (
 )
 
 COORDINACION_SPECIAL_PERMISSIONS = (
+    ("academico", "moodlecurso", "crear"),
     ("academico", "planificacionclase", "review"),
 )
 

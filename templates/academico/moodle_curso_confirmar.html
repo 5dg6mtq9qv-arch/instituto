@@ -1,0 +1,36 @@
+{% extends "web/base.html" %}
+{% block title %}Crear curso en Moodle | Instituto{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><p class="eyebrow">Coordinación</p><h1>Crear curso en Moodle</h1></div>
+  <a class="btn btn-outline-secondary" href="{% url 'academico:coordinacion_planificacion_list' %}">Volver</a>
+</header>
+<section class="panel">
+  <h2>{{ materia_curso.materia }} – {{ materia_curso.grupo }}</h2>
+  <p>Se creará o actualizará el curso y se matricularán los siguientes participantes.</p>
+  <p class="alert alert-info">Cada tema será una sección principal de Moodle y cada subtema será una subsección dentro de ella. El docente podrá agregar manualmente actividades y recursos.</p>
+  <p>Las cuentas nuevas usarán nombre_apellido (con un número si se repite) y una clave inicial. Moodle exigirá cambiarla al entrar. El director podrá descargar el Excel de accesos. Las cuentas existentes conservarán su contraseña.</p>
+  <h3>Docentes ({{ docentes|length }})</h3>
+  <ul>{% for persona in docentes %}<li>{{ persona }} — {{ persona.email|default:"Se generará un correo provisional" }}</li>{% empty %}<li>Sin docentes activos.</li>{% endfor %}</ul>
+  <h3>Alumnos ({{ alumnos|length }})</h3>
+  <ul>{% for persona in alumnos %}<li>{{ persona }} — {{ persona.email|default:"Se generará un correo provisional" }}</li>{% empty %}<li>Sin alumnos activos.</li>{% endfor %}</ul>
+  <h3>Temario</h3>
+  <ol>{% for tema in temas %}<li>{{ tema.nombre }}<ul>{% for subtema in tema.subtemas_planificacion.all %}<li>{{ subtema.nombre }}</li>{% endfor %}</ul></li>{% empty %}<li>Sin temas planificados.</li>{% endfor %}</ol>
+  {% if errors %}<div class="alert alert-warning"><strong>Completa estos datos antes de continuar:</strong><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+  {% if materia_curso.aula_moodle.completo %}
+    <a class="btn btn-success" href="{{ materia_curso.aula_moodle.url }}" target="_blank" rel="noopener noreferrer">Abrir curso en Moodle</a>
+  {% endif %}
+  <form method="post" data-moodle-create class="d-inline-block">{% csrf_token %}
+    <button class="btn btn-primary" type="submit" {% if errors %}disabled{% endif %}>{% if materia_curso.aula_moodle.curso_id %}Sincronizar temario y matrículas{% else %}Crear curso y matricular participantes{% endif %}</button>
+  </form>
+</section>
+{% endblock %}
+{% block extra_scripts %}
+<script>
+document.querySelector('[data-moodle-create]')?.addEventListener('submit', function () {
+  const button = this.querySelector('button');
+  button.disabled = true;
+  button.textContent = 'Creando curso…';
+});
+</script>
+{% endblock %}

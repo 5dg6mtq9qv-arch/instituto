@@ -1,3 +1,4 @@
+import uuid
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
@@ -1650,3 +1651,50 @@ class PlanificacionRecurso(models.Model):
 
     def __str__(self):
         return f"{self.planificacion} - {self.recurso}"
+
+
+class MoodleCurso(models.Model):
+    materia_curso = models.OneToOneField(MateriaCurso, on_delete=models.CASCADE, related_name="aula_moodle")
+    clave = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    sitio = models.URLField(blank=True)
+    curso_id = models.PositiveBigIntegerField(null=True, blank=True)
+    completo = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = '\"academico\".\"moodle_curso\"'
+        default_permissions = ()
+        permissions = (("crear_moodlecurso", "Crear curso en Moodle con docentes y alumnos"),)
+
+    @property
+    def url(self):
+        return f"{self.sitio.rstrip('/')}/course/view.php?id={self.curso_id}" if self.curso_id else ""
+
+
+class MoodleCuenta(models.Model):
+    persona = models.ForeignKey("core.Partner", on_delete=models.PROTECT, related_name="cuentas_moodle")
+    sitio = models.URLField()
+    clave = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    usuario = models.CharField(max_length=100)
+    usuario_id = models.PositiveBigIntegerField(null=True, blank=True)
+    clave_inicial_cifrada = models.TextField(blank=True)
+
+    class Meta:
+        db_table = '"academico"."moodle_cuenta"'
+        default_permissions = ()
+        permissions = (("exportar_moodlecuenta", "Descargar Excel de accesos iniciales Moodle"),)
+        constraints = [
+            models.UniqueConstraint(fields=["persona", "sitio"], name="moodle_cuenta_persona_sitio"),
+            models.UniqueConstraint(fields=["usuario", "sitio"], name="moodle_cuenta_usuario_sitio"),
+        ]
+
+
+class MoodleMatricula(models.Model):
+    curso = models.ForeignKey(MoodleCurso, on_delete=models.CASCADE, related_name="matriculas")
+    cuenta = models.ForeignKey(MoodleCuenta, on_delete=models.PROTECT)
+    rol = models.CharField(max_length=20)
+    confirmada = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = '"academico"."moodle_matricula"'
+        default_permissions = ()
+        constraints = [models.UniqueConstraint(fields=["curso", "cuenta"], name="moodle_matricula_curso_cuenta")]

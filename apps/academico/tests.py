@@ -127,6 +127,89 @@ class DocenteHorariosPanelTests(TestCase):
         self.media_override.disable()
         shutil.rmtree(self.media_root, ignore_errors=True)
 
+    def test_moodle_permission_and_button_for_coordinator(self):
+        user = self.create_coordinator()
+        self.assertTrue(user.has_perm("academico.crear_moodlecurso"))
+        self.client.force_login(user)
+        response = self.client.get(reverse("academico:coordinacion_planificacion_list"), HTTP_HOST="localhost")
+        self.assertContains(response, "Crear curso en Moodle")
+        user.groups.clear()
+        self.client.force_login(user)
+        response = self.client.post(reverse("academico:coordinacion_moodle_curso", args=[self.materia_curso.pk]), HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 403)
+
+    def test_moodle_permission_respects_assigned_subject_restriction(self):
+        permission = Permission.objects.get(codename="crear_moodlecurso", content_type__app_label="academico")
+        restriction = Permission.objects.get(codename="restrict_to_assigned_materiatema", content_type__app_label="academico")
+        self.user.user_permissions.add(permission, restriction)
+        other = Materia.objects.create(nombre="Otra materia")
+        other_course = MateriaCurso.objects.create(materia=other, grupo=self.curso)
+        self.client.force_login(self.user)
+        url = reverse("academico:coordinacion_moodle_curso", args=[other_course.pk])
+        self.assertEqual(self.client.get(url, HTTP_HOST="localhost").status_code, 404)
+        self.assertEqual(self.client.post(url, HTTP_HOST="localhost").status_code, 404)
+
+    def test_moodle_preview_and_missing_students_do_not_call_remote(self):
+        from unittest.mock import patch
+        self.client.force_login(self.create_coordinator())
+        url = reverse("academico:coordinacion_moodle_curso", args=[self.materia_curso.pk])
+        with patch("apps.academico.moodle_courses.MoodleClient") as client:
+            response = self.client.get(url, HTTP_HOST="localhost")
+            self.assertContains(response, "El grupo no tiene alumnos activos matriculados")
+            self.assertContains(response, "disabled")
+            response = self.client.post(url, HTTP_HOST="localhost")
+            self.assertEqual(response.status_code, 302)
+            client.return_value.site_info.assert_not_called()
+            client.return_value.call.assert_not_called()
+
+    def test_moodle_course_retries_enrolment_without_duplicate_course(self):
+        from unittest.mock import patch
+        from apps.academico.models import MoodleCurso
+        from apps.academico.moodle import MoodleError
+        from apps.academico.moodle_courses import create_moodle_course
+        data = {"temas": [self.tema], "docentes": [self.docente], "alumnos": [], "errors": []}
+        with patch("apps.academico.moodle_courses.course_data", return_value=data), patch("apps.academico.moodle_courses.sync_course_structure"), patch("apps.academico.moodle_courses.MoodleClient") as factory:
+            client = factory.return_value
+            client.base_url = "https://moodle.example"
+            client.missing_functions.return_value = []
+            client.call.side_effect = [{"courses": []}, [{"id": 42}]]
+            client.users_by_field.return_value = [{"id": 7, "username": "docente_prueba"}]
+            self.docente.email = "teacher@example.org"
+            client.enrol_users.side_effect = MoodleError("Fallo de matrícula")
+            with self.assertRaises(MoodleError):
+                create_moodle_course(self.materia_curso)
+            link = MoodleCurso.objects.get(materia_curso=self.materia_curso)
+            self.assertEqual(link.curso_id, 42)
+            self.assertFalse(link.completo)
+            client.enrol_users.side_effect = None
+            client.enrolled_users.return_value = [{"id": 7}]
+            link = create_moodle_course(self.materia_curso)
+            self.assertTrue(link.completo)
+            self.assertEqual(client.call.call_count, 2)
+            create_moodle_course(self.materia_curso)
+            self.assertEqual(client.enrol_users.call_count, 2)
+
+    def test_moodle_recovers_course_after_response_timeout(self):
+        from unittest.mock import patch
+        from apps.academico.models import MoodleCurso
+        from apps.academico.moodle import MoodleError
+        from apps.academico.moodle_courses import create_moodle_course
+        data = {"temas": [self.tema], "docentes": [], "alumnos": [], "errors": []}
+        with patch("apps.academico.moodle_courses.course_data", return_value=data), patch("apps.academico.moodle_courses.sync_course_structure"), patch("apps.academico.moodle_courses.MoodleClient") as factory:
+            client = factory.return_value
+            client.base_url = "https://moodle.example"
+            client.missing_functions.return_value = []
+            client.call.side_effect = [{"courses": []}, MoodleError("Tiempo agotado")]
+            with self.assertRaises(MoodleError):
+                create_moodle_course(self.materia_curso)
+            key = MoodleCurso.objects.get(materia_curso=self.materia_curso).clave
+            client.call.side_effect = [{"courses": [{"id": 42}]}]
+            client.enrolled_users.return_value = []
+            link = create_moodle_course(self.materia_curso)
+            self.assertEqual(link.clave, key)
+            self.assertEqual(link.curso_id, 42)
+            self.assertEqual(client.call.call_args.args[0], "core_course_get_courses_by_field")
+
     def create_coordinator(self):
         user = get_user_model().objects.create_user(username="coordinador", password="ClaveActual987!")
         user.groups.add(Group.objects.get_or_create(name="Coordinacion")[0])

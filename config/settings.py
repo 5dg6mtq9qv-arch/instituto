@@ -156,3 +156,14 @@ DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'home'
 LOGOUT_REDIRECT_URL = 'login'
+
+# Integración con Moodle: credenciales privadas del entorno.
+MOODLE_BASE_URL = env("MOODLE_BASE_URL", default="")
+MOODLE_TOKEN = env("MOODLE_TOKEN", default="")
+MOODLE_TIMEOUT = env.int("MOODLE_TIMEOUT", default=20)
+MOODLE_CATEGORY_ID = env.int("MOODLE_CATEGORY_ID", default=1)
+MOODLE_TEACHER_ROLE_ID = env.int("MOODLE_TEACHER_ROLE_ID", default=3)
+MOODLE_STUDENT_ROLE_ID = env.int("MOODLE_STUDENT_ROLE_ID", default=5)
+MOODLE_INITIAL_PASSWORD = env("MOODLE_INITIAL_PASSWORD", default="")
+
+MOODLE_FALLBACK_EMAIL_DOMAIN = env("MOODLE_FALLBACK_EMAIL_DOMAIN", default="felixiot.site")
