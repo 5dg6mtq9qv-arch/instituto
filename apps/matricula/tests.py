@@ -465,8 +465,42 @@ class MatriculaProcesoTests(TestCase):
         form = FichaInscripcionForm(instance=ficha)
 
         self.assertTrue(form.payment_fields_locked)
-        for field_name in ["forma_pago_convenio", "fecha_proximo_pago", "valor_proximo_pago", "abono", "saldo"]:
+        for field_name in ["forma_pago_convenio", "fecha_proximo_pago", "valor_proximo_pago", "valor_matricula", "abono", "saldo"]:
             self.assertTrue(form.fields[field_name].disabled)
+
+    def test_ficha_edit_creates_and_updates_matricula_without_duplicates(self):
+        from django.forms.models import model_to_dict
+
+        estudiante = self.create_partner("1002003099", "Alumno Sin Matricula", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa, numero="000199", fecha=date(2026, 9, 2),
+            cliente=estudiante, estudiante=estudiante, estado="activa",
+            saldo=Decimal("384.00"), valor_total_curso=Decimal("384.00"),
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa, ficha_inscripcion=ficha,
+            valor_total=Decimal("384.00"), saldo=Decimal("384.00"),
+        )
+        regular = Cuota.objects.create(
+            plan_pago=plan, numero=1, fecha_pago_debito=ficha.fecha, valor=Decimal("128.00"),
+        )
+        for value, expected in [("30.00", "414.00"), ("30.00", "414.00"), ("40.00", "424.00"), ("0.00", "384.00")]:
+            data = model_to_dict(ficha)
+            data["valor_matricula"] = value
+            form = FichaInscripcionForm(data=data, instance=ficha)
+            self.assertTrue(form.is_valid(), form.errors)
+            form.save()
+            ficha.refresh_from_db()
+            plan.refresh_from_db()
+            self.assertEqual(plan.saldo, Decimal(expected))
+            self.assertEqual(plan.valor_total, Decimal(expected))
+            self.assertEqual(ficha.saldo, plan.saldo)
+            self.assertEqual(plan.cuotas.filter(numero=-1).count(), 1)
+            matricula = plan.cuotas.get(numero=-1)
+            self.assertEqual(matricula.valor, Decimal(value))
+            self.assertEqual(matricula.activo, Decimal(value) > 0)
+        regular.refresh_from_db()
+        self.assertEqual(regular.valor, Decimal("128.00"))
 
     def test_ficha_edit_updates_student_city_switch(self):
         estudiante = self.create_partner("1002003014", "Alumno Ibarra", es_estudiante=True, es_de_ibarra=True)

@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
@@ -146,14 +147,20 @@ class FichaInscripcionListView(InstitutoListView):
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("estudiante", "representante", "curso", "aula", "periodo_academico")
-        q = self.request.GET.get("q")
-        if q:
-            queryset = queryset.filter(
-                Q(numero__icontains=q)
-                | Q(estudiante__nombre__icontains=q)
-                | Q(estudiante__identificacion__icontains=q)
-                | Q(representante__nombre__icontains=q)
-            )
+        fields = (
+            "estudiante__nombre", "estudiante__apellido", "estudiante__identificacion",
+            "estudiante__email", "estudiante__telefono", "estudiante__telefono_celular",
+            "estudiante__direccion", "estudiante__ocupacion", "estudiante__comentario",
+            "numero", "aula__nombre", "curso__nombre", "periodo_academico__nombre",
+            "correo_estudiante", "colegio", "curso_grado", "carrera", "universidad", "horario",
+            "cliente__nombre", "cliente__apellido", "cliente__identificacion",
+            "representante__nombre", "representante__apellido", "representante__identificacion",
+        )
+        for term in self.request.GET.get("q", "").split():
+            matches = Q()
+            for field in fields:
+                matches |= Q(**{f"{field}__icontains": term})
+            queryset = queryset.filter(matches)
         return queryset
 
     def get_primary_url(self, obj):
@@ -183,6 +190,13 @@ class FichaInscripcionUpdateView(InstitutoUpdateView):
     template_name = "matricula/ficha_form.html"
     title = "Editar ficha de inscripcion"
     cancel_url = reverse_lazy("matricula:ficha_list")
+
+    def form_valid(self, form):
+        try:
+            return super().form_valid(form)
+        except ValidationError as exc:
+            form.add_error(None, exc)
+            return self.form_invalid(form)
 
     def get_success_url(self):
         return reverse("matricula:ficha_documentos", kwargs={"pk": self.object.pk})

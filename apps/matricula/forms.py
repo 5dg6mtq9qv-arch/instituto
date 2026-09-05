@@ -2,13 +2,14 @@ from decimal import Decimal
 
 from django import forms
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
 from apps.core.forms import BootstrapFormMixin
 from apps.core.models import Partner
 from apps.cartera.forms import pago_comprobante_duplicado, pago_comprobante_duplicado_message
-from apps.cartera.models import FormaPago
+from apps.cartera.models import Cuota, FormaPago, PlanPago
 
 from .models import Aula, Curso, FichaInscripcion, PeriodoAcademico
 
@@ -47,6 +48,11 @@ class AulaForm(BootstrapFormMixin, forms.ModelForm):
 
 
 class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
+    valor_matricula = forms.DecimalField(
+        label="Valor de matrícula", min_value=0, max_digits=12, decimal_places=2,
+        required=False,
+        help_text="Sin pagos registrados, crea o actualiza el rubro matrícula y ajusta el saldo automáticamente.",
+    )
     estudiante_es_de_ibarra = forms.BooleanField(
         label="Es de Ibarra",
         required=False,
@@ -83,6 +89,7 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             "forma_pago_convenio",
             "fecha_proximo_pago",
             "valor_proximo_pago",
+            "valor_matricula",
             "abono",
             "saldo",
             "promo",
@@ -119,6 +126,7 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
                 "forma_pago_convenio",
                 "fecha_proximo_pago",
                 "valor_proximo_pago",
+                "valor_matricula",
                 "abono",
                 "saldo",
             ]:
@@ -134,8 +142,53 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
         except ObjectDoesNotExist:
             return False
 
+    def clean_valor_matricula(self):
+        value = self.cleaned_data.get("valor_matricula")
+        return self.initial.get("valor_matricula", Decimal("0.00")) if value is None else value
+
+    def clean(self):
+        data = super().clean()
+        if data.get("valor_matricula") != self.initial.get("valor_matricula", Decimal("0.00")) and not self.payment_fields_locked:
+            if not self.instance.pk or not PlanPago.objects.filter(ficha_inscripcion=self.instance, activo=True).exists():
+                self.add_error("valor_matricula", "La ficha necesita un plan de pago activo para modificar la matrícula.")
+        return data
+
+    @transaction.atomic
     def save(self, commit=True):
+        plan = None
+        if commit and self.instance.pk and not self.payment_fields_locked:
+            plan = PlanPago.objects.select_for_update().filter(ficha_inscripcion=self.instance, activo=True).first()
+            if plan and self.cleaned_data["valor_matricula"] == self.initial.get("valor_matricula", Decimal("0.00")):
+                missing = self.cleaned_data["valor_matricula"] > 0 and not plan.cuotas.filter(
+                    numero=Cuota.NUMERO_MATRICULA, activo=True,
+                ).exists()
+                if not missing:
+                    plan = None
+            if plan:
+                list(plan.cuotas.select_for_update())
+                if plan.cuotas.filter(pagos__isnull=False).exists():
+                    raise forms.ValidationError("Se registraron pagos mientras editabas. Recarga la ficha antes de guardar.")
         ficha = super().save(commit=commit)
+        if plan:
+            valor = ficha.valor_matricula
+            cuota = plan.cuotas.filter(numero=Cuota.NUMERO_MATRICULA).first()
+            if valor > 0 or cuota:
+                Cuota.objects.update_or_create(
+                    plan_pago=plan, numero=Cuota.NUMERO_MATRICULA,
+                    defaults={"valor": valor, "valor_pagado": Decimal("0.00"),
+                              "fecha_pago_debito": cuota.fecha_pago_debito if cuota else ficha.fecha,
+                              "estado": "pendiente" if valor > 0 else "anulada",
+                              "activo": valor > 0, "observacion": "Matricula"},
+                )
+            diferencia = valor - plan.valor_matricula
+            plan.valor_matricula = valor
+            plan.valor_total += diferencia
+            plan.saldo += diferencia
+            if plan.saldo > 0 and plan.estado == "cerrado":
+                plan.estado = "activo"
+            plan.save(update_fields=["valor_matricula", "valor_total", "saldo", "estado", "updated"])
+            ficha.saldo = plan.saldo
+            ficha.save(update_fields=["saldo"])
         estudiante = self.cleaned_data.get("estudiante")
         if commit and estudiante:
             estudiante.es_de_ibarra = self.cleaned_data.get("estudiante_es_de_ibarra", False)
