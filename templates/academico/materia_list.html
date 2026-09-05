@@ -25,6 +25,8 @@
       <button class="btn btn-primary-600 list-search-btn" type="submit">Buscar</button>
     </form>
 
+    {% include "web/includes/list_pagination.html" %}
+
     <div class="table-responsive list-table-responsive">
       <table class="table table-hover align-middle app-table">
         <thead>
@@ -61,30 +63,6 @@
       </table>
     </div>
 
-    {% if is_paginated %}
-      <div class="list-pagination">
-        <span>Pagina {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
-        <nav aria-label="Paginacion">
-          {% if page_obj.has_previous %}
-            <a href="?page={{ page_obj.previous_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-left-s-line"></i></a>
-          {% else %}
-            <span class="disabled"><i class="ri-arrow-left-s-line"></i></span>
-          {% endif %}
-          {% for number in page_obj.paginator.page_range %}
-            {% if number == page_obj.number %}
-              <span class="active">{{ number }}</span>
-            {% elif number >= page_obj.number|add:-2 and number <= page_obj.number|add:2 %}
-              <a href="?page={{ number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}">{{ number }}</a>
-            {% endif %}
-          {% endfor %}
-          {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}{% if pagination_query %}&{{ pagination_query }}{% endif %}"><i class="ri-arrow-right-s-line"></i></a>
-          {% else %}
-            <span class="disabled"><i class="ri-arrow-right-s-line"></i></span>
-          {% endif %}
-        </nav>
-      </div>
-    {% endif %}
   </section>
 {% endblock %}
 

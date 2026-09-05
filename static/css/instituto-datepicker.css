@@ -20,7 +20,8 @@
   box-shadow: 0 20px 48px rgba(15, 23, 42, 0.16);
   font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   overflow: hidden;
-  padding: 10px;
+  padding: 0;
+  width: 310px;
 }
 
 .flatpickr-calendar.instituto-date-calendar::before,
@@ -34,7 +35,7 @@
   border: 1px solid #e4e9f1;
   border-radius: 8px;
   height: 44px;
-  margin-bottom: 10px;
+  margin: 10px 10px 10px;
 }
 
 .flatpickr-calendar.instituto-date-calendar .flatpickr-month {
@@ -109,6 +110,12 @@
   margin-bottom: 4px;
 }
 
+.flatpickr-calendar.instituto-date-calendar .flatpickr-weekdaycontainer {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  width: 100%;
+}
+
 .flatpickr-calendar.instituto-date-calendar .flatpickr-weekday {
   color: #64748b !important;
   font-size: 12px;
@@ -120,15 +127,23 @@
   width: 308px;
 }
 
+.flatpickr-calendar.instituto-date-calendar .dayContainer {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
 .flatpickr-calendar.instituto-date-calendar .flatpickr-day {
+  align-self: center;
   border-radius: 8px;
   color: #1f2937 !important;
   font-size: 14px;
   font-weight: 700;
   height: 38px;
+  justify-self: center;
   line-height: 38px;
-  margin: 2px;
-  max-width: 40px;
+  margin: 2px 0;
+  max-width: 38px;
+  width: 38px;
 }
 
 .flatpickr-calendar.instituto-date-calendar .flatpickr-day:hover,
@@ -168,5 +183,19 @@
 
 .flatpickr-calendar.instituto-date-calendar .flatpickr-time {
   border-top: 1px solid #e4e9f1;
-  margin: 8px -10px 0;
+  margin: 8px 0 0;
+}
+
+@media (max-width: 350px) {
+  .flatpickr-calendar.instituto-date-calendar {
+    width: calc(100vw - 8px);
+  }
+
+  .flatpickr-calendar.instituto-date-calendar .flatpickr-days,
+  .flatpickr-calendar.instituto-date-calendar .dayContainer {
+    max-width: 100%;
+    min-width: 100%;
+    width: 100%;
+  }
+
 }

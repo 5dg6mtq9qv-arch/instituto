@@ -231,6 +231,65 @@ class MatriculaProcesoTests(TestCase):
             "La identificacion del representante no puede ser igual a la del estudiante.",
         )
 
+    @patch("django.utils.timezone.localdate", return_value=date(2026, 9, 4))
+    def test_adult_student_can_represent_themselves(self, _mock_localdate):
+        self.client.force_login(self.user)
+        estudiante = self.create_partner(
+            "1002003010",
+            "Estudiante Adulto",
+            es_estudiante=True,
+            fecha_nacimiento=date(2008, 9, 4),
+        )
+        url = reverse("matricula:matricula_proceso")
+
+        response = self.client.post(
+            url,
+            {"estudiante_modo": "seleccionar", "estudiante_partner": estudiante.pk},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(response.status_code, 302)
+
+        response = self.client.post(
+            f"{url}?paso=representante",
+            {"representante_modo": "autorepresentar"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], f"{url}?paso=matricula")
+        estudiante.refresh_from_db()
+        self.assertTrue(estudiante.es_representante)
+        self.assertTrue(estudiante.es_cliente)
+        self.assertEqual(
+            self.client.session["matricula_proceso"]["representante"]["partner_id"],
+            str(estudiante.pk),
+        )
+
+    @patch("django.utils.timezone.localdate", return_value=date(2026, 9, 4))
+    def test_minor_student_cannot_represent_themselves(self, _mock_localdate):
+        self.client.force_login(self.user)
+        estudiante = self.create_partner(
+            "1002003011",
+            "Estudiante Menor",
+            es_estudiante=True,
+            fecha_nacimiento=date(2008, 9, 5),
+        )
+        url = reverse("matricula:matricula_proceso")
+        self.client.post(
+            url,
+            {"estudiante_modo": "seleccionar", "estudiante_partner": estudiante.pk},
+            HTTP_HOST="localhost",
+        )
+
+        response = self.client.post(
+            f"{url}?paso=representante",
+            {"representante_modo": "autorepresentar"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Solo un estudiante mayor de edad puede representarse a sí mismo.")
+
     def test_initial_payment_rejects_duplicate_receipt_number(self):
         cliente = self.create_partner("1002003003", "Maria Representante", es_cliente=True)
         estudiante = self.create_partner("1002003004", "Juan Estudiante", es_estudiante=True)

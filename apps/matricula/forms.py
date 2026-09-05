@@ -149,6 +149,9 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         ("seleccionar", "Seleccionar existente"),
         ("crear", "Crear nuevo"),
     )
+    REPRESENTANTE_MODO_CHOICES = MODO_CHOICES + (
+        ("autorepresentar", "El estudiante se representa a sí mismo"),
+    )
 
     estudiante_modo = forms.ChoiceField(
         label="Registro del estudiante",
@@ -182,7 +185,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
 
     representante_modo = forms.ChoiceField(
         label="Registro del representante",
-        choices=MODO_CHOICES,
+        choices=REPRESENTANTE_MODO_CHOICES,
         initial="seleccionar",
         widget=forms.RadioSelect(attrs={"class": "mode-options"}),
     )
@@ -452,6 +455,32 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             return
         modo = cleaned_data.get("representante_modo")
         partner = cleaned_data.get("representante_partner")
+        if modo == "autorepresentar":
+            estudiante = Partner.objects.filter(
+                pk=self.estudiante_guardado_id,
+                es_estudiante=True,
+                activo=True,
+            ).first()
+            if not estudiante:
+                self.add_error(None, "Primero guarde un estudiante activo para usar la autorrepresentación.")
+                return
+            edad = calcular_edad(estudiante.fecha_nacimiento)
+            if edad is None:
+                self.add_error(None, "El estudiante debe tener una fecha de nacimiento para autorrepresentarse.")
+                return
+            if edad < 18:
+                self.add_error(None, "Solo un estudiante mayor de edad puede representarse a sí mismo.")
+                return
+            cleaned_data["representante_partner"] = estudiante
+            cleaned_data["representante_identificacion"] = estudiante.identificacion
+            cleaned_data["representante_nombre"] = estudiante.nombre
+            cleaned_data["representante_apellido"] = estudiante.apellido
+            cleaned_data["representante_email"] = estudiante.email
+            cleaned_data["representante_telefono"] = estudiante.telefono
+            cleaned_data["representante_celular"] = estudiante.telefono_celular
+            cleaned_data["representante_ocupacion"] = estudiante.ocupacion
+            cleaned_data["representante_direccion"] = estudiante.direccion
+            return
         if modo == "seleccionar":
             if not partner:
                 self.add_error("representante_partner", "Seleccione un representante activo.")
@@ -495,6 +524,8 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
 
     def clean_identificaciones_distintas(self, cleaned_data):
         if "estudiante_identificacion" not in self.fields or "representante_identificacion" not in self.fields:
+            return
+        if cleaned_data.get("representante_modo") == "autorepresentar":
             return
         estudiante_identificacion = (cleaned_data.get("estudiante_identificacion") or "").strip().lower()
         representante_identificacion = (cleaned_data.get("representante_identificacion") or "").strip().lower()

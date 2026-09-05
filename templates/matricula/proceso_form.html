@@ -6,7 +6,7 @@
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
-  <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}">
+  <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}?v=20260904-3">
 {% endblock %}
 
 {% block content %}
@@ -101,6 +101,11 @@
                 {% endfor %}
               </div>
               {% include "web/form_field.html" with field=form.representante_partner cols="col-12" %}
+              <div class="col-12 d-none" data-autorepresentacion-message>
+                <div class="alert alert-info mb-0">
+                  Se usarán los datos del estudiante como representante. Esta opción solo está permitida para mayores de 18 años.
+                </div>
+              </div>
             </div>
           </section>
 
@@ -371,6 +376,10 @@
           const mode = checked ? checked.value : "seleccionar";
           setFieldsVisible(config.selectFields, mode === "seleccionar");
           setFieldsVisible(config.createFields, mode === "crear");
+          if (config.name === "representante") {
+            const message = qs("[data-autorepresentacion-message]");
+            if (message) message.classList.toggle("d-none", mode !== "autorepresentar");
+          }
           syncModeCards(config.name);
         }
 

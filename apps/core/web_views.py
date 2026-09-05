@@ -9,7 +9,7 @@ from apps.core.models import Empresa
 
 class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
     template_name = "web/object_list.html"
-    paginate_by = 20
+    paginate_by = 50
     title = ""
     create_url_name = None
     create_label = "Nuevo"

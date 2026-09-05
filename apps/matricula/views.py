@@ -325,6 +325,8 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         }
 
     def add_same_identification_error(self, form, session_data):
+        if form.cleaned_data.get("representante_modo") == "autorepresentar":
+            return False
         estudiante_identificacion = (session_data.get("estudiante", {}).get("estudiante_identificacion") or "").strip()
         representante_identificacion = (form.cleaned_data.get("representante_identificacion") or "").strip()
         if (
@@ -505,7 +507,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         Partner.objects.filter(pk=estudiante_id).update(es_de_ibarra=data.get("estudiante_es_de_ibarra", False))
 
     def guardar_representante(self, data, empresa):
-        if data.get("representante_modo") == "seleccionar" and data.get("representante_partner"):
+        if data.get("representante_modo") in {"seleccionar", "autorepresentar"} and data.get("representante_partner"):
             partner = data["representante_partner"]
             update_fields = []
             if not partner.es_cliente:
