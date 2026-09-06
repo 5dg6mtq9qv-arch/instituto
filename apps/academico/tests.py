@@ -1611,6 +1611,91 @@ class DocenteHorariosPanelTests(TestCase):
             self.assertFalse(HorarioAulaCurso.objects.filter(pk=bloque.pk).exists())
             self.assertTrue(HorarioDia.objects.filter(pk=dia.pk).exists())
 
+    def test_superuser_resets_planning_and_preserves_teacher_assignment(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        self.client.force_login(self.user)
+        clase = self.revision
+        clase.estado_planificacion = "aprobada"
+        clase.tema = self.tema
+        clase.subtema = self.subtema
+        clase.docente = self.docente
+        clase.docente_override = True
+        clase.revisado_por = self.docente
+        clase.fecha_revision = timezone.now()
+        clase.asistencia_cerrada = True
+        clase.revision_tema_ok = True
+        clase.save()
+        clase.sync_subtemas_planificados([self.subtema])
+        clase.competencias.add(self.competencia)
+        clase.estrategias.add(self.estrategia)
+        clase.recursos.add(self.recurso)
+        ClaseAsistencia.objects.create(clase=clase, estudiante=self.docente)
+        ClaseHoraDocente.objects.create(clase=clase, docente=self.docente, horas=1)
+        page = self.client.get(reverse("academico:planificacion_academica"), {"curso": self.curso.pk}, HTTP_HOST="localhost")
+        self.assertContains(page, "Borrar planificación definitivamente")
+        event = next(item for item in json.loads(page.context["calendar_events_json"]) if item["claseId"] == clase.pk)
+        self.assertTrue(event["canResetPlanning"])
+        response = self.client.post(reverse("academico:planificacion_academica"), {
+            "planning_action": "reset_planning", "curso": self.curso.pk,
+            "clase": clase.pk, "confirm_reset": "1",
+        }, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 302)
+        clase.refresh_from_db()
+        self.assertEqual(clase.estado_planificacion, "pendiente")
+        self.assertEqual(clase.descripcion, "")
+        self.assertIsNone(clase.tema)
+        self.assertIsNone(clase.subtema)
+        self.assertIsNone(clase.revisado_por)
+        self.assertIsNone(clase.fecha_revision)
+        self.assertFalse(clase.asistencia_cerrada)
+        self.assertFalse(clase.revision_tema_ok)
+        self.assertEqual(clase.docente, self.docente)
+        self.assertTrue(clase.docente_override)
+        self.assertEqual(clase.materia_curso, self.materia_curso)
+        for related in [clase.clase_subtemas, clase.competencias, clase.estrategias, clase.clase_recursos, clase.asistencias_clase]:
+            self.assertFalse(related.exists())
+        self.assertFalse(ClaseHoraDocente.objects.filter(clase=clase).exists())
+        self.assertTrue(Recurso.objects.filter(pk=self.recurso.pk).exists())
+        self.rechazada.refresh_from_db()
+        self.assertEqual(self.rechazada.estado_planificacion, "rechazada")
+        self.user.is_superuser = False
+        self.user.save(update_fields=["is_superuser"])
+        self.user.user_permissions.add(Permission.objects.get(codename="change_clase", content_type__app_label="academico"))
+        response = self.client.get(reverse("academico:docente_clase_planificar", args=[clase.pk]), HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 200)
+
+    def test_planning_reset_denies_staff_even_with_all_academic_permissions(self):
+        self.create_periodo_for_course()
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.user.user_permissions.add(*Permission.objects.filter(content_type__app_label="academico"))
+        self.client.force_login(self.user)
+        page = self.client.get(reverse("academico:planificacion_academica"), {"curso": self.curso.pk}, HTTP_HOST="localhost")
+        self.assertNotContains(page, "Borrar planificación definitivamente")
+        self.assertTrue(all(not item["canResetPlanning"] for item in json.loads(page.context["calendar_events_json"])))
+        response = self.client.post(reverse("academico:planificacion_academica"), {
+            "planning_action": "reset_planning", "curso": self.curso.pk,
+            "clase": self.revision.pk, "confirm_reset": "1",
+        }, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 403)
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.estado_planificacion, "revision")
+
+    def test_planning_reset_requires_confirmation_and_matching_group(self):
+        self.make_superuser()
+        self.client.force_login(self.user)
+        url = reverse("academico:planificacion_academica")
+        payload = {"planning_action": "reset_planning", "curso": self.curso.pk, "clase": self.revision.pk}
+        self.assertEqual(self.client.post(url, payload, HTTP_HOST="localhost").status_code, 302)
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.estado_planificacion, "revision")
+        otro = Curso.objects.create(nombre="Otro grupo", activo=True)
+        payload.update(curso=otro.pk, confirm_reset="1")
+        self.assertEqual(self.client.post(url, payload, HTTP_HOST="localhost").status_code, 404)
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.estado_planificacion, "revision")
+
     def test_academic_planning_does_not_delete_schedule_with_classes(self):
         self.make_superuser()
         self.client.force_login(self.user)
@@ -1620,6 +1705,51 @@ class DocenteHorariosPanelTests(TestCase):
         }, follow=True, HTTP_HOST="localhost")
         self.assertContains(response, "ya tiene clases asignadas o planificadas")
         self.assertTrue(HorarioAulaCurso.objects.filter(pk=self.horario_aula_curso.pk).exists())
+        self.assertEqual(Clase.objects.filter(horario_aula_curso=self.horario_aula_curso).count(), 4)
+
+    def test_superuser_deletes_schedule_with_classes_after_confirmation(self):
+        self.create_periodo_for_course()
+        self.make_superuser()
+        self.client.force_login(self.user)
+        self.revision.estado_planificacion = "aprobada"
+        self.revision.save(update_fields=["estado_planificacion"])
+        self.revision.competencias.add(self.competencia)
+        self.revision.recursos.add(self.recurso)
+        ClaseAsistencia.objects.create(clase=self.revision, estudiante=self.docente)
+        ClaseHoraDocente.objects.create(clase=self.revision, docente=self.docente, horas=1)
+        url = reverse("academico:planificacion_academica")
+        page = self.client.get(url, {"curso": self.curso.pk}, HTTP_HOST="localhost")
+        event = next(item for item in json.loads(page.context["calendar_events_json"]) if item["horarioId"] == self.horario_aula_curso.pk)
+        self.assertTrue(event["canDeleteSchedule"])
+        self.assertEqual(event["scheduleClassCount"], 4)
+        payload = {
+            "planning_action": "delete_schedule", "curso": self.curso.pk,
+            "schedule_horario_aula_curso": self.horario_aula_curso.pk,
+            "confirm_delete_classes": "3",
+        }
+        self.client.post(url, payload, HTTP_HOST="localhost")
+        self.assertTrue(Clase.objects.filter(pk=self.revision.pk).exists())
+        payload["confirm_delete_classes"] = "4"
+        response = self.client.post(url, payload, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(HorarioAulaCurso.objects.filter(pk=self.horario_aula_curso.pk).exists())
+        self.assertFalse(Clase.objects.filter(horario_aula_curso_id=self.horario_aula_curso.pk).exists())
+        self.assertFalse(ClaseAsistencia.objects.filter(clase_id=self.revision.pk).exists())
+        self.assertFalse(ClaseHoraDocente.objects.filter(clase_id=self.revision.pk).exists())
+        self.assertTrue(Recurso.objects.filter(pk=self.recurso.pk).exists())
+        self.assertTrue(Horario.objects.filter(pk=self.horario.pk).exists())
+
+    def test_staff_with_all_permissions_cannot_delete_occupied_schedule(self):
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        self.user.user_permissions.add(*Permission.objects.filter(content_type__app_label="academico"))
+        self.client.force_login(self.user)
+        response = self.client.post(reverse("academico:planificacion_academica"), {
+            "planning_action": "delete_schedule", "curso": self.curso.pk,
+            "schedule_horario_aula_curso": self.horario_aula_curso.pk,
+            "confirm_delete_classes": "4",
+        }, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 403)
         self.assertEqual(Clase.objects.filter(horario_aula_curso=self.horario_aula_curso).count(), 4)
 
     def test_academic_planning_delete_schedule_checks_permission_and_group(self):

@@ -121,12 +121,30 @@
           <input type="hidden" name="planning_action" value="delete_schedule">
           <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
           <input type="hidden" name="schedule_horario_aula_curso" data-delete-schedule-id>
+          <input type="hidden" name="confirm_delete_classes" data-delete-schedule-confirm>
           <p class="text-muted" data-delete-schedule-scope></p>
           <button class="btn btn-outline-danger w-100 mb-3" type="submit">Eliminar horario</button>
         </form>
       {% endif %}
 
       {% if can_save and selected_curso %}
+        {% if request.user.is_superuser %}
+          <form method="post" data-reset-planning-form hidden class="border rounded p-3 mb-3">
+            {% csrf_token %}
+            <input type="hidden" name="planning_action" value="reset_planning">
+            <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
+            <input type="hidden" name="clase" data-reset-planning-id>
+            <strong>Borrar planificación de esta clase</strong>
+            <p>Se borrarán definitivamente el contenido, la revisión, las asistencias, las horas docentes y los movimientos de alumnos relacionados con esta clase. El docente, la materia y la fecha seguirán asignados, con la planificación pendiente.</p>
+            <div class="form-check d-flex align-items-start gap-2 mb-3">
+              <input class="form-check-input flex-shrink-0" id="confirmResetPlanning" type="checkbox" name="confirm_reset" value="1" required>
+              <label class="form-check-label" for="confirmResetPlanning">
+                Confirmo el borrado definitivo de esta planificación y sus registros relacionados.
+              </label>
+            </div>
+            <button class="btn btn-outline-danger w-100" type="submit">Borrar planificación definitivamente</button>
+          </form>
+        {% endif %}
         <form method="post" novalidate>
           {% csrf_token %}
           <input type="hidden" name="planning_action" value="assign_class">
@@ -291,6 +309,15 @@
       const planningMateriaInput = document.querySelector("[data-planning-materia]");
       const planningDocenteInput = document.querySelector("[data-planning-docente]");
       const planningDocenteContainer = document.querySelector("[data-planning-docente-container]");
+      const resetConfirmation = document.getElementById("confirmResetPlanning");
+      if (resetConfirmation) {
+        resetConfirmation.addEventListener("invalid", function () {
+          this.setCustomValidity("Marca la casilla para confirmar el borrado definitivo.");
+        });
+        resetConfirmation.addEventListener("change", function () {
+          this.setCustomValidity("");
+        });
+      }
       let periodSwitchery = null;
       let schedulePeriodSwitchery = null;
       let activePlanningEvent = null;
@@ -537,12 +564,19 @@
 
       function openMateriaPanel(event) {
         if (!canSave && !canDeleteSchedule) return;
-        if (event.lockedReason && !event.canDeleteSchedule) {
+        if (event.lockedReason && !event.canDeleteSchedule && !event.canResetPlanning) {
           showCalendarNotice(event.lockedReason);
           return;
         }
         activePlanningEvent = event;
         hideCalendarNotice();
+        const resetForm = document.querySelector("[data-reset-planning-form]");
+        if (resetForm) {
+          resetForm.reset();
+          if (resetConfirmation) resetConfirmation.setCustomValidity("");
+          resetForm.hidden = !event.canResetPlanning;
+          resetForm.querySelector("[data-reset-planning-id]").value = event.claseId || "";
+        }
         const planningHorario = document.querySelector("[data-planning-horario]");
         const planningFecha = document.querySelector("[data-planning-fecha]");
         if (planningHorario) planningHorario.value = event.horarioId;
@@ -551,7 +585,12 @@
         if (deleteForm) {
           deleteForm.hidden = !event.canDeleteSchedule;
           deleteForm.querySelector("[data-delete-schedule-id]").value = event.horarioId;
-          const scope = event.singleDate ? "Se eliminará este horario puntual." : "Se eliminará este horario recurrente de todas las fechas en las que aparece.";
+          deleteForm.querySelector("[data-delete-schedule-confirm]").value = "";
+          let scope = event.singleDate ? "Se eliminará este horario puntual." : "Se eliminará este horario recurrente de todas las fechas en las que aparece, incluso fuera del período visible.";
+          if (event.scheduleClassCount) {
+            scope += ` También se borrarán definitivamente sus ${event.scheduleClassCount} clase(s), sus planificaciones, revisiones, asistencias, horas docentes y movimientos de alumnos relacionados. Las clases dejarán de aparecer al docente.`;
+          }
+          deleteForm.dataset.classCount = event.scheduleClassCount || 0;
           deleteForm.querySelector("[data-delete-schedule-scope]").textContent = scope;
           deleteForm.dataset.confirmMessage = scope + " ¿Deseas continuar?";
         }
@@ -598,6 +637,7 @@
                 reverseButtons: true
               });
               if (result.isConfirmed) {
+                deleteScheduleForm.querySelector("[data-delete-schedule-confirm]").value = deleteScheduleForm.dataset.classCount;
                 deleteScheduleForm.querySelector('button[type="submit"]').disabled = true;
                 HTMLFormElement.prototype.submit.call(deleteScheduleForm);
               } else {

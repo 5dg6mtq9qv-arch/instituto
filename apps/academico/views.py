@@ -1030,6 +1030,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
 
     def post(self, request, *args, **kwargs):
         action = request.POST.get("planning_action") or "assign_class"
+        if action == "reset_planning":
+            if not request.user.is_superuser:
+                return self.handle_no_permission()
+            return self.handle_reset_planning(request)
         if action == "add_schedule":
             if not self.can_add_schedule(request.user):
                 return self.handle_no_permission()
@@ -1056,6 +1060,26 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
     def can_save_class(self, user):
         return user.is_superuser or user.has_perm("academico.add_clase") or user.has_perm("academico.change_clase")
 
+    def handle_reset_planning(self, request):
+        curso = self.get_request_curso(request)
+        if not curso or request.POST.get("confirm_reset") != "1":
+            messages.error(request, "Confirma el borrado definitivo de la planificación seleccionada.")
+            return self.redirect_to_planning(curso)
+        with transaction.atomic():
+            clase = get_object_or_404(
+                Clase.objects.select_for_update(),
+                pk=request.POST.get("clase") if str(request.POST.get("clase", "")).isdigit() else None,
+                horario_aula_curso__aula_curso__curso=curso,
+            )
+            reset_fields = self.reset_clase_planificacion(clase)
+            ClaseHoraDocente.objects.filter(clase=clase).delete()
+            clase.save(update_fields=reset_fields)
+        messages.success(
+            request,
+            "Planificación borrada definitivamente. La clase conserva su asignación y vuelve a estar pendiente para el docente.",
+        )
+        return self.redirect_to_planning(curso)
+
     def can_add_schedule(self, user):
         return (
             user.is_superuser
@@ -1079,9 +1103,15 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             except (HorarioAulaCurso.DoesNotExist, TypeError, ValueError):
                 messages.error(request, "Selecciona un horario valido para eliminar.")
                 return self.redirect_to_planning(curso)
-            if Clase.objects.filter(horario_aula_curso=horario).exists():
-                messages.error(request, "No se puede eliminar el horario porque ya tiene clases asignadas o planificadas.")
-                return self.redirect_to_planning(curso)
+            clases = list(Clase.objects.select_for_update().filter(horario_aula_curso=horario))
+            if clases:
+                if not request.user.is_superuser:
+                    return self.handle_no_permission()
+                if request.POST.get("confirm_delete_classes") != str(len(clases)):
+                    messages.error(request, "El horario ya tiene clases asignadas o planificadas. Confirma su borrado definitivo; si cambió la cantidad, recarga la página.")
+                    return self.redirect_to_planning(curso)
+                for clase in clases:
+                    self.delete_clase_assignment(clase)
             horario.delete()
         messages.success(request, "Horario eliminado correctamente.")
         return self.redirect_to_planning(curso)
@@ -1632,9 +1662,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     "aula_curso__aula__nombre",
                 )
             )
-            horarios_con_clases = set(
+            horarios_con_clases = dict(
                 Clase.objects.filter(horario_aula_curso__in=horarios)
-                .values_list("horario_aula_curso_id", flat=True)
+                .order_by().values("horario_aula_curso_id").annotate(total=Count("pk"))
+                .values_list("horario_aula_curso_id", "total")
             )
             clases = {}
             docentes_by_materia_curso = {}
@@ -1722,7 +1753,10 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                             {
                                 "id": f"{horario_aula_curso.pk}-{current_date.isoformat()}",
                                 "horarioId": horario_aula_curso.pk,
-                                "canDeleteSchedule": self.can_delete_schedule(self.request.user) and horario_aula_curso.pk not in horarios_con_clases,
+                                "claseId": clase.pk if clase else None,
+                                "canResetPlanning": bool(self.request.user.is_superuser and clase),
+                                "canDeleteSchedule": self.can_delete_schedule(self.request.user) and (self.request.user.is_superuser or horario_aula_curso.pk not in horarios_con_clases),
+                                "scheduleClassCount": horarios_con_clases.get(horario_aula_curso.pk, 0),
                                 "fecha": current_date.isoformat(),
                                 "title": " · ".join(title_parts),
                                 "start": f"{current_date.isoformat()}T{horario.hora_inicio:%H:%M:%S}",
