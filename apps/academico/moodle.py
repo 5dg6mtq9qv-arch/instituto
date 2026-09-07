@@ -1,11 +1,16 @@
 """Cliente REST de Moodle. Las credenciales viajan únicamente en el cuerpo POST."""
 
+import base64
+import hashlib
+import ipaddress
 import json
+from cryptography.fernet import Fernet, InvalidToken
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, build_opener
 
 from django.conf import settings
+from django.db import OperationalError, ProgrammingError
 from django.views.decorators.debug import sensitive_variables
 
 
@@ -48,20 +53,105 @@ class NoRedirects(HTTPRedirectHandler):
         return None
 
 
+def normalize_moodle_url(value):
+    """Normaliza una URL y admite HTTP solo para destinos internos."""
+    value = (value or "").strip()
+    if not value:
+        raise MoodleError("Ingresa la URL de Moodle.")
+    if "://" not in value:
+        candidate_host = value.split("/", 1)[0].split(":", 1)[0].lower()
+        try:
+            address = ipaddress.ip_address(candidate_host.strip("[]"))
+        except ValueError:
+            address = None
+        internal = (
+            candidate_host == "localhost"
+            or "." not in candidate_host
+            or bool(address and (address.is_private or address.is_loopback or address.is_link_local))
+        )
+        value = ("http://" if internal else "https://") + value
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError:
+        raise MoodleError("La URL de Moodle no es válida.") from None
+    if parsed.scheme not in {"http", "https"} or not hostname:
+        raise MoodleError("Usa una URL HTTP o HTTPS válida.")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise MoodleError("La URL no debe incluir credenciales, parámetros ni fragmentos.")
+    hostname = hostname.lower()
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    internal = (
+        hostname == "localhost"
+        or hostname.endswith(".localhost")
+        or "." not in hostname
+        or bool(address and (address.is_private or address.is_loopback or address.is_link_local))
+    )
+    if parsed.scheme == "http" and not internal:
+        raise MoodleError("Usa HTTPS. HTTP solo se permite para localhost, nombres internos o IP privadas.")
+    path = parsed.path.rstrip("/")
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc, path, "", ""))
+
+
+def _token_cipher(secret):
+    key = hashlib.sha256(("moodle-api-token:" + secret).encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(key))
+
+
+@sensitive_variables("token")
+def encrypt_moodle_token(token):
+    return _token_cipher(settings.SECRET_KEY).encrypt(token.encode()).decode()
+
+
+def decrypt_moodle_token(encrypted_token):
+    if not encrypted_token:
+        return ""
+    for secret in [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]:
+        try:
+            return _token_cipher(secret).decrypt(encrypted_token.encode()).decode()
+        except InvalidToken:
+            continue
+    raise MoodleError("No se pudo descifrar el token de Moodle. Revisa la clave del servidor.")
+
+
+def _saved_configuration():
+    # Durante una migración inicial la tabla todavía puede no existir. En ese
+    # caso se conserva la compatibilidad temporal con las variables de entorno.
+    from .models import MoodleConfiguracion
+
+    try:
+        return MoodleConfiguracion.objects.first()
+    except (OperationalError, ProgrammingError):
+        return None
+    except Exception as exc:
+        # SimpleTestCase bloquea explícitamente consultas de base de datos.
+        if exc.__class__.__name__ == "DatabaseOperationForbidden":
+            return None
+        raise
+
+
 class MoodleClient:
-    def __init__(self):
-        self.base_url = settings.MOODLE_BASE_URL.rstrip("/")
-        self.token = settings.MOODLE_TOKEN
-        self.timeout = settings.MOODLE_TIMEOUT
+    @sensitive_variables("token")
+    def __init__(self, configuration=None, *, base_url=None, token=None, timeout=None):
+        configuration = configuration if configuration is not None else _saved_configuration()
+        if configuration is not None:
+            base_url = configuration.base_url
+            token = decrypt_moodle_token(configuration.token_cifrado)
+        configured_url = base_url or settings.MOODLE_BASE_URL
+        self.base_url = normalize_moodle_url(configured_url) if configured_url else ""
+        self.token = token if token is not None else settings.MOODLE_TOKEN
+        self.timeout = timeout if timeout is not None else settings.MOODLE_TIMEOUT
         self.opener = build_opener(NoRedirects())
 
     @sensitive_variables()
     def call(self, function, parameters=None):
         url = urlsplit(self.base_url)
         if not self.token or not url.netloc:
-            raise MoodleError("Configura MOODLE_BASE_URL y MOODLE_TOKEN en .env.")
-        if url.scheme != "https" or url.username or url.password or url.query or url.fragment:
-            raise MoodleError("MOODLE_BASE_URL debe ser una URL HTTPS sin credenciales ni parámetros.")
+            raise MoodleError("Configura la URL y el token de Moodle.")
         payload = flatten_parameters(parameters or {})
         payload.update(wstoken=self.token, wsfunction=function, moodlewsrestformat="json")
         try:
@@ -72,11 +162,39 @@ class MoodleClient:
             ) as response:
                 result = json.load(response)
         except HTTPError as exc:
-            raise MoodleError(f"Moodle respondió con HTTP {exc.code}. Revisa la URL y el servidor.") from None
-        except (URLError, TimeoutError, OSError):
-            raise MoodleError("No se pudo conectar con Moodle. Revisa la red y el certificado HTTPS.") from None
+            messages = {
+                401: (
+                    "Moodle no aceptó las credenciales. Comprueba que el token esté bien escrito "
+                    "y siga activo."
+                ),
+                403: (
+                    "El servidor de Moodle no permitió la conexión. Comprueba que el token sea "
+                    "válido y que los servicios web estén habilitados. Si el problema continúa, "
+                    "pide al encargado del servidor que permita la conexión desde este sistema."
+                ),
+                404: (
+                    "No encontramos el servicio web en esa dirección. Confirma que la URL sea la "
+                    "dirección principal de Moodle."
+                ),
+            }
+            if exc.code >= 500:
+                message = "Moodle tiene un problema temporal. Espera unos minutos y vuelve a intentarlo."
+            else:
+                message = messages.get(
+                    exc.code,
+                    "Moodle rechazó la conexión. Revisa la dirección y vuelve a intentarlo.",
+                )
+            raise MoodleError(message) from None
+        except TimeoutError:
+            raise MoodleError("Moodle tardó demasiado en responder. Espera un momento y vuelve a intentarlo.") from None
+        except (URLError, OSError):
+            raise MoodleError(
+                "No pudimos comunicarnos con Moodle. Comprueba que la dirección abra desde este servidor."
+            ) from None
         except (ValueError, UnicodeError):
-            raise MoodleError("Moodle no devolvió una respuesta JSON válida.") from None
+            raise MoodleError(
+                "La dirección respondió, pero no parece ser el servicio web de Moodle. Revisa la URL configurada."
+            ) from None
         if isinstance(result, dict) and ("exception" in result or "errorcode" in result):
             messages = {
                 "invalidtoken": "El token de Moodle no es válido o ha caducado.",

@@ -1670,6 +1670,43 @@ class MoodleCurso(models.Model):
         return f"{self.sitio.rstrip('/')}/course/view.php?id={self.curso_id}" if self.curso_id else ""
 
 
+class MoodleConfiguracion(models.Model):
+    """Única conexión Moodle utilizada por el sistema."""
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    base_url = models.CharField(
+        "URL de Moodle",
+        max_length=500,
+        default="https://aula.solucionesintegrales.xyz",
+    )
+    token_cifrado = models.TextField(blank=True, editable=False)
+    ultima_prueba = models.DateTimeField(null=True, blank=True)
+    ultima_prueba_exitosa = models.BooleanField(null=True, blank=True)
+    ultimo_resultado = models.CharField(max_length=500, blank=True)
+    usuario_updated = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario_updated",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+    )
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = '"academico"."moodle_configuracion"'
+        default_permissions = ()
+        verbose_name = "configuración de Moodle"
+        verbose_name_plural = "configuración de Moodle"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.base_url
+
+
 class MoodleCuenta(models.Model):
     persona = models.ForeignKey("core.Partner", on_delete=models.PROTECT, related_name="cuentas_moodle")
     sitio = models.URLField()

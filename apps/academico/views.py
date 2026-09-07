@@ -11,11 +11,13 @@ from django.db import connection, transaction
 from django.db.models import Prefetch
 from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin
 from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.debug import sensitive_post_parameters
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -39,6 +41,7 @@ from .forms import (
     HorarioAsignacionBaseForm,
     HorarioAsignacionFormSet,
     HorarioClaseForm,
+    MoodleConfiguracionForm,
     CoordinacionPlanificacionForm,
     CoordinacionTemaFormSet,
     ClaseHoraDocenteForm,
@@ -69,6 +72,7 @@ from .models import (
     HorarioDia,
     Materia,
     MateriaCurso,
+    MoodleConfiguracion,
     MateriaSubtema,
     MateriaTema,
     Periodo,
@@ -2754,6 +2758,89 @@ class MoodleAccesosExcelView(TemasAsignadosMixin, CoordinacionRequiredMixin, Vie
         response["Cache-Control"] = "no-store, private"
         response["X-Content-Type-Options"] = "nosniff"
         return response
+
+
+@method_decorator(sensitive_post_parameters("token"), name="dispatch")
+class MoodleConfiguracionView(LoginRequiredMixin, UserPassesTestMixin, View):
+    template_name = "academico/moodle_configuracion.html"
+
+    def test_func(self):
+        user = self.request.user
+        return user.is_superuser or user.groups.filter(name="Administrador").exists()
+
+    def get_configuracion(self):
+        return MoodleConfiguracion.objects.first() or MoodleConfiguracion()
+
+    def render_form(self, form):
+        configuracion = form.instance
+        return render(
+            self.request,
+            self.template_name,
+            {
+                "title": "Configuración de Moodle",
+                "form": form,
+                "configuracion": configuracion,
+                "token_configurado": bool(configuracion.token_cifrado),
+            },
+        )
+
+    def get(self, request, *args, **kwargs):
+        return self.render_form(MoodleConfiguracionForm(instance=self.get_configuracion()))
+
+    def post(self, request, *args, **kwargs):
+        from .moodle import MoodleClient, MoodleError
+
+        if request.POST.get("action") == "test":
+            configuracion = MoodleConfiguracion.objects.first()
+            if not configuracion or not configuracion.token_cifrado:
+                messages.error(request, "Primero guarda la URL y el token de Moodle.")
+                return redirect("academico:moodle_configuracion")
+            try:
+                client = MoodleClient(configuration=configuracion)
+                info = client.site_info()
+                missing = client.missing_functions(info)
+                site_name = info.get("sitename") or "Moodle"
+                release = info.get("release") or "versión no informada"
+                result = f"La conexión funciona correctamente con {site_name} ({release})."
+                if missing:
+                    result += (
+                        " El token todavía no tiene todos los permisos necesarios para crear cursos y "
+                        "matricular participantes. Pide al administrador de Moodle que complete los permisos "
+                        "del servicio web asociado con este token."
+                    )
+                    messages.warning(request, result)
+                else:
+                    messages.success(
+                        request,
+                        result + " El sistema ya puede crear cursos y matricular participantes.",
+                    )
+                configuracion.ultima_prueba_exitosa = True
+            except MoodleError as exc:
+                result = str(exc)
+                configuracion.ultima_prueba_exitosa = False
+                messages.error(request, result)
+            configuracion.ultima_prueba = timezone.now()
+            configuracion.ultimo_resultado = result[:500]
+            configuracion.save(
+                update_fields=["ultima_prueba", "ultima_prueba_exitosa", "ultimo_resultado", "updated"]
+            )
+            return redirect("academico:moodle_configuracion")
+
+        original = MoodleConfiguracion.objects.first()
+        original_url = original.base_url if original else ""
+        form = MoodleConfiguracionForm(request.POST, instance=original or MoodleConfiguracion())
+        if not form.is_valid():
+            return self.render_form(form)
+        changed = not original or form.cleaned_data["base_url"] != original_url or bool(form.cleaned_data["token"])
+        configuracion = form.save(commit=False)
+        configuracion.usuario_updated = request.user
+        if changed:
+            configuracion.ultima_prueba = None
+            configuracion.ultima_prueba_exitosa = None
+            configuracion.ultimo_resultado = ""
+        configuracion.save()
+        messages.success(request, "Configuración de Moodle guardada. Ya puedes probar la conexión.")
+        return redirect("academico:moodle_configuracion")
 
 
 class CoordinacionMoodleCursoView(TemasAsignadosMixin, CoordinacionRequiredMixin, View):

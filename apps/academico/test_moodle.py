@@ -1,12 +1,26 @@
 import io
 import json
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.management import call_command
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
 
-from apps.academico.moodle import MoodleClient, MoodleError, NoRedirects, REQUIRED_FUNCTIONS
+from apps.academico.models import MoodleConfiguracion
+from apps.academico.moodle import (
+    MoodleClient,
+    MoodleError,
+    NoRedirects,
+    REQUIRED_FUNCTIONS,
+    decrypt_moodle_token,
+    encrypt_moodle_token,
+    normalize_moodle_url,
+)
+from apps.core.menu import permitted_menu_groups
 
 
 @override_settings(MOODLE_BASE_URL="https://moodle.example", MOODLE_TOKEN="private-test-token", MOODLE_TIMEOUT=7)
@@ -25,6 +39,35 @@ class MoodleClientTests(SimpleTestCase):
         self.assertIn(b"wstoken=private-test-token", kwargs["data"])
         self.assertEqual(kwargs["timeout"], 7)
 
+    def test_local_moodle_urls_allow_http(self):
+        self.assertEqual(normalize_moodle_url("127.0.0.1/moodle"), "http://127.0.0.1/moodle")
+        self.assertEqual(
+            normalize_moodle_url("http://192.168.10.25/moodle/"),
+            "http://192.168.10.25/moodle",
+        )
+        self.assertEqual(
+            normalize_moodle_url("https://aula.solucionesintegrales.xyz/"),
+            "https://aula.solucionesintegrales.xyz",
+        )
+
+    def test_public_http_and_credentials_in_url_are_rejected(self):
+        with self.assertRaises(MoodleError):
+            normalize_moodle_url("http://moodle.example.com")
+        with self.assertRaises(MoodleError):
+            normalize_moodle_url("https://user:secret@moodle.example.com")
+
+    @override_settings(SECRET_KEY="test-secret", SECRET_KEY_FALLBACKS=[])
+    def test_saved_token_is_encrypted_and_can_configure_client(self):
+        encrypted = encrypt_moodle_token("private-test-token")
+        self.assertNotIn("private-test-token", encrypted)
+        self.assertEqual(decrypt_moodle_token(encrypted), "private-test-token")
+        client = MoodleClient(configuration=SimpleNamespace(
+            base_url="http://127.0.0.1/moodle",
+            token_cifrado=encrypted,
+        ))
+        self.assertEqual(client.base_url, "http://127.0.0.1/moodle")
+        self.assertEqual(client.token, "private-test-token")
+
     def test_remote_errors_do_not_disclose_response_or_token(self):
         client = self.client_with_response(b'{"exception":"error", "errorcode":"invalidtoken", "message":"private-test-token"}')
         with self.assertRaises(MoodleError) as caught:
@@ -40,6 +83,18 @@ class MoodleClientTests(SimpleTestCase):
             with self.assertRaises(MoodleError) as caught:
                 client.site_info()
             self.assertNotIn("private-test-token", str(caught.exception))
+
+    def test_http_errors_are_explained_without_technical_codes(self):
+        client = self.client_with_response(b"{}")
+        client.opener.open.side_effect = HTTPError("https://moodle.example", 403, "Forbidden", {}, None)
+
+        with self.assertRaises(MoodleError) as caught:
+            client.site_info()
+
+        message = str(caught.exception)
+        self.assertIn("no permitió la conexión", message)
+        self.assertIn("token", message)
+        self.assertNotIn("HTTP 403", message)
 
     def test_redirects_are_not_followed(self):
         self.assertIsNone(NoRedirects().redirect_request(None, None, 302, "", {}, "https://other.example"))
@@ -138,3 +193,79 @@ class MoodleClientTests(SimpleTestCase):
         self.assertNotIn("<script>", summary)
         self.assertIn("&lt;img&gt;", summary)
         self.assertLess(summary.index("<li>A</li>"), summary.index("<li>B</li>"))
+
+
+@override_settings(SECRET_KEY="test-secret", SECRET_KEY_FALLBACKS=[])
+class MoodleConfiguracionViewTests(TestCase):
+    def setUp(self):
+        self.admin_group = Group.objects.get_or_create(name="Administrador")[0]
+        self.admin = get_user_model().objects.create_user(username="moodle_admin", password="Clave987!")
+        self.admin.groups.add(self.admin_group)
+        self.other_user = get_user_model().objects.create_user(username="moodle_other", password="Clave987!")
+        self.url = reverse("academico:moodle_configuracion")
+
+    def test_only_administrator_can_open_configuration_and_see_menu_link(self):
+        self.client.force_login(self.other_user)
+        self.assertEqual(self.client.get(self.url, HTTP_HOST="localhost").status_code, 403)
+
+        self.client.force_login(self.admin)
+        response = self.client.get(self.url, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Guardar configuración")
+        self.assertContains(response, "Probar conexión guardada")
+        administrativo = next(
+            group for group in permitted_menu_groups(self.admin) if group["label"] == "Administrativo"
+        )
+        self.assertIn("Configuración Moodle", [item["label"] for item in administrativo["items"]])
+
+    def test_saves_encrypted_token_and_blank_token_keeps_it(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            self.url,
+            {"base_url": "https://aula.solucionesintegrales.xyz/", "token": "token-super-secreto", "action": "save"},
+            HTTP_HOST="localhost",
+        )
+        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        configuration = MoodleConfiguracion.objects.get()
+        original = configuration.token_cifrado
+        self.assertNotIn("token-super-secreto", original)
+        self.assertEqual(decrypt_moodle_token(original), "token-super-secreto")
+
+        self.client.post(
+            self.url,
+            {"base_url": "http://127.0.0.1/moodle", "token": "", "action": "save"},
+            HTTP_HOST="localhost",
+        )
+        configuration.refresh_from_db()
+        self.assertEqual(configuration.token_cifrado, original)
+        self.assertEqual(configuration.base_url, "http://127.0.0.1/moodle")
+
+    @patch("apps.academico.moodle.MoodleClient")
+    def test_connection_button_records_result(self, client_class):
+        client = client_class.return_value
+        client.site_info.return_value = {
+            "sitename": "Aula Instituto",
+            "release": "5.1.5+",
+            "functions": [{"name": name} for name in REQUIRED_FUNCTIONS],
+        }
+        client.missing_functions.return_value = []
+        self.client.force_login(self.admin)
+        self.client.post(
+            self.url,
+            {"base_url": "https://aula.solucionesintegrales.xyz", "token": "valid-token", "action": "save"},
+            HTTP_HOST="localhost",
+        )
+        saved_token = MoodleConfiguracion.objects.get().token_cifrado
+        response = self.client.post(
+            self.url,
+            {"action": "test", "base_url": "http://127.0.0.1/ignored", "token": "ignored-token"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(response, self.url, fetch_redirect_response=False)
+        configuration = MoodleConfiguracion.objects.get()
+        self.assertTrue(configuration.ultima_prueba_exitosa)
+        self.assertIn("Aula Instituto", configuration.ultimo_resultado)
+        self.assertEqual(configuration.base_url, "https://aula.solucionesintegrales.xyz")
+        self.assertEqual(configuration.token_cifrado, saved_token)
+        client_class.assert_called_once_with(configuration=configuration)

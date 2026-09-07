@@ -28,6 +28,7 @@ urlpatterns = [
     path("planificacion-docente/asignar/", views.PlanificacionDocenteAsignadorView.as_view(), name="planificacion_docente_asignar"),
     path("planificacion-docente/<int:docente_pk>/asignar/", views.PlanificacionDocenteAsignadorView.as_view(), name="planificacion_docente_editar"),
     path("estudiantes-grupo/", views.GrupoEstudianteListView.as_view(), name="grupo_estudiantes"),
+    path("configuracion/moodle/", views.MoodleConfiguracionView.as_view(), name="moodle_configuracion"),
     path("coordinacion/moodle/<int:materia_curso_pk>/accesos.xlsx", views.MoodleAccesosExcelView.as_view(), name="moodle_accesos_excel"),
     path("coordinacion/moodle/<int:materia_curso_pk>/", views.CoordinacionMoodleCursoView.as_view(), name="coordinacion_moodle_curso"),
     path("coordinacion/temas/", views.CoordinacionPlanificacionListView.as_view(), name="coordinacion_planificacion_list"),

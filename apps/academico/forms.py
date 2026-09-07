@@ -25,6 +25,7 @@ from .models import (
     HorarioClase,
     Materia,
     MateriaCurso,
+    MoodleConfiguracion,
     Periodo,
     PlanificacionClase,
     PlanificacionDocente,
@@ -35,6 +36,52 @@ from .models import (
     Tema,
     Temario,
 )
+
+
+class MoodleConfiguracionForm(BootstrapFormMixin, forms.ModelForm):
+    token = forms.CharField(
+        label="Token del servicio web",
+        required=False,
+        help_text="Por seguridad, el token guardado no se vuelve a mostrar. Déjalo vacío para conservarlo.",
+        widget=forms.PasswordInput(
+            render_value=False,
+            attrs={"autocomplete": "new-password", "placeholder": "Pega aquí el token de Moodle"},
+        ),
+    )
+
+    class Meta:
+        model = MoodleConfiguracion
+        fields = ["base_url"]
+        widgets = {
+            "base_url": forms.TextInput(
+                attrs={"placeholder": "https://aula.solucionesintegrales.xyz", "autocomplete": "url"}
+            ),
+        }
+
+    def clean_base_url(self):
+        from .moodle import MoodleError, normalize_moodle_url
+
+        try:
+            return normalize_moodle_url(self.cleaned_data["base_url"])
+        except MoodleError as exc:
+            raise forms.ValidationError(str(exc)) from None
+
+    def clean_token(self):
+        token = (self.cleaned_data.get("token") or "").strip()
+        if not token and not self.instance.token_cifrado:
+            raise forms.ValidationError("Ingresa el token del servicio web de Moodle.")
+        return token
+
+    def save(self, commit=True):
+        from .moodle import encrypt_moodle_token
+
+        instance = super().save(commit=False)
+        token = self.cleaned_data.get("token")
+        if token:
+            instance.token_cifrado = encrypt_moodle_token(token)
+        if commit:
+            instance.save()
+        return instance
 
 
 class HorarioAsignacionBaseForm(BootstrapFormMixin, forms.Form):

@@ -72,6 +72,7 @@ MENU_GROUPS = [
             {"label": "Docentes", "url_name": "core:docente_list", "perm": None, "groups": ["Director"]},
             {"label": "Usuarios", "url_name": "core:usuario_list", "perm": None, "groups": ["Administrador"]},
             {"label": "Grupos", "url_name": "core:grupo_list", "perm": None, "groups": ["Administrador"]},
+            {"label": "Configuración Moodle", "url_name": "academico:moodle_configuracion", "perm": None, "groups": ["Administrador"]},
         ],
     },
     {

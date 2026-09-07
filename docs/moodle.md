@@ -36,8 +36,16 @@ en caché. La columna identifica la clave como inicial, no como contraseña vige
 
 ## Configuración
 
-En `.env`: `MOODLE_BASE_URL`, `MOODLE_TOKEN`, `MOODLE_TIMEOUT` (20 segundos por
-petición), `MOODLE_CATEGORY_ID` (1), `MOODLE_TEACHER_ROLE_ID` (3) y
+El grupo **Administrador** configura la URL y el token en **Administrativo →
+Configuración Moodle**. El token se guarda cifrado, nunca vuelve a mostrarse y el
+botón **Guardar y probar conexión** consulta la información del sitio sin modificar
+Moodle. Se admite una URL HTTPS y también HTTP para `localhost`, nombres internos e
+IP privadas cuando ambos sistemas están en el mismo servidor o red.
+
+Si todavía no existe una configuración en la base, se usan temporalmente
+`MOODLE_BASE_URL` y `MOODLE_TOKEN` desde `.env`. Las demás opciones se mantienen en
+`.env`: `MOODLE_TIMEOUT` (20 segundos por petición), `MOODLE_CATEGORY_ID` (1),
+`MOODLE_TEACHER_ROLE_ID` (3) y
 `MOODLE_STUDENT_ROLE_ID` (5). Los valores de roles corresponden a los roles
 estándar profesor editor y estudiante: comprobarlos si la instalación personalizó
 los roles. La matriculación manual debe estar habilitada para los cursos nuevos.

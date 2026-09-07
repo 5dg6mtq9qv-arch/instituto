@@ -1,0 +1,73 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Administrativo</p>
+      <h1>{{ title }}</h1>
+      <p class="text-muted mb-0">Credenciales usadas para crear cursos y matricular participantes.</p>
+    </div>
+  </header>
+
+  <div class="row g-4">
+    <div class="col-xl-8">
+      <form class="panel form-panel" method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label" for="{{ form.base_url.id_for_label }}">{{ form.base_url.label }}</label>
+            {{ form.base_url }}
+            <div class="form-text">Puedes usar HTTPS o, si Moodle está en la red interna, localhost o una IP privada con HTTP.</div>
+            {% for error in form.base_url.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="{{ form.token.id_for_label }}">{{ form.token.label }}</label>
+            {{ form.token }}
+            <div class="form-text">
+              {% if token_configurado %}
+                Hay un token cifrado guardado. Déjalo vacío para conservarlo.
+              {% else %}
+                Ingresa el token generado para el servicio web de Moodle.
+              {% endif %}
+            </div>
+            {% for error in form.token.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+        </div>
+        <div class="form-actions">
+          <a class="btn btn-outline-secondary" href="{% url 'home' %}">Cancelar</a>
+          <button class="btn btn-primary" type="submit" name="action" value="save">Guardar configuración</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="col-xl-4">
+      <section class="panel form-panel h-100" aria-labelledby="connection-status-title">
+        <h2 class="h5" id="connection-status-title">Estado de la conexión</h2>
+        {% if configuracion.ultima_prueba %}
+          <p class="mb-2">
+            {% if configuracion.ultima_prueba_exitosa %}
+              <span class="badge bg-success-100 text-success-600">Conectado</span>
+            {% else %}
+              <span class="badge bg-danger-100 text-danger-600">No se pudo conectar</span>
+            {% endif %}
+          </p>
+          <p class="text-muted text-sm mb-2">Última prueba: {{ configuracion.ultima_prueba|date:"d/m/Y H:i" }}</p>
+          <p class="mb-0">{{ configuracion.ultimo_resultado }}</p>
+        {% else %}
+          <p class="text-muted mb-0">Aún no se ha probado esta conexión.</p>
+        {% endif %}
+        <form method="post" class="mt-4">
+          {% csrf_token %}
+          <button class="btn btn-outline-primary w-100" type="submit" name="action" value="test"{% if not token_configurado %} disabled{% endif %}>
+            <i class="ri-plug-line"></i> Probar conexión guardada
+          </button>
+        </form>
+      </section>
+    </div>
+  </div>
+{% endblock %}
