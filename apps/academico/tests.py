@@ -2059,6 +2059,25 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertNotContains(response, "Crear nuevo")
         self.assertEqual(response.context["planning_total"], 4)
 
+    def test_docente_class_planning_with_override_and_multiple_assignments(self):
+        other_docente, _ = self.create_docente()
+        ProfesorMateriaCurso.objects.create(
+            partner=other_docente,
+            materia_curso=self.materia_curso,
+        )
+        self.pendiente.docente = self.docente
+        self.pendiente.docente_override = True
+        self.pendiente.save(update_fields=["docente", "docente_override"])
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["clase"], self.pendiente)
+
     def test_docente_topic_planning_assigns_available_class(self):
         self.client.force_login(self.user)
 

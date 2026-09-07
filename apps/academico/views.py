@@ -5383,7 +5383,8 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                 "clase_subtemas__subtema",
                 Prefetch("clase_recursos", queryset=ClaseRecurso.objects.select_related("recurso")),
             )
-            .filter(docente_responsable_filter(docente)),
+            .filter(docente_responsable_filter(docente))
+            .distinct(),
             pk=self.kwargs["pk"],
         )
 
