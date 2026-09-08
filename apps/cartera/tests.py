@@ -3,6 +3,7 @@ from decimal import Decimal
 from tempfile import TemporaryDirectory
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group, Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -193,6 +194,7 @@ class FormaPagoFormTests(TestCase):
         self.assertEqual(response.context["student_payment_summary"]["vencidos"], 1)
         self.assertEqual(response.context["student_payment_summary"]["pagos_realizados"], 1)
         self.assertEqual(response.context["student_payment_summary"]["total_pagado"], Decimal("40.00"))
+        self.assertTrue(response.context["can_view_financial_summary"])
         self.assertContains(response, "Cobros por alumno")
         self.assertContains(response, "Vencidos")
         self.assertContains(response, "Pendientes")
@@ -201,6 +203,59 @@ class FormaPagoFormTests(TestCase):
         self.assertContains(response, "Ver pagos")
         self.assertContains(response, reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}))
         self.assertContains(response, reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}))
+
+    def test_student_wallet_list_hides_financial_summary_without_specific_permission(self):
+        self.create_payment_flow_data()
+        limited_user = get_user_model().objects.create_user(username="cartera_limitada", password="ClaveActual987!")
+        limited_user.user_permissions.add(
+            Permission.objects.get(content_type__app_label="cartera", codename="view_cuota")
+        )
+        self.client.force_login(limited_user)
+
+        response = self.client.get(reverse("cartera:alumno_cartera_list"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["can_view_financial_summary"])
+        self.assertNotIn("saldo", response.context["student_payment_summary"])
+        self.assertNotIn("total_pagado", response.context["student_payment_summary"])
+        self.assertNotIn("pagos_realizados", response.context["student_payment_summary"])
+        self.assertNotContains(response, "Saldo por cobrar")
+        self.assertNotContains(response, "Pagos realizados")
+        self.assertNotContains(response, "Pagos registrados")
+        self.assertNotContains(response, "Ver pagos")
+        self.assertContains(response, "Vencidos")
+
+    def test_student_wallet_list_hides_financial_data_from_direccion_group(self):
+        self.create_payment_flow_data()
+        direccion_user = get_user_model().objects.create_user(username="direccion_cartera", password="ClaveActual987!")
+        direccion_user.groups.add(Group.objects.get(name="Direccion"))
+        self.client.force_login(direccion_user)
+
+        response = self.client.get(reverse("cartera:alumno_cartera_list"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["can_view_financial_summary"])
+        self.assertNotContains(response, "Saldo por cobrar")
+        self.assertNotContains(response, "Pagos realizados")
+        self.assertNotContains(response, "Pagos registrados")
+        self.assertNotContains(response, "Ver pagos")
+
+    def test_student_wallet_list_shows_financial_summary_with_specific_permission(self):
+        self.create_payment_flow_data()
+        authorized_user = get_user_model().objects.create_user(username="cartera_resumen", password="ClaveActual987!")
+        authorized_user.user_permissions.add(
+            Permission.objects.get(content_type__app_label="cartera", codename="view_cuota"),
+            Permission.objects.get(content_type__app_label="cartera", codename="view_resumen_financiero"),
+        )
+        self.client.force_login(authorized_user)
+
+        response = self.client.get(reverse("cartera:alumno_cartera_list"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["can_view_financial_summary"])
+        self.assertEqual(response.context["student_payment_summary"]["saldo"], Decimal("400.00"))
+        self.assertContains(response, "Saldo por cobrar")
+        self.assertContains(response, "Pagos realizados")
 
     def test_payment_create_redirects_to_student_wallet_flow(self):
         self.client.force_login(self.user)

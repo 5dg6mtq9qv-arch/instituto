@@ -210,6 +210,37 @@ class SecurityGroupViewTests(TestCase):
         self.assertTrue(self.target_group.permissions.filter(pk=permission.pk).exists())
         self.assertTrue(member.groups.filter(pk=self.target_group.pk).exists())
 
+    def test_financial_summary_permission_can_be_enabled_from_group_form(self):
+        self.admin_group.permissions.clear()
+        user = get_user_model().objects.create_user(username="admin_finanzas", password="ClaveActual987!")
+        user.groups.add(self.admin_group)
+        permission = Permission.objects.get(
+            content_type__app_label="cartera",
+            codename="view_resumen_financiero",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Resumen financiero y pagos")
+        self.assertContains(response, f'value="{permission.pk}"')
+
+        response = self.client.post(
+            reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}),
+            {
+                "name": self.target_group.name,
+                "permissions": [permission.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(response, reverse("core:grupo_list"), fetch_redirect_response=False)
+        self.assertTrue(self.target_group.permissions.filter(pk=permission.pk).exists())
+
     def test_administrador_group_can_assign_groups_from_user_form(self):
         self.admin_group.permissions.clear()
         user = get_user_model().objects.create_user(username="admin_users", password="ClaveActual987!")

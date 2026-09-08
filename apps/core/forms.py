@@ -345,6 +345,10 @@ PERMISSION_ACTION_LABELS = (
     ("delete_", "Eliminar"),
 )
 
+PERMISSION_ACTION_OVERRIDES = {
+    "view_resumen_financiero": "Resumen financiero y pagos",
+}
+
 
 class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
     permissions = forms.ModelMultipleChoiceField(
@@ -442,6 +446,8 @@ class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
 
     @staticmethod
     def permission_action_label(permission):
+        if permission.codename in PERMISSION_ACTION_OVERRIDES:
+            return PERMISSION_ACTION_OVERRIDES[permission.codename]
         for prefix, label in PERMISSION_ACTION_LABELS:
             if permission.codename.startswith(prefix):
                 return label

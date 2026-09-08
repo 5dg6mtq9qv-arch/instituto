@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manual técnico — Instituto</title>
+  <link rel="stylesheet" href="manuales.css">
+</head>
+<body>
+<main>
+  <section class="cover">
+    <div>
+      <div class="mark">I</div>
+      <h1>Manual técnico y diagnóstico</h1>
+      <p class="subtitle">Arquitectura, modelo funcional, configuración, despliegue, operación, pruebas y estado actual del Sistema de Gestión del Instituto.</p>
+    </div>
+    <div class="meta">
+      <div><strong>Versión del documento</strong><br>1.0</div>
+      <div><strong>Fecha del barrido</strong><br>8 de septiembre de 2026</div>
+      <div><strong>Base revisada</strong><br>Commit 90d49ed + cambios de trabajo</div>
+      <div><strong>Clasificación</strong><br>Uso técnico interno</div>
+    </div>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Resumen ejecutivo</p>
+    <h1>Estado del sistema</h1>
+    <p class="lead">El sistema es funcional para la operación interna de matrícula, cartera y gestión académica. La integración Moodle está conectada y operativa. Antes de considerarlo endurecido para producción deben resolverse la política de permisos detectada y los parámetros de seguridad HTTPS.</p>
+
+    <div class="cards three">
+      <article class="card"><span class="metric">168</span><strong>pruebas ejecutadas</strong><p class="small">167 aprobaron y 1 expuso una inconsistencia de permisos.</p></article>
+      <article class="card"><span class="metric">58</span><strong>migraciones de aplicaciones</strong><p class="small">Sin cambios de modelo pendientes después de la migración 0043.</p></article>
+      <article class="card"><span class="metric">58</span><strong>plantillas HTML</strong><p class="small">Interfaz web renderizada por Django.</p></article>
+      <article class="card"><span class="metric">172</span><strong>fichas y planes</strong><p class="small">No se encontraron fichas sin plan ni planes sin cuotas.</p></article>
+      <article class="card"><span class="metric">3</span><strong>cursos Moodle vinculados</strong><p class="small">2 completos; 1 pendiente de completar.</p></article>
+      <article class="card"><span class="metric">5.1.5+</span><strong>Moodle comprobado</strong><p class="small">Servicio web y funciones requeridas disponibles.</p></article>
+    </div>
+
+    <h2>Conclusión por área</h2>
+    <table>
+      <thead><tr><th>Área</th><th>Estado</th><th>Conclusión</th></tr></thead>
+      <tbody>
+        <tr><td>Modelos y migraciones</td><td><span class="status ok">Correcto</span></td><td>Esquema sincronizado; migración 0043 aplicada.</td></tr>
+        <tr><td>Validación Django</td><td><span class="status ok">Correcto</span></td><td><code>manage.py check</code> sin problemas.</td></tr>
+        <tr><td>Pruebas automatizadas</td><td><span class="status partial">Atención</span></td><td>1 prueba falla por discrepancia de acceso a Horas docente.</td></tr>
+        <tr><td>Moodle</td><td><span class="status ok">Operativo</span></td><td>Conexión real confirmada; curso, cuentas y matrículas reintentables.</td></tr>
+        <tr><td>Seguridad de despliegue</td><td><span class="status risk">Pendiente</span></td><td>Seis advertencias de <code>check --deploy</code>.</td></tr>
+        <tr><td>Operación académica</td><td><span class="status partial">En uso inicial</span></td><td>157 clases; muchas aún sin docente y sin asistencias registradas.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warning">
+      <strong>Interpretación</strong>
+      “Funcional” no equivale a “listo para Internet sin controles”. El código cubre los flujos centrales, pero el entorno productivo debe activar HTTPS, cookies seguras, secreto robusto, respaldo automatizado y una política de roles confirmada.
+    </div>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Arquitectura</p>
+    <h1>Plataforma y componentes</h1>
+
+    <h2>Stack</h2>
+    <table>
+      <thead><tr><th>Capa</th><th>Tecnología revisada</th><th>Responsabilidad</th></tr></thead>
+      <tbody>
+        <tr><td>Lenguaje</td><td>Python 3.11</td><td>Lógica de servidor y comandos.</td></tr>
+        <tr><td>Framework</td><td>Django 5.2.17</td><td>Autenticación, vistas, formularios, ORM, plantillas y administración.</td></tr>
+        <tr><td>Base de datos</td><td>PostgreSQL; cliente 17.11</td><td>Persistencia transaccional y esquemas por aplicación.</td></tr>
+        <tr><td>Frontend</td><td>HTML, CSS, JavaScript, Bootstrap y componentes locales</td><td>Interfaz responsiva renderizada en servidor.</td></tr>
+        <tr><td>Documentos</td><td>openpyxl, LibreOffice y utilidades ODT/DOCX</td><td>Excel, fichas, contratos y conversiones PDF.</td></tr>
+        <tr><td>Integración</td><td>Moodle REST + cryptography/Fernet</td><td>Cursos, estructura, usuarios, matrículas y secretos cifrados.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Flujo de una petición</h2>
+    <div class="flow">
+      <div>Navegador</div>
+      <div>URLs Django</div>
+      <div>Vista + permiso</div>
+      <div>Formulario / servicio</div>
+      <div>PostgreSQL o Moodle</div>
+    </div>
+    <p>La aplicación es principalmente server-rendered. No se encontró una API REST pública registrada, aunque Django REST Framework está instalado.</p>
+
+    <h2>Estructura del repositorio</h2>
+    <pre>config/                 settings, URLs raíz, WSGI y ASGI
+apps/core/              empresas, personas, usuarios, menú y permisos
+apps/matricula/         matrícula, fichas, documentos y calendario de cuotas
+apps/cartera/           planes, cuotas, pagos y comprobantes
+apps/academico/         planificación, clases, asistencia, docentes y Moodle
+apps/auditoria/         modelo de log administrativo
+templates/              58 plantillas de interfaz
+static/                 CSS, JavaScript y librerías visuales
+media/                  archivos cargados por usuarios
+templates_odt/          plantillas de documentos
+docs/                   documentación funcional y técnica</pre>
+
+    <h2>Aplicaciones Django</h2>
+    <table>
+      <thead><tr><th>Aplicación</th><th>Dominio</th><th>Observación</th></tr></thead>
+      <tbody>
+        <tr><td><code>core</code></td><td>Empresa, Partner, relaciones, usuarios y grupos.</td><td><code>Partner</code> centraliza estudiante, representante y docente.</td></tr>
+        <tr><td><code>matricula</code></td><td>Ficha, periodo comercial, curso/aula de matrícula e historial.</td><td>Crea el plan y las cuotas en una transacción.</td></tr>
+        <tr><td><code>cartera</code></td><td>FormaPago, PlanPago, Cuota y Pago.</td><td>Registro manual; sin pasarela externa.</td></tr>
+        <tr><td><code>academico</code></td><td>Periodo, grupo, aula, horarios, materias, clases, planificación, asistencia y Moodle.</td><td>Contiene un modelo académico moderno y entidades heredadas.</td></tr>
+        <tr><td><code>auditoria</code></td><td>LogAccion.</td><td>Disponible en administración; no se evidenció cobertura automática total.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Modelo funcional</p>
+    <h1>Datos y relaciones principales</h1>
+
+    <h2>Personas y matrícula</h2>
+    <pre>Empresa
+  └─ Partner
+      ├─ indicadores: estudiante / representante / docente
+      ├─ relaciones PartnerPartner
+      ├─ FichaInscripcion
+      └─ MoodleCuenta por sitio
+
+FichaInscripcion
+  ├─ estudiante, representante y cliente
+  ├─ periodo, curso y aula de matrícula
+  └─ PlanPago
+      ├─ Cuota matrícula (número 0)
+      ├─ Cuotas ordinarias
+      └─ Pago(s) por cuota</pre>
+
+    <h2>Operación académica</h2>
+    <pre>Periodo ─ CursoPeriodo ─ Curso (grupo)
+                        ├─ AulaCurso ─ Aula
+                        ├─ MateriaCurso ─ Materia
+                        │   ├─ ProfesorMateriaCurso ─ Partner docente
+                        │   ├─ PlanificacionDocente
+                        │   ├─ Clase
+                        │   └─ MoodleCurso
+                        └─ GrupoEstudiante ─ Partner estudiante
+
+Materia ─ MateriaTema ─ MateriaSubtema
+                    └─ sincronización a Tema/Subtema de cada grupo</pre>
+
+    <h2>Reglas relevantes</h2>
+    <ul>
+      <li>La identificación de <code>Partner</code> es única.</li>
+      <li>Una ficha tiene un plan de pago relacionado; cada pago pertenece a una cuota.</li>
+      <li>La fecha de primera cuota genera fechas mensuales o cada 15 días.</li>
+      <li>Después de registrar pagos se bloquea la modificación del convenio desde la ficha.</li>
+      <li>Un tema es único por materia y un subtema es único dentro de su tema.</li>
+      <li>La validación de interfaz normaliza mayúsculas y espacios para anticipar duplicados.</li>
+      <li>Una cuenta Moodle es única por persona y sitio; una matrícula Moodle es única por curso y cuenta.</li>
+    </ul>
+
+    <div class="callout warning">
+      <strong>Deuda de modelo</strong>
+      Existen modelos <code>Curso</code> y <code>Aula</code> tanto en matrícula como en académico, además de entidades académicas heredadas y modernas. Funcionan, pero aumentan la carga de mantenimiento y el riesgo de confundir catálogos. Conviene definir una fuente maestra y una estrategia de consolidación.
+    </div>
+
+    <h2>Archivos almacenados</h2>
+    <table>
+      <thead><tr><th>Contenido</th><th>Ruta lógica</th><th>Riesgo</th></tr></thead>
+      <tbody>
+        <tr><td>Fotos de personas</td><td><code>media/core/partners/</code></td><td>Dato personal.</td></tr>
+        <tr><td>Comprobantes</td><td><code>media/cartera/comprobantes/</code></td><td>Información financiera.</td></tr>
+        <tr><td>Contratos y fichas firmadas</td><td><code>media/matricula/</code></td><td>Documentos personales.</td></tr>
+        <tr><td>Recursos académicos</td><td><code>media/academico/</code></td><td>Contenido institucional.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Seguridad</p>
+    <h1>Autenticación, roles y trazabilidad</h1>
+
+    <h2>Autenticación</h2>
+    <p>Se usa el modelo estándar <code>django.contrib.auth.User</code>, sesiones Django, protección CSRF, validadores de contraseña y vistas protegidas por login y permisos. <code>Partner.usuario</code> vincula la cuenta de acceso con la persona.</p>
+
+    <h2>Grupos sembrados</h2>
+    <table>
+      <thead><tr><th>Grupo</th><th>Asignación general</th><th>Notas</th></tr></thead>
+      <tbody>
+        <tr><td>Administrador</td><td>Prácticamente todos los permisos.</td><td>Gestiona configuración Moodle, usuarios y grupos.</td></tr>
+        <tr><td>Direccion</td><td>Consulta global y permisos especiales.</td><td>Revisión, horas y exportaciones según semilla.</td></tr>
+        <tr><td>Coordinacion</td><td>Agregar, cambiar y ver core/matrícula/académico.</td><td>Incluye creación de cursos Moodle.</td></tr>
+        <tr><td>Docente</td><td>Temas limitados a materias asignadas.</td><td>Las vistas además filtran por el docente vinculado.</td></tr>
+        <tr><td>Director</td><td>Permisos académicos y de supervisión definidos explícitamente.</td><td>Incluye Excel de accesos y reportes.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Inconsistencia detectada</h2>
+    <div class="callout danger">
+      <strong>Horas docente: política no alineada</strong>
+      El menú y la semilla conceden a Coordinación <code>change_clasehoradocente</code>, por lo que la vista responde 200. La prueba <code>test_coordinator_cannot_open_director_teacher_hours</code> exige 403. Debe decidirse si la función pertenece a Coordinación o exclusivamente a Dirección/Director y alinear menú, permisos y prueba.
+    </div>
+
+    <h2>Trazabilidad</h2>
+    <p>Numerosos modelos almacenan <code>usuario_updated</code> mediante vistas y una señal que toma el usuario de la petición actual. Existe <code>LogAccion</code> con acción, modelo, objeto, cambios, IP y agente de usuario, visible en administración.</p>
+    <p>No se encontró una conexión automática global que cree <code>LogAccion</code> para cada cambio. Por tanto, <code>usuario_updated</code> aporta autoría del último cambio, pero no equivale a un historial completo e inmutable.</p>
+
+    <h2>Borrado</h2>
+    <p>La interfaz favorece estados activo/inactivo, pero existen eliminaciones físicas internas durante resincronizaciones académicas y relaciones con <code>CASCADE</code>. Los respaldos previos a cambios masivos son obligatorios.</p>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Integración</p>
+    <h1>Moodle</h1>
+
+    <h2>Configuración</h2>
+    <p>La pantalla <span class="route">/academico/configuracion/moodle/</span> es exclusiva de Administrador y mantiene:</p>
+    <ul>
+      <li>URL de Moodle normalizada; HTTPS obligatorio salvo destinos internos.</li>
+      <li>Token del servicio web cifrado con Fernet derivado de <code>SECRET_KEY</code>.</li>
+      <li>Clave inicial de cuentas nuevas cifrada; dejarla vacía conserva la guardada.</li>
+      <li>Fecha y resultado de la última prueba de conexión.</li>
+    </ul>
+    <p>Las variables <code>MOODLE_BASE_URL</code>, <code>MOODLE_TOKEN</code> y <code>MOODLE_INITIAL_PASSWORD</code> permanecen como respaldo cuando todavía no existe configuración guardada. La base de datos tiene prioridad.</p>
+
+    <h2>Proceso reintentable</h2>
+    <div class="flow">
+      <div>connection</div>
+      <div>course</div>
+      <div>structure</div>
+      <div>accounts</div>
+      <div>enrolments</div>
+    </div>
+    <p>Cada llamada AJAX ejecuta una etapa real y devuelve avance, mensaje y siguiente etapa. Los errores temporales producen reintento; los errores de datos requieren corrección.</p>
+
+    <h3>Idempotencia y recuperación</h3>
+    <ul>
+      <li>La clave UUID local existe antes de la llamada remota.</li>
+      <li>El curso se busca por nombre corto antes de crearlo.</li>
+      <li>El ID remoto se guarda inmediatamente al confirmarse.</li>
+      <li>Las cuentas se vinculan por persona/sitio y pueden reutilizarse en varios cursos.</li>
+      <li>Las matrículas se comprueban consultando usuarios inscritos.</li>
+      <li>Un fallo no elimina cursos ni usuarios remotos.</li>
+    </ul>
+
+    <h3>Estructura creada</h3>
+    <p>Cada tema se convierte en sección principal y cada subtema en actividad Subsección de Moodle 5.1. La sincronización agrega faltantes, pero no borra contenido docente ni sincroniza notas.</p>
+
+    <h3>Funciones requeridas</h3>
+    <p>El servicio utiliza información del sitio, categorías, búsqueda/creación de cursos, contenidos y estado de formato, creación/actualización de usuarios, matrícula manual y consulta de participantes.</p>
+
+    <div class="callout success">
+      <strong>Comprobación real del 8 de septiembre de 2026</strong>
+      <code>python manage.py comprobar_moodle</code> confirmó Moodle 5.1.5+ (Build 20260630), funciones necesarias disponibles y categoría 1 accesible.
+    </div>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Operación</p>
+    <h1>Configuración y despliegue</h1>
+
+    <h2>Variables del entorno</h2>
+    <table>
+      <thead><tr><th>Variable</th><th>Uso</th><th>Recomendación</th></tr></thead>
+      <tbody>
+        <tr><td><code>DJANGO_SECRET_KEY</code></td><td>Firma y cifrado derivado.</td><td>Valor aleatorio largo; conservar anteriores en <code>SECRET_KEY_FALLBACKS</code> al rotar.</td></tr>
+        <tr><td><code>DJANGO_DEBUG</code></td><td>Modo depuración.</td><td><code>False</code> en producción.</td></tr>
+        <tr><td><code>DJANGO_ALLOWED_HOSTS</code></td><td>Hosts permitidos.</td><td>Solo dominios reales.</td></tr>
+        <tr><td><code>DB_NAME/USER/PASSWORD/HOST/PORT</code></td><td>PostgreSQL.</td><td>Usuario con privilegios mínimos y clave distinta a los valores de ejemplo.</td></tr>
+        <tr><td><code>MOODLE_TIMEOUT</code></td><td>Tiempo por petición.</td><td>Ajustar a red y tamaño del grupo.</td></tr>
+        <tr><td><code>MOODLE_CATEGORY_ID</code></td><td>Categoría para cursos.</td><td>Confirmar en la instancia.</td></tr>
+        <tr><td><code>MOODLE_TEACHER_ROLE_ID</code></td><td>Rol de docente.</td><td>Predeterminado 3; verificar personalizaciones.</td></tr>
+        <tr><td><code>MOODLE_STUDENT_ROLE_ID</code></td><td>Rol de alumno.</td><td>Predeterminado 5.</td></tr>
+        <tr><td><code>MOODLE_FALLBACK_EMAIL_DOMAIN</code></td><td>Correo provisional.</td><td>Usar dominio controlado.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Instalación base</h2>
+    <pre>python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py collectstatic --noinput
+python manage.py check
+python manage.py check --deploy</pre>
+
+    <h2>Despliegue productivo recomendado</h2>
+    <ol>
+      <li>PostgreSQL con respaldo probado y credenciales exclusivas.</li>
+      <li>Servidor WSGI/ASGI administrado por servicio del sistema.</li>
+      <li>Proxy inverso con certificado HTTPS.</li>
+      <li>Archivos estáticos servidos fuera de Django y media con acceso controlado.</li>
+      <li><code>DEBUG=False</code>, secreto robusto y cookies seguras.</li>
+      <li>Timeout del proxy suficiente para las etapas Moodle o, a futuro, cola de trabajos.</li>
+      <li>Monitoreo de errores, espacio de disco y respuesta de base/Moodle.</li>
+    </ol>
+
+    <div class="callout danger">
+      <strong>No usar los valores predeterminados en producción</strong>
+      <code>settings.py</code> incluye valores de desarrollo para secreto, depuración y contraseña de base. Si el archivo de entorno falta o está incompleto, la aplicación arranca de manera insegura.
+    </div>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Mantenimiento</p>
+    <h1>Comandos, documentos y respaldo</h1>
+
+    <h2>Comandos operativos</h2>
+    <table>
+      <thead><tr><th>Comando</th><th>Propósito</th><th>Frecuencia</th></tr></thead>
+      <tbody>
+        <tr><td><code>manage.py check</code></td><td>Validación estructural.</td><td>Cada despliegue.</td></tr>
+        <tr><td><code>manage.py check --deploy</code></td><td>Advertencias de seguridad.</td><td>Antes de producción.</td></tr>
+        <tr><td><code>manage.py makemigrations --check --dry-run</code></td><td>Detectar modelos sin migración.</td><td>CI y despliegue.</td></tr>
+        <tr><td><code>manage.py migrate</code></td><td>Aplicar esquema.</td><td>Cada versión con migraciones.</td></tr>
+        <tr><td><code>manage.py test</code></td><td>Suite automatizada.</td><td>Antes de publicar.</td></tr>
+        <tr><td><code>manage.py comprobar_moodle</code></td><td>Prueba de solo lectura de conexión y funciones.</td><td>Después de cambiar Moodle/token.</td></tr>
+        <tr><td><code>manage.py crear_grupos_default</code></td><td>Crear o completar grupos base.</td><td>Instalación y cambios de permisos.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Documentos generados</h2>
+    <ul>
+      <li>Ficha de matrícula: ODT y PDF.</li>
+      <li>Contrato: DOCX y PDF.</li>
+      <li>Excel: planificación académica, calendario docente, asistencia, horas y accesos Moodle.</li>
+    </ul>
+    <p>La conversión de documentos requiere LibreOffice disponible en el servidor. Los Excel se generan con openpyxl.</p>
+
+    <h2>Respaldo mínimo</h2>
+    <ul class="checklist">
+      <li>Respaldo diario de PostgreSQL con retención.</li>
+      <li>Copia sincronizada de <code>media/</code>.</li>
+      <li>Copia segura del archivo de entorno y secretos.</li>
+      <li>Prueba periódica de restauración en ambiente aislado.</li>
+      <li>Respaldo previo a migraciones o cambios masivos de planificación.</li>
+    </ul>
+
+    <div class="callout warning">
+      <strong>Situación encontrada</strong>
+      Existe un respaldo SQL local histórico, pero no se encontró automatización, política de retención ni procedimiento probado de restauración dentro del repositorio.
+    </div>
+
+    <h2>Observabilidad</h2>
+    <p>No se identificó configuración explícita de logging estructurado, alertas, seguimiento de excepciones ni métricas. Para producción se recomienda registrar errores sin secretos, latencias de Moodle, duración de procesos, fallos de documentos y capacidad de disco.</p>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Verificación</p>
+    <h1>Resultados del barrido</h1>
+
+    <h2>Pruebas y comprobaciones</h2>
+    <table>
+      <thead><tr><th>Validación</th><th>Resultado</th><th>Detalle</th></tr></thead>
+      <tbody>
+        <tr><td><code>manage.py check</code></td><td><span class="status ok">0 problemas</span></td><td>Configuración y modelos válidos.</td></tr>
+        <tr><td>Migraciones</td><td><span class="status ok">Al día</span></td><td>0043 aplicada; no hay modelos sin migración.</td></tr>
+        <tr><td>Suite completa</td><td><span class="status partial">167/168</span></td><td>Un fallo de política de permiso en Horas docente.</td></tr>
+        <tr><td>Temas/subtemas</td><td><span class="status ok">5 pruebas</span></td><td>Creación, alcance, duplicados, conservación y sincronización.</td></tr>
+        <tr><td>Integración Moodle</td><td><span class="status ok">39 pruebas</span></td><td>Cliente, acceso, cifrado, conservación, prioridad, cuentas, cursos y conexión.</td></tr>
+        <tr><td>Moodle en vivo</td><td><span class="status ok">Correcto</span></td><td>Moodle 5.1.5+ y funciones requeridas.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Advertencias de despliegue</h2>
+    <p><code>manage.py check --deploy</code> reportó seis advertencias:</p>
+    <ol>
+      <li>HSTS no configurado.</li>
+      <li>Redirección SSL no activada.</li>
+      <li>Secreto de desarrollo o insuficientemente seguro en el entorno auditado.</li>
+      <li>Cookie de sesión sin indicador Secure.</li>
+      <li>Cookie CSRF sin indicador Secure.</li>
+      <li>DEBUG activo.</li>
+    </ol>
+
+    <h2>Instantánea de datos</h2>
+    <table>
+      <thead><tr><th>Entidad</th><th>Cantidad</th><th>Lectura operativa</th></tr></thead>
+      <tbody>
+        <tr><td>Personas</td><td>350</td><td>174 estudiantes, 170 representantes y 7 docentes; los roles pueden solaparse.</td></tr>
+        <tr><td>Fichas / planes</td><td>172 / 172</td><td>Sin fichas huérfanas ni planes sin cuotas.</td></tr>
+        <tr><td>Cuotas / pagos</td><td>941 / 6</td><td>393 cuotas vencidas pendientes o parciales al corte; revisar cartera.</td></tr>
+        <tr><td>Grupos / aulas / materias</td><td>7 / 4 / 3</td><td>Catálogo académico activo en fase inicial.</td></tr>
+        <tr><td>Asignaciones de estudiantes</td><td>18</td><td>Gran parte de estudiantes aún no está asignada al modelo académico nuevo.</td></tr>
+        <tr><td>Clases</td><td>157</td><td>119 sin docente directo; revisar asignación efectiva y alertas.</td></tr>
+        <tr><td>Asistencias</td><td>0</td><td>Flujo implementado, todavía sin uso registrado en la instantánea.</td></tr>
+        <tr><td>Moodle</td><td>3 cursos, 19 cuentas, 38 matrículas</td><td>2 cursos completos; matrículas locales confirmadas.</td></tr>
+      </tbody>
+    </table>
+    <p class="small">Las cantidades son una fotografía de la base consultada el 8 de septiembre de 2026 y cambiarán con la operación.</p>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Alcance real</p>
+    <h1>Qué hace y qué no hace actualmente</h1>
+
+    <table>
+      <thead><tr><th>Capacidad</th><th>Estado</th><th>Límite actual</th></tr></thead>
+      <tbody>
+        <tr><td>Matrícula y documentos</td><td><span class="status ok">Sí</span></td><td>Proceso interno; documentos dependen de plantillas y LibreOffice.</td></tr>
+        <tr><td>Plan y calendario de cuotas</td><td><span class="status ok">Sí</span></td><td>Mensual/quincenal y protección cuando existen pagos.</td></tr>
+        <tr><td>Pagos y comprobantes</td><td><span class="status ok">Sí</span></td><td>Registro manual; sin banco, tarjeta, SRI o contabilidad.</td></tr>
+        <tr><td>Grupos, aulas y clases</td><td><span class="status ok">Sí</span></td><td>Requiere completar asignaciones operativas.</td></tr>
+        <tr><td>Planificación y asistencia</td><td><span class="status ok">Sí</span></td><td>Sin datos de asistencia en la instantánea.</td></tr>
+        <tr><td>Revisión y reportes</td><td><span class="status ok">Sí</span></td><td>Exportaciones Excel; política de horas por confirmar.</td></tr>
+        <tr><td>Moodle</td><td><span class="status ok">Sí</span></td><td>Sin SSO, eliminación remota ni sincronización de notas.</td></tr>
+        <tr><td>Evaluaciones</td><td><span class="status partial">Base existente</span></td><td>Hay modelos/vistas heredadas, pero no forman parte del menú operativo principal.</td></tr>
+        <tr><td>Portal estudiante/representante</td><td><span class="status risk">No</span></td><td>No se encontraron rutas de autoservicio.</td></tr>
+        <tr><td>Mensajería y alertas de seguimiento</td><td><span class="status risk">No</span></td><td>Figuran como backlog, no como flujo implementado.</td></tr>
+        <tr><td>API pública</td><td><span class="status risk">No</span></td><td>DRF instalado sin endpoints públicos registrados.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Prioridades recomendadas</h2>
+    <ol>
+      <li><strong>Alta:</strong> decidir y corregir el acceso de Coordinación a Horas docente.</li>
+      <li><strong>Alta:</strong> endurecer el despliegue HTTPS y eliminar valores predeterminados inseguros.</li>
+      <li><strong>Alta:</strong> establecer respaldos automáticos y probar restauración.</li>
+      <li><strong>Media:</strong> completar docentes, grupos y asistencia antes de medir indicadores.</li>
+      <li><strong>Media:</strong> centralizar logging y monitoreo de fallos Moodle/documentos.</li>
+      <li><strong>Media:</strong> documentar y consolidar la duplicidad Curso/Aula entre dominios.</li>
+      <li><strong>Baja:</strong> retirar o integrar rutas y modelos heredados para reducir superficie.</li>
+    </ol>
+
+    <div class="callout success">
+      <strong>Dictamen</strong>
+      El sistema está bien encaminado y puede operar internamente sus módulos centrales. La conclusión para producción es “apto con condiciones”: cerrar permisos, seguridad, respaldo y operación de datos antes de declararlo estable para uso institucional continuo.
+    </div>
+
+    <p class="footer-note">Diagnóstico basado en inspección del repositorio, ejecución de checks y pruebas, consulta agregada de la base y comprobación de solo lectura de Moodle. No se incluyeron secretos ni datos personales identificables.</p>
+  </section>
+</main>
+</body>
+</html>

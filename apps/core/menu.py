@@ -16,7 +16,12 @@ MENU_ITEMS = [
     },
     {"label": "Aulas", "url_name": "matricula:aula_list", "perm": "matricula.view_aula", "icon": "ri-door-open-line"},
     {"label": "Cuotas", "url_name": "cartera:cuota_list", "perm": "cartera.view_cuota", "icon": "ri-bill-line"},
-    {"label": "Pagos registrados", "url_name": "cartera:pago_list", "perm": "cartera.view_pago", "icon": "ri-bank-card-line"},
+    {
+        "label": "Pagos registrados",
+        "url_name": "cartera:pago_list",
+        "perms": ("cartera.view_pago", "cartera.view_resumen_financiero"),
+        "icon": "ri-bank-card-line",
+    },
     {
         "label": "Empresas",
         "url_name": "core:empresa_list",
@@ -138,7 +143,11 @@ MENU_GROUPS = [
         "items": [
             {"label": "Cobros por alumno", "url_name": "cartera:alumno_cartera_list", "perm": "cartera.view_cuota"},
             {"label": "Cuotas", "url_name": "cartera:cuota_list", "perm": "cartera.view_cuota"},
-            {"label": "Pagos registrados", "url_name": "cartera:pago_list", "perm": "cartera.view_pago"},
+            {
+                "label": "Pagos registrados",
+                "url_name": "cartera:pago_list",
+                "perms": ("cartera.view_pago", "cartera.view_resumen_financiero"),
+            },
             {"label": "Planes de pago", "url_name": "cartera:plan_pago_list", "perm": "cartera.view_planpago"},
             {"label": "Formas de pago", "url_name": "cartera:forma_pago_list", "perm": "cartera.view_formapago"},
         ],
@@ -151,6 +160,9 @@ def user_can_see_menu_item(user, item):
         return user.is_superuser
     groups = item.get("groups")
     if groups and not (user.is_superuser or user.groups.filter(name__in=groups).exists()):
+        return False
+    required_permissions = item.get("perms")
+    if required_permissions and not (user.is_superuser or user.has_perms(required_permissions)):
         return False
     perm = item.get("perm")
     return user.is_superuser or not perm or user.has_perm(perm)

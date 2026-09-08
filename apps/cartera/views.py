@@ -47,6 +47,9 @@ class AlumnoCarteraListView(InstitutoListView):
     def get_permission_required(self):
         return ("cartera.view_cuota",)
 
+    def can_view_financial_summary(self):
+        return self.request.user.has_perm("cartera.view_resumen_financiero")
+
     def overdue_cuota_filter(self):
         today = timezone.localdate()
         return Q(plan_pago__cuotas__activo=True) & (
@@ -55,7 +58,9 @@ class AlumnoCarteraListView(InstitutoListView):
         )
 
     def get_base_queryset(self):
-        cuotas = Cuota.objects.filter(activo=True).prefetch_related("pagos").order_by("fecha_pago_debito", "numero")
+        cuotas = Cuota.objects.filter(activo=True).order_by("fecha_pago_debito", "numero")
+        if self.can_view_financial_summary():
+            cuotas = cuotas.prefetch_related("pagos")
         return (
             FichaInscripcion.objects.select_related("estudiante", "cliente", "representante", "aula", "plan_pago")
             .prefetch_related(Prefetch("plan_pago__cuotas", queryset=cuotas))
@@ -133,27 +138,32 @@ class AlumnoCarteraListView(InstitutoListView):
             "cerrados": queryset.filter(Q(plan_pago__saldo__lte=0) | Q(plan_pago__estado="cerrado")).distinct().count(),
         }
 
-    def build_summary(self, queryset, counts):
-        total_saldo = queryset.filter(plan_pago__saldo__gt=0).aggregate(total=Sum("plan_pago__saldo"))["total"]
-        pagos = Pago.objects.filter(cuota__plan_pago__ficha_inscripcion_id__in=queryset.values("pk"))
-        total_pagado = pagos.aggregate(total=Sum("valor"))["total"]
-        return {
+    def build_summary(self, queryset, counts, include_financial=False):
+        summary = {
             "total": counts["todos"],
             "vencidos": counts["vencidos"],
             "pendientes": counts["pendientes"],
             "al_dia": counts["al-dia"],
             "cerrados": counts["cerrados"],
-            "saldo": total_saldo or Decimal("0"),
-            "pagos_realizados": pagos.count(),
-            "total_pagado": total_pagado or Decimal("0"),
         }
+        if include_financial:
+            total_saldo = queryset.filter(plan_pago__saldo__gt=0).aggregate(total=Sum("plan_pago__saldo"))["total"]
+            pagos = Pago.objects.filter(cuota__plan_pago__ficha_inscripcion_id__in=queryset.values("pk"))
+            summary.update(
+                {
+                    "saldo": total_saldo or Decimal("0"),
+                    "pagos_realizados": pagos.count(),
+                    "total_pagado": pagos.aggregate(total=Sum("valor"))["total"] or Decimal("0"),
+                }
+            )
+        return summary
 
     def get_cuota_state(self, cuota):
         is_pending = cuota.activo and cuota.estado in {"pendiente", "parcial", "vencida"} and cuota.saldo() > 0
         is_overdue = is_pending and (cuota.estado == "vencida" or cuota.fecha_pago_debito < timezone.localdate())
         return is_pending, is_overdue
 
-    def build_student_cards(self, fichas):
+    def build_student_cards(self, fichas, include_financial=False):
         cards = []
         for ficha in fichas:
             cuotas = list(ficha.plan_pago.cuotas.all())
@@ -167,8 +177,6 @@ class AlumnoCarteraListView(InstitutoListView):
                     overdue_items.append(cuota)
             next_cuota = pending_items[0] if pending_items else None
             overdue_balance = sum((cuota.saldo() for cuota in overdue_items), Decimal("0"))
-            pagos = [pago for cuota in cuotas for pago in cuota.pagos.all()]
-            paid_amount = sum((pago.valor for pago in pagos), Decimal("0"))
             if ficha.plan_pago.saldo <= 0 or ficha.plan_pago.estado == "cerrado":
                 status_key = "cerrado"
                 status_label = "Cerrado"
@@ -178,22 +186,27 @@ class AlumnoCarteraListView(InstitutoListView):
             else:
                 status_key = "pendiente"
                 status_label = "Pendiente"
-            cards.append(
-                {
-                    "ficha": ficha,
-                    "status_key": status_key,
-                    "status_label": status_label,
-                    "representante": ficha.representante or ficha.cliente,
-                    "pending_count": len(pending_items),
-                    "overdue_count": len(overdue_items),
-                    "overdue_balance": overdue_balance,
-                    "next_cuota": next_cuota,
-                    "url": self.get_update_url(ficha),
-                    "payments_url": reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}),
-                    "paid_amount": paid_amount,
-                    "paid_count": len(pagos),
-                }
-            )
+            card = {
+                "ficha": ficha,
+                "status_key": status_key,
+                "status_label": status_label,
+                "representante": ficha.representante or ficha.cliente,
+                "pending_count": len(pending_items),
+                "overdue_count": len(overdue_items),
+                "overdue_balance": overdue_balance,
+                "next_cuota": next_cuota,
+                "url": self.get_update_url(ficha),
+            }
+            if include_financial:
+                pagos = [pago for cuota in cuotas for pago in cuota.pagos.all()]
+                card.update(
+                    {
+                        "payments_url": reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}),
+                        "paid_amount": sum((pago.valor for pago in pagos), Decimal("0")),
+                        "paid_count": len(pagos),
+                    }
+                )
+            cards.append(card)
         return cards
 
     def get_context_data(self, **kwargs):
@@ -201,18 +214,27 @@ class AlumnoCarteraListView(InstitutoListView):
         selected_estado = self.get_selected_estado()
         searched_queryset = self.apply_search(self.get_base_queryset())
         counts = self.get_status_counts(searched_queryset)
+        can_view_financial_summary = self.can_view_financial_summary()
+        can_view_payment_history = can_view_financial_summary and self.request.user.has_perm("cartera.view_pago")
         context["selected_estado"] = selected_estado
         context["selected_estado_label"] = dict((key, label) for key, label, _ in self.STATUS_TABS)[selected_estado]
-        context["student_payment_summary"] = self.build_summary(searched_queryset, counts)
-        payment_query = self.request.GET.copy()
-        payment_query.pop("estado", None)
-        payment_query.pop("page", None)
-        payment_query_string = payment_query.urlencode()
-        context["payments_list_url"] = (
-            f"{reverse('cartera:pago_list')}?{payment_query_string}"
-            if payment_query_string
-            else reverse("cartera:pago_list")
+        context["can_view_financial_summary"] = can_view_financial_summary
+        context["can_view_payment_history"] = can_view_payment_history
+        context["student_payment_summary"] = self.build_summary(
+            searched_queryset,
+            counts,
+            include_financial=can_view_financial_summary,
         )
+        if can_view_payment_history:
+            payment_query = self.request.GET.copy()
+            payment_query.pop("estado", None)
+            payment_query.pop("page", None)
+            payment_query_string = payment_query.urlencode()
+            context["payments_list_url"] = (
+                f"{reverse('cartera:pago_list')}?{payment_query_string}"
+                if payment_query_string
+                else reverse("cartera:pago_list")
+            )
         context["status_tabs"] = [
             {
                 "key": key,
@@ -224,7 +246,10 @@ class AlumnoCarteraListView(InstitutoListView):
             }
             for key, label, icon in self.STATUS_TABS
         ]
-        context["student_payment_cards"] = self.build_student_cards(context["object_list"])
+        context["student_payment_cards"] = self.build_student_cards(
+            context["object_list"],
+            include_financial=can_view_financial_summary,
+        )
         return context
 
 

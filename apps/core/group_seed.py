@@ -89,7 +89,12 @@ def seed_default_groups():
     groups = {name: Group.objects.get_or_create(name=name)[0] for name in DEFAULT_GROUPS}
 
     groups["Administrador"].permissions.add(*Permission.objects.exclude(codename="restrict_to_assigned_materiatema"))
-    groups["Direccion"].permissions.add(*permissions_for(actions=("view",)))
+    direccion_view_permissions = [
+        permission
+        for permission in permissions_for(actions=("view",))
+        if permission.codename != "view_resumen_financiero"
+    ]
+    groups["Direccion"].permissions.add(*direccion_view_permissions)
     groups["Direccion"].permissions.add(*permissions_from_specs(DIRECCION_SPECIAL_PERMISSIONS))
     groups["Coordinacion"].permissions.add(
         *permissions_for(app_labels=("core", "matricula", "academico"), actions=("add", "change", "view"))

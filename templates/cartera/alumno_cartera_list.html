@@ -8,24 +8,36 @@
       <p class="eyebrow">Cartera</p>
       <h1>{{ title }}</h1>
     </div>
-    <div class="topbar-actions">
-      <a class="btn btn-outline-primary" href="{% url 'cartera:pago_list' %}">
-        <i class="ri-bank-card-line"></i>
-        Pagos registrados
-      </a>
-    </div>
+    {% if can_view_payment_history %}
+      <div class="topbar-actions">
+        <a class="btn btn-outline-primary" href="{% url 'cartera:pago_list' %}">
+          <i class="ri-bank-card-line"></i>
+          Pagos registrados
+        </a>
+      </div>
+    {% endif %}
   </header>
 
-  <section class="student-payment-summary">
-    <div class="student-payment-stat is-balance">
-      <span>Saldo por cobrar</span>
-      <strong>${{ student_payment_summary.saldo|floatformat:2 }}</strong>
-    </div>
-    <a class="student-payment-stat is-paid" href="{{ payments_list_url }}">
-      <span>Pagos realizados</span>
-      <strong>${{ student_payment_summary.total_pagado|floatformat:2 }}</strong>
-      <small>{{ student_payment_summary.pagos_realizados }} comprobante(s)</small>
-    </a>
+  <section class="student-payment-summary{% if not can_view_financial_summary %} is-limited{% endif %}">
+    {% if can_view_financial_summary %}
+      <div class="student-payment-stat is-balance">
+        <span>Saldo por cobrar</span>
+        <strong>${{ student_payment_summary.saldo|floatformat:2 }}</strong>
+      </div>
+      {% if can_view_payment_history %}
+        <a class="student-payment-stat is-paid" href="{{ payments_list_url }}">
+          <span>Pagos realizados</span>
+          <strong>${{ student_payment_summary.total_pagado|floatformat:2 }}</strong>
+          <small>{{ student_payment_summary.pagos_realizados }} comprobante(s)</small>
+        </a>
+      {% else %}
+        <div class="student-payment-stat is-paid">
+          <span>Pagos realizados</span>
+          <strong>${{ student_payment_summary.total_pagado|floatformat:2 }}</strong>
+          <small>{{ student_payment_summary.pagos_realizados }} comprobante(s)</small>
+        </div>
+      {% endif %}
+    {% endif %}
     <div class="student-payment-stat is-overdue">
       <span>Vencidos</span>
       <strong>{{ student_payment_summary.vencidos }}</strong>
@@ -103,7 +115,7 @@
               {% endif %}
             </div>
 
-            <div class="student-payment-card-numbers">
+            <div class="student-payment-card-numbers{% if not can_view_financial_summary %} is-limited{% endif %}">
               <div>
                 <span>Saldo</span>
                 <strong>${{ card.ficha.plan_pago.saldo|floatformat:2 }}</strong>
@@ -112,10 +124,12 @@
                 <span>Vencido</span>
                 <strong>${{ card.overdue_balance|floatformat:2 }}</strong>
               </div>
-              <div>
-                <span>Pagado</span>
-                <strong>${{ card.paid_amount|floatformat:2 }}</strong>
-              </div>
+              {% if can_view_financial_summary %}
+                <div>
+                  <span>Pagado</span>
+                  <strong>${{ card.paid_amount|floatformat:2 }}</strong>
+                </div>
+              {% endif %}
               <div>
                 <span>Cuotas</span>
                 <strong>{{ card.pending_count }}</strong>
@@ -123,10 +137,12 @@
             </div>
 
             <div class="student-payment-card-actions">
-              <a class="student-payment-action is-secondary" href="{{ card.payments_url }}" aria-label="Ver pagos de {{ card.ficha.estudiante }}">
-                <i class="ri-file-list-3-line"></i>
-                Ver pagos
-              </a>
+              {% if can_view_payment_history %}
+                <a class="student-payment-action is-secondary" href="{{ card.payments_url }}" aria-label="Ver pagos de {{ card.ficha.estudiante }}">
+                  <i class="ri-file-list-3-line"></i>
+                  Ver pagos
+                </a>
+              {% endif %}
               <a class="student-payment-action" href="{{ card.url }}" aria-label="Cobrar a {{ card.ficha.estudiante }}">
                 Cobrar
                 <i class="ri-arrow-right-line"></i>
@@ -204,6 +220,10 @@
       gap: 12px;
       grid-template-columns: repeat(5, minmax(0, 1fr));
       margin-bottom: 16px;
+    }
+
+    .student-payment-summary.is-limited {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .student-payment-stat {
@@ -486,6 +506,10 @@
       gap: 8px;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       min-width: 0;
+    }
+
+    .student-payment-card-numbers.is-limited {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .student-payment-card-numbers div {

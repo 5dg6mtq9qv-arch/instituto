@@ -74,6 +74,9 @@ class PlanPago(models.Model):
     class Meta:
         db_table = '"cartera"."plan_pago"'
         ordering = ["-created"]
+        permissions = (
+            ("view_resumen_financiero", "Puede ver el resumen financiero de cartera"),
+        )
 
     def __str__(self):
         return f"Plan {self.ficha_inscripcion}"
