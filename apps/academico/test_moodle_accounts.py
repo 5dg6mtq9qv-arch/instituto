@@ -41,6 +41,47 @@ class MoodleAccountsTests(TestCase):
         self.assertNotIn("Inicial-Test-123!", account.clave_inicial_cifrada)
         self.assertEqual(initial_password(account), "Inicial-Test-123!")
 
+    def test_teacher_without_surname_uses_teacher_fallback(self):
+        self.person.nombre = "Liz"
+        self.person.apellido = ""
+        self.person.es_docente = True
+        self.person.save(update_fields=["nombre", "apellido", "es_docente"])
+
+        self.assertEqual(username_base(self.person), "liz_docente")
+
+        self.person.es_docente = False
+        self.person.es_estudiante = True
+        self.assertEqual(username_base(self.person), "liz_alumno")
+
+    def test_legacy_teacher_username_is_renamed_without_creating_another_account(self):
+        self.person.nombre = "Liz"
+        self.person.apellido = ""
+        self.person.email = ""
+        self.person.es_docente = True
+        self.person.save(update_fields=["nombre", "apellido", "email", "es_docente"])
+        account = MoodleCuenta.objects.create(
+            persona=self.person,
+            sitio=self.client_api.base_url,
+            usuario="liz_alumno1",
+            usuario_id=32,
+        )
+        self.client_api.users_by_field.side_effect = [
+            [{"id": 32, "username": "liz_alumno1", "email": "liz_alumno1@felixiot.site"}],
+            [],
+            [],
+            [{"id": 32, "username": "liz_docente", "email": "liz_docente@felixiot.site"}],
+        ]
+
+        updated = ensure_account(self.client_api, self.person)
+
+        self.assertEqual(updated.pk, account.pk)
+        self.assertEqual(updated.usuario, "liz_docente")
+        self.assertEqual(MoodleCuenta.objects.filter(persona=self.person).count(), 1)
+        self.client_api.update_users.assert_called_once_with([
+            {"id": 32, "username": "liz_docente", "email": "liz_docente@felixiot.site"}
+        ])
+        self.client_api.create_users.assert_not_called()
+
     def test_existing_account_is_linked_without_password_reset(self):
         self.client_api.users_by_field.return_value = [{"id": 21, "username": "usuario_previo"}]
         account = ensure_account(self.client_api, self.person)
@@ -49,6 +90,37 @@ class MoodleAccountsTests(TestCase):
         ensure_account(self.client_api, self.person)
         self.client_api.create_users.assert_not_called()
         self.assertEqual(self.client_api.users_by_field.call_args.args, ("id", [21]))
+
+    def test_teacher_reuses_one_account_in_multiple_courses(self):
+        self.person.es_docente = True
+        self.person.save(update_fields=["es_docente"])
+        account = ensure_account(self.client_api, self.person)
+        self.client_api.users_by_field.return_value = [
+            {"id": account.usuario_id, "username": account.usuario}
+        ]
+
+        reused = ensure_account(self.client_api, self.person)
+        second_course = MateriaCurso.objects.create(
+            materia=Materia.objects.create(nombre="Física"),
+            grupo=Curso.objects.create(nombre="Grupo B"),
+        )
+        first_link = MoodleCurso.objects.create(
+            materia_curso=self.course,
+            sitio=self.client_api.base_url,
+            curso_id=7,
+        )
+        second_link = MoodleCurso.objects.create(
+            materia_curso=second_course,
+            sitio=self.client_api.base_url,
+            curso_id=8,
+        )
+        MoodleMatricula.objects.create(curso=first_link, cuenta=reused, rol="Docente", confirmada=True)
+        MoodleMatricula.objects.create(curso=second_link, cuenta=reused, rol="Docente", confirmada=True)
+
+        self.assertEqual(reused.pk, account.pk)
+        self.assertEqual(MoodleCuenta.objects.filter(persona=self.person).count(), 1)
+        self.assertEqual(MoodleMatricula.objects.filter(cuenta=account).count(), 2)
+        self.client_api.create_users.assert_called_once()
 
     def test_timeout_preserves_reserved_username_and_initial_password(self):
         self.client_api.create_users.side_effect = MoodleError("Timeout")

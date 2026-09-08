@@ -6,7 +6,7 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.utils.html import escape
 
-from .models import GrupoEstudiante, MoodleCurso, MoodleMatricula, Tema
+from .models import GrupoEstudiante, MoodleCuenta, MoodleCurso, MoodleMatricula, Tema
 from .moodle_accounts import ensure_account
 from .moodle import MoodleClient, MoodleError
 
@@ -79,7 +79,7 @@ def sync_course_structure(client, course_id, temas):
         key=lambda item: item["section"],
     )
     if len(sections) < len(temas):
-        raise MoodleError("Moodle no creó todas las secciones del temario.")
+        raise MoodleError("Moodle no creó todas las secciones del temario.", retryable=True)
 
     for index, (tema, section) in enumerate(zip(temas, sections), start=1):
         expected = section_name(index, tema)
@@ -110,74 +110,205 @@ def sync_course_structure(client, course_id, temas):
         )
     }
     if not expected.issubset(final_cms):
-        raise MoodleError("El curso existe, pero faltan subsecciones. Reintenta la sincronización.")
+        raise MoodleError(
+            "El curso existe, pero faltan subsecciones. Reintenta la sincronización.",
+            retryable=True,
+        )
 
 
-def create_moodle_course(materia_curso):
-    # Persistir la clave antes del primer acceso remoto permite recuperar un curso
-    # incluso cuando Moodle lo crea y se interrumpe su respuesta.
-    link, _ = MoodleCurso.objects.get_or_create(materia_curso=materia_curso)
+MOODLE_SYNC_STEPS = (
+    ("connection", "Conexión y permisos"),
+    ("course", "Creación o recuperación del aula"),
+    ("structure", "Temas y subtemas"),
+    ("accounts", "Cuentas de participantes"),
+    ("enrolments", "Matrículas y comprobación final"),
+)
+
+
+def participant_roles(data):
+    roles = {
+        person.pk: (person, settings.MOODLE_STUDENT_ROLE_ID)
+        for person in data["alumnos"]
+    }
+    roles.update({
+        person.pk: (person, settings.MOODLE_TEACHER_ROLE_ID)
+        for person in data["docentes"]
+    })
+    return roles
+
+
+def participants_are_confirmed(link, roles):
+    confirmed = set(
+        link.matriculas.filter(confirmada=True).values_list("cuenta__persona_id", flat=True)
+    )
+    return link.completo and set(roles).issubset(confirmed)
+
+
+def ensure_remote_course(client, link, materia_curso, data):
+    if link.curso_id:
+        return f"Aula recuperada con el identificador Moodle {link.curso_id}."
+
+    key = "instituto-" + str(link.clave)
+    result = client.call("core_course_get_courses_by_field", {"field": "shortname", "value": key})
+    if not isinstance(result, dict) or not isinstance(result.get("courses"), list):
+        raise MoodleError("Moodle no pudo confirmar si el curso ya existe.", retryable=True)
+    courses = result["courses"]
+    recovered = bool(courses)
+    if not courses:
+        courses = client.call("core_course_create_courses", {"courses": [{
+            "fullname": f"{materia_curso.materia} – {materia_curso.grupo}",
+            "shortname": key,
+            "idnumber": key,
+            "categoryid": settings.MOODLE_CATEGORY_ID,
+            "format": "topics",
+            "summary": temario_summary(data["temas"]),
+            "summaryformat": 1,
+            "courseformatoptions": [{"name": "numsections", "value": len(data["temas"])}],
+        }]})
+    if (
+        not isinstance(courses, list)
+        or len(courses) != 1
+        or not isinstance(courses[0], dict)
+        or not isinstance(courses[0].get("id"), int)
+    ):
+        raise MoodleError(
+            "Moodle no confirmó el curso. Reintenta para recuperar su estado.",
+            retryable=True,
+        )
+    link.curso_id = courses[0]["id"]
+    link.save(update_fields=["curso_id"])
+    action = "recuperada" if recovered else "creada"
+    return f"Aula {action} y confirmada por Moodle con ID {link.curso_id}."
+
+
+def sync_participant_accounts(client, link, data):
+    roles = participant_roles(data)
+    if participants_are_confirmed(link, roles):
+        return f"Las {len(roles)} cuentas ya estaban vinculadas y confirmadas."
+
+    link.completo = False
+    link.save(update_fields=["completo"])
+    reused = 0
+    created_or_linked = 0
+    for person, role in roles.values():
+        had_account = MoodleCuenta.objects.filter(persona=person, sitio=client.base_url).exists()
+        account = ensure_account(client, person)
+        MoodleMatricula.objects.update_or_create(
+            curso=link,
+            cuenta=account,
+            defaults={"rol": "Docente" if role == settings.MOODLE_TEACHER_ROLE_ID else "Alumno"},
+        )
+        if had_account:
+            reused += 1
+        else:
+            created_or_linked += 1
+    return (
+        f"{len(roles)} cuenta(s) confirmada(s): {reused} reutilizada(s) y "
+        f"{created_or_linked} creada(s) o vinculada(s)."
+    )
+
+
+def sync_enrolments(client, link, data):
+    roles = participant_roles(data)
+    if participants_are_confirmed(link, roles):
+        return f"Las {len(roles)} matrículas ya estaban confirmadas en Moodle."
+
+    enrolments = []
+    for person, role in roles.values():
+        account = MoodleCuenta.objects.filter(
+            persona=person,
+            sitio=client.base_url,
+            usuario_id__isnull=False,
+        ).first()
+        if not account:
+            raise MoodleError(
+                f"La cuenta Moodle de {person} aún no está confirmada. Se repetirá la etapa de cuentas.",
+                retryable=True,
+            )
+        MoodleMatricula.objects.update_or_create(
+            curso=link,
+            cuenta=account,
+            defaults={"rol": "Docente" if role == settings.MOODLE_TEACHER_ROLE_ID else "Alumno"},
+        )
+        enrolments.append({"roleid": role, "userid": account.usuario_id, "courseid": link.curso_id})
+
+    client.enrol_users(enrolments)
+    enrolled = {user["id"] for user in client.enrolled_users(link.curso_id)}
+    expected = {enrolment["userid"] for enrolment in enrolments}
+    if not expected.issubset(enrolled):
+        raise MoodleError(
+            "El curso existe, pero faltan participantes. Reintenta la matrícula.",
+            retryable=True,
+        )
+    link.matriculas.filter(cuenta__usuario_id__in=enrolled).update(confirmada=True)
+    link.completo = True
+    link.save(update_fields=["completo"])
+    return f"{len(expected)} participante(s) matriculado(s) y comprobado(s) en Moodle."
+
+
+def sync_moodle_course_step(materia_curso, step):
+    """Ejecuta y confirma una fase real; cada fase puede repetirse sin duplicar datos."""
+    step_names = {name for name, _label in MOODLE_SYNC_STEPS}
+    if step not in step_names:
+        raise MoodleError("La etapa de sincronización solicitada no es válida.")
+
+    # La clave se guarda antes del acceso remoto para recuperar creaciones cuya
+    # respuesta se haya perdido por un corte de red.
+    link, _created = MoodleCurso.objects.get_or_create(materia_curso=materia_curso)
     error = None
+    detail = ""
     with transaction.atomic():
         link = MoodleCurso.objects.select_for_update().get(pk=link.pk)
-        client = MoodleClient()
-        if link.sitio and link.sitio != client.base_url:
-            raise MoodleError("El aula está vinculada a otra instancia Moodle.")
-        data = course_data(materia_curso)
-        if data["errors"]:
-            raise MoodleError(" ".join(data["errors"]))
         try:
-            missing = client.missing_functions(client.site_info())
-            if missing:
-                raise MoodleError("Faltan funciones Moodle: " + ", ".join(missing))
-            link.sitio = client.base_url
-            link.save(update_fields=["sitio"])
-            key = "instituto-" + str(link.clave)
-            if not link.curso_id:
-                result = client.call("core_course_get_courses_by_field", {"field": "shortname", "value": key})
-                if not isinstance(result, dict) or not isinstance(result.get("courses"), list):
-                    raise MoodleError("Moodle no pudo confirmar si el curso ya existe.")
-                courses = result["courses"]
-                if not courses:
-                    courses = client.call("core_course_create_courses", {"courses": [{
-                        "fullname": f"{materia_curso.materia} – {materia_curso.grupo}",
-                        "shortname": key, "idnumber": key,
-                        "categoryid": settings.MOODLE_CATEGORY_ID,
-                        "format": "topics", "summary": temario_summary(data["temas"]),
-                        "summaryformat": 1,
-                        "courseformatoptions": [{"name": "numsections", "value": len(data["temas"])}],
-                    }]})
-                if not isinstance(courses, list) or len(courses) != 1 or not isinstance(courses[0], dict) or not isinstance(courses[0].get("id"), int):
-                    raise MoodleError("Moodle no confirmó el curso. Reintenta para recuperar su estado.")
-                link.curso_id = courses[0]["id"]
-            link.sitio = client.base_url
-            link.save(update_fields=["sitio", "curso_id"])
-            sync_course_structure(client, link.curso_id, data["temas"])
-            if link.completo:
-                return link
-            roles = {}
-            for person in data["alumnos"]:
-                roles[person.pk] = (person, settings.MOODLE_STUDENT_ROLE_ID)
-            for person in data["docentes"]:
-                roles[person.pk] = (person, settings.MOODLE_TEACHER_ROLE_ID)
-            enrolments = []
-            for person, role in roles.values():
-                account = ensure_account(client, person)
-                MoodleMatricula.objects.update_or_create(
-                    curso=link, cuenta=account,
-                    defaults={"rol": "Docente" if role == settings.MOODLE_TEACHER_ROLE_ID else "Alumno"},
+            client = MoodleClient()
+            if link.sitio and link.sitio != client.base_url:
+                raise MoodleError("El aula está vinculada a otra instancia Moodle.")
+            data = course_data(materia_curso)
+            if data["errors"]:
+                raise MoodleError(" ".join(data["errors"]))
+
+            if step == "connection":
+                missing = client.missing_functions(client.site_info())
+                if missing:
+                    raise MoodleError("Faltan funciones Moodle: " + ", ".join(missing))
+                link.sitio = client.base_url
+                link.save(update_fields=["sitio"])
+                detail = (
+                    f"Conexión confirmada. Se procesarán {len(data['temas'])} tema(s), "
+                    f"{len(data['docentes'])} docente(s) y {len(data['alumnos'])} alumno(s)."
                 )
-                enrolments.append({"roleid": role, "userid": account.usuario_id, "courseid": link.curso_id})
-            client.enrol_users(enrolments)
-            enrolled = {u["id"] for u in client.enrolled_users(link.curso_id)}
-            if not {e["userid"] for e in enrolments}.issubset(enrolled):
-                raise MoodleError("El curso existe, pero faltan participantes. Reintenta la matrícula.")
-            link.matriculas.filter(cuenta__usuario_id__in=enrolled).update(confirmada=True)
-            link.completo = True
-            link.save(update_fields=["completo"])
+            else:
+                if not link.sitio:
+                    link.sitio = client.base_url
+                    link.save(update_fields=["sitio"])
+                if step == "course":
+                    detail = ensure_remote_course(client, link, materia_curso, data)
+                elif not link.curso_id:
+                    raise MoodleError(
+                        "El aula todavía no está confirmada. Se repetirá la etapa de creación.",
+                        retryable=True,
+                    )
+                elif step == "structure":
+                    sync_course_structure(client, link.curso_id, data["temas"])
+                    subtopics = sum(len(topic.subtemas_planificacion.all()) for topic in data["temas"])
+                    detail = (
+                        f"Moodle confirmó {len(data['temas'])} tema(s) y {subtopics} subtema(s)."
+                    )
+                elif step == "accounts":
+                    detail = sync_participant_accounts(client, link, data)
+                elif step == "enrolments":
+                    detail = sync_enrolments(client, link, data)
         except MoodleError as exc:
-            # Conservar el identificador si una matrícula falla después de crear el curso.
+            # Los identificadores y reservas logrados antes del corte se confirman
+            # al salir de la transacción y serán reutilizados por el reintento.
             error = exc
     if error:
         raise error
-    return link
+    return {"link": link, "step": step, "detail": detail}
+
+
+def create_moodle_course(materia_curso):
+    result = None
+    for step, _label in MOODLE_SYNC_STEPS:
+        result = sync_moodle_course_step(materia_curso, step)
+    return result["link"]

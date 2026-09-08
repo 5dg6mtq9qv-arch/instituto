@@ -168,10 +168,61 @@ class DocenteHorariosPanelTests(TestCase):
             self.assertContains(response, "Usuario existente: docente_prueba")
             self.assertContains(response, "conserva el mismo usuario aunque participe en varias aulas")
             self.assertContains(response, "disabled")
+            self.assertContains(response, "Progreso confirmado")
+            ajax_response = self.client.post(
+                url,
+                {"step": "connection"},
+                HTTP_HOST="localhost",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+            self.assertEqual(ajax_response.status_code, 400)
+            self.assertFalse(ajax_response.json()["retryable"])
             response = self.client.post(url, HTTP_HOST="localhost")
             self.assertEqual(response.status_code, 302)
             client.return_value.site_info.assert_not_called()
             client.return_value.call.assert_not_called()
+
+    def test_moodle_ajax_marks_temporary_errors_for_automatic_retry(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from apps.academico.moodle import MoodleError
+
+        self.client.force_login(self.create_coordinator())
+        url = reverse("academico:coordinacion_moodle_curso", args=[self.materia_curso.pk])
+        with patch(
+            "apps.academico.moodle_courses.sync_moodle_course_step",
+            side_effect=MoodleError("Moodle tardó demasiado en responder.", retryable=True),
+        ):
+            response = self.client.post(
+                url,
+                {"step": "course"},
+                HTTP_HOST="localhost",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(response.json()["ok"])
+        self.assertTrue(response.json()["retryable"])
+        self.assertIn("siguiente intento", response.json()["progress"])
+
+        with patch(
+            "apps.academico.moodle_courses.sync_moodle_course_step",
+            return_value={
+                "link": SimpleNamespace(url="https://moodle.example/course/view.php?id=42"),
+                "detail": "Aula creada y confirmada por Moodle con ID 42.",
+            },
+        ):
+            response = self.client.post(
+                url,
+                {"step": "course"},
+                HTTP_HOST="localhost",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        self.assertEqual(response.json()["completed_steps"], 2)
+        self.assertEqual(response.json()["next_step"], "structure")
+        self.assertEqual(response.json()["course_url"], "https://moodle.example/course/view.php?id=42")
 
     def test_moodle_course_retries_enrolment_without_duplicate_course(self):
         from unittest.mock import patch

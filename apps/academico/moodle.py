@@ -18,7 +18,7 @@ REQUIRED_FUNCTIONS = frozenset({
     "core_webservice_get_site_info", "core_course_get_categories",
     "core_course_get_courses_by_field", "core_course_create_courses",
     "core_course_get_contents", "core_user_get_users_by_field",
-    "core_user_create_users", "enrol_manual_enrol_users",
+    "core_user_create_users", "core_user_update_users", "enrol_manual_enrol_users",
     "core_enrol_get_enrolled_users",
     "core_courseformat_update_course", "core_courseformat_get_state",
     "core_courseformat_new_module", "core_update_inplace_editable",
@@ -46,6 +46,10 @@ def flatten_parameters(parameters):
 
 class MoodleError(Exception):
     """Error seguro para mostrar sin exponer credenciales o respuestas remotas."""
+
+    def __init__(self, message, *, retryable=False):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 class NoRedirects(HTTPRedirectHandler):
@@ -162,6 +166,7 @@ class MoodleClient:
             ) as response:
                 result = json.load(response)
         except HTTPError as exc:
+            temporary_http_error = exc.code >= 500 or exc.code in {408, 425, 429}
             messages = {
                 401: (
                     "Moodle no aceptó las credenciales. Comprueba que el token esté bien escrito "
@@ -177,19 +182,23 @@ class MoodleClient:
                     "dirección principal de Moodle."
                 ),
             }
-            if exc.code >= 500:
+            if temporary_http_error:
                 message = "Moodle tiene un problema temporal. Espera unos minutos y vuelve a intentarlo."
             else:
                 message = messages.get(
                     exc.code,
                     "Moodle rechazó la conexión. Revisa la dirección y vuelve a intentarlo.",
                 )
-            raise MoodleError(message) from None
+            raise MoodleError(message, retryable=temporary_http_error) from None
         except TimeoutError:
-            raise MoodleError("Moodle tardó demasiado en responder. Espera un momento y vuelve a intentarlo.") from None
+            raise MoodleError(
+                "Moodle tardó demasiado en responder. Espera un momento y vuelve a intentarlo.",
+                retryable=True,
+            ) from None
         except (URLError, OSError):
             raise MoodleError(
-                "No pudimos comunicarnos con Moodle. Comprueba que la dirección abra desde este servidor."
+                "No pudimos comunicarnos con Moodle. Comprueba que la dirección abra desde este servidor.",
+                retryable=True,
             ) from None
         except (ValueError, UnicodeError):
             raise MoodleError(
@@ -230,10 +239,21 @@ class MoodleClient:
     def create_users(self, users):
         return self._records("core_user_create_users", {"users": users})
 
+    def update_users(self, users):
+        result = self.call("core_user_update_users", {"users": users})
+        if result is not None:
+            raise MoodleError(
+                "Moodle devolvió una respuesta inesperada al actualizar el usuario.",
+                retryable=True,
+            )
+
     def enrol_users(self, enrolments):
         result = self.call("enrol_manual_enrol_users", {"enrolments": enrolments})
         if result is not None:
-            raise MoodleError("Moodle devolvió una respuesta inesperada al matricular usuarios.")
+            raise MoodleError(
+                "Moodle devolvió una respuesta inesperada al matricular usuarios.",
+                retryable=True,
+            )
 
     def enrolled_users(self, course_id):
         return self._records("core_enrol_get_enrolled_users", {"courseid": course_id})
@@ -255,7 +275,10 @@ class MoodleClient:
         try:
             json.loads(result)
         except (TypeError, ValueError):
-            raise MoodleError("Moodle no confirmó la creación de una sección.") from None
+            raise MoodleError(
+                "Moodle no confirmó la creación de una sección.",
+                retryable=True,
+            ) from None
 
     def rename_section(self, section_id, name):
         result = self.call("core_update_inplace_editable", {
@@ -263,7 +286,7 @@ class MoodleClient:
             "itemid": section_id, "value": name,
         })
         if not isinstance(result, dict):
-            raise MoodleError("Moodle no confirmó el nombre de una sección.")
+            raise MoodleError("Moodle no confirmó el nombre de una sección.", retryable=True)
 
     def create_subsection(self, course_id, section_id):
         result = self.call("core_courseformat_new_module", {
@@ -272,7 +295,10 @@ class MoodleClient:
         try:
             updates = json.loads(result)
         except (TypeError, ValueError):
-            raise MoodleError("Moodle creó una subsección, pero no confirmó su identificador. Reintenta la sincronización.") from None
+            raise MoodleError(
+                "Moodle creó una subsección, pero no confirmó su identificador. Reintenta la sincronización.",
+                retryable=True,
+            ) from None
         candidates = [
             item.get("fields", {}) for item in updates
             if item.get("name") == "cm" and item.get("action") == "put"
@@ -280,7 +306,10 @@ class MoodleClient:
             and str(item.get("fields", {}).get("sectionid")) == str(section_id)
         ] if isinstance(updates, list) else []
         if not candidates:
-            raise MoodleError("Moodle creó una subsección, pero no confirmó su identificador. Reintenta la sincronización.")
+            raise MoodleError(
+                "Moodle creó una subsección, pero no confirmó su identificador. Reintenta la sincronización.",
+                retryable=True,
+            )
         return max(candidates, key=lambda item: int(item["id"]))
 
     def rename_activity(self, activity_id, name):
@@ -289,7 +318,7 @@ class MoodleClient:
             "itemid": activity_id, "value": name,
         })
         if not isinstance(result, dict):
-            raise MoodleError("Moodle no confirmó el nombre de una subsección.")
+            raise MoodleError("Moodle no confirmó el nombre de una subsección.", retryable=True)
 
     def _records(self, function, parameters):
         result = self.call(function, parameters)

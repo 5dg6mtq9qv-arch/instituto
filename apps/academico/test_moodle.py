@@ -84,6 +84,15 @@ class MoodleClientTests(SimpleTestCase):
                 client.site_info()
             self.assertNotIn("private-test-token", str(caught.exception))
 
+    def test_temporary_connection_errors_are_retryable(self):
+        client = self.client_with_response(b"{}")
+        for error in [TimeoutError(), URLError("temporal"), HTTPError("https://moodle.example", 503, "", {}, None)]:
+            with self.subTest(error=type(error).__name__):
+                client.opener.open.side_effect = error
+                with self.assertRaises(MoodleError) as caught:
+                    client.site_info()
+                self.assertTrue(caught.exception.retryable)
+
     def test_http_errors_are_explained_without_technical_codes(self):
         client = self.client_with_response(b"{}")
         client.opener.open.side_effect = HTTPError("https://moodle.example", 403, "Forbidden", {}, None)
@@ -132,6 +141,15 @@ class MoodleClientTests(SimpleTestCase):
         payload = parse_qs(client.opener.open.call_args.kwargs["data"].decode())
         self.assertEqual(payload["users[0][username]"], ["student"])
         self.assertEqual(payload["wsfunction"], ["core_user_create_users"])
+
+    def test_user_update_encodes_the_existing_id_and_username(self):
+        client = self.client_with_response(b"null")
+        client.update_users([{"id": 32, "username": "liz_docente"}])
+        from urllib.parse import parse_qs
+        payload = parse_qs(client.opener.open.call_args.kwargs["data"].decode())
+        self.assertEqual(payload["users[0][id]"], ["32"])
+        self.assertEqual(payload["users[0][username]"], ["liz_docente"])
+        self.assertEqual(payload["wsfunction"], ["core_user_update_users"])
 
     def test_enrolment_encodes_role_and_course(self):
         client = self.client_with_response(b'null')

@@ -1,6 +1,7 @@
 """Identidad estable y credenciales iniciales de Moodle."""
 import base64
 import hashlib
+import re
 
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
@@ -35,7 +36,7 @@ def person_names(person):
         return " ".join(names), surname
     if len(names) > 1:
         return " ".join(names[:-1]), names[-1]
-    return names[0], "alumno"
+    return names[0], "docente" if person.es_docente else "alumno"
 
 
 def username_base(person):
@@ -43,6 +44,42 @@ def username_base(person):
     first = slugify(first.split()[0]).replace("-", "") or "usuario"
     last = slugify(last.split()[0]).replace("-", "") or "alumno"
     return f"{first}_{last}"[:60]
+
+
+def legacy_teacher_username(person, username):
+    """Detecta únicamente el respaldo antiguo nombre_alumno[1..n] en docentes sin apellido."""
+    if not person.es_docente or (person.apellido or "").strip():
+        return False
+    names = (person.nombre or "").strip().split()
+    if len(names) != 1:
+        return False
+    first = slugify(names[0]).replace("-", "") or "usuario"
+    return bool(re.fullmatch(rf"{re.escape(first)}_alumno\d*", username))
+
+
+def available_username(client, person, *, current_account=None):
+    base = username_base(person)
+    for suffix in range(10000):
+        username = base + (str(suffix) if suffix else "")
+        local_accounts = MoodleCuenta.objects.filter(sitio=client.base_url, usuario=username)
+        if current_account:
+            local_accounts = local_accounts.exclude(pk=current_account.pk)
+        if local_accounts.exists():
+            continue
+        remote_users = client.users_by_field("username", [username])
+        if remote_users and not (
+            current_account
+            and current_account.usuario_id
+            and len(remote_users) == 1
+            and remote_users[0].get("id") == current_account.usuario_id
+        ):
+            continue
+        if not (person.email or "").strip() and client.users_by_field(
+            "email", [account_email(person, username)]
+        ):
+            continue
+        return username
+    raise MoodleError("No se encontró un nombre de usuario disponible.")
 
 
 def account_email(person, username):
@@ -81,6 +118,20 @@ def _ensure_account(client, person):
     account = MoodleCuenta.objects.filter(persona=person, sitio=client.base_url).first()
     if account and account.usuario_id:
         user = active_user(client.users_by_field("id", [account.usuario_id]), person)
+        if legacy_teacher_username(person, user["username"]):
+            previous_username = user["username"]
+            new_username = available_username(client, person, current_account=account)
+            update = {"id": account.usuario_id, "username": new_username}
+            provisional_email = f"{previous_username}@{settings.MOODLE_FALLBACK_EMAIL_DOMAIN}".lower()
+            if not (person.email or "").strip() and (user.get("email") or "").lower() == provisional_email:
+                update["email"] = account_email(person, new_username)
+            client.update_users([update])
+            user = active_user(client.users_by_field("id", [account.usuario_id]), person)
+            if user["username"] != new_username:
+                raise MoodleError(
+                    "Moodle no confirmó el nuevo usuario del docente. Se volverá a intentar.",
+                    retryable=True,
+                )
         if user["username"] != account.usuario:
             account.usuario = user["username"]
             account.save(update_fields=["usuario"])
@@ -96,22 +147,11 @@ def _ensure_account(client, person):
                                               usuario=user["username"], usuario_id=user["id"])
         if not settings.MOODLE_INITIAL_PASSWORD:
             raise MoodleError("Configura MOODLE_INITIAL_PASSWORD antes de crear cuentas nuevas.")
-        base = username_base(person)
-        for suffix in range(10000):
-            username = base + (str(suffix) if suffix else "")
-            if MoodleCuenta.objects.filter(sitio=client.base_url, usuario=username).exists():
-                continue
-            if client.users_by_field("username", [username]):
-                continue
-            if not email and client.users_by_field("email", [account_email(person, username)]):
-                continue
-            account = MoodleCuenta.objects.create(
-                persona=person, sitio=client.base_url, usuario=username,
-                clave_inicial_cifrada=cipher().encrypt(settings.MOODLE_INITIAL_PASSWORD.encode()).decode(),
-            )
-            break
-        else:
-            raise MoodleError("No se encontró un nombre de usuario disponible.")
+        username = available_username(client, person)
+        account = MoodleCuenta.objects.create(
+            persona=person, sitio=client.base_url, usuario=username,
+            clave_inicial_cifrada=cipher().encrypt(settings.MOODLE_INITIAL_PASSWORD.encode()).decode(),
+        )
     marker = "instituto-" + str(account.clave)
     existing = client.users_by_field("username", [account.usuario])
     if existing:

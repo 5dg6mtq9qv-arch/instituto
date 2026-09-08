@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.urls import reverse_lazy
 from django.db import connection, transaction
 from django.db.models import Prefetch
@@ -75,6 +75,7 @@ from .models import (
     MateriaCurso,
     MoodleConfiguracion,
     MoodleCuenta,
+    MoodleCurso,
     MateriaSubtema,
     MateriaTema,
     Periodo,
@@ -2986,13 +2987,56 @@ class CoordinacionMoodleCursoView(TemasAsignadosMixin, CoordinacionRequiredMixin
 
     def post(self, request, *args, **kwargs):
         from .moodle import MoodleError
-        from .moodle_courses import create_moodle_course
+        from .moodle_courses import MOODLE_SYNC_STEPS, create_moodle_course, sync_moodle_course_step
         materia_curso = self.get_materia_curso()
+        json_response = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        requested_step = request.POST.get("step", "")
         try:
-            create_moodle_course(materia_curso)
+            if json_response:
+                result = sync_moodle_course_step(materia_curso, requested_step)
+                enlace = result["link"]
+            else:
+                enlace = create_moodle_course(materia_curso)
         except MoodleError as exc:
+            if json_response:
+                enlace = MoodleCurso.objects.filter(materia_curso=materia_curso).first()
+                aula_guardada = bool(enlace and enlace.curso_id)
+                matriculas_guardadas = enlace.matriculas.count() if enlace else 0
+                if aula_guardada:
+                    avance = (
+                        f"El aula ya está guardada en Moodle y hay {matriculas_guardadas} "
+                        "matrícula(s) local(es). El siguiente intento continuará desde ese punto."
+                    )
+                else:
+                    avance = "Todavía no se confirmó el aula en Moodle; el siguiente intento volverá a comprobarla."
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "message": str(exc),
+                        "retryable": exc.retryable,
+                        "progress": avance,
+                        "step": requested_step,
+                    },
+                    status=503 if exc.retryable else 400,
+                )
             messages.error(request, str(exc))
             return redirect("academico:coordinacion_moodle_curso", materia_curso_pk=materia_curso.pk)
+        if json_response:
+            step_names = [name for name, _label in MOODLE_SYNC_STEPS]
+            completed_steps = step_names.index(requested_step) + 1
+            next_step = step_names[completed_steps] if completed_steps < len(step_names) else None
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "complete": next_step is None,
+                    "step": requested_step,
+                    "completed_steps": completed_steps,
+                    "total_steps": len(step_names),
+                    "next_step": next_step,
+                    "message": result["detail"],
+                    "course_url": enlace.url,
+                }
+            )
         messages.success(request, "Curso Moodle, temario y participantes sincronizados.")
         return redirect("academico:coordinacion_planificacion_list")
 

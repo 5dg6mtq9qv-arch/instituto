@@ -50,17 +50,211 @@
   {% if materia_curso.aula_moodle.completo %}
     <a class="btn btn-success" href="{{ materia_curso.aula_moodle.url }}" target="_blank" rel="noopener noreferrer">Abrir curso en Moodle</a>
   {% endif %}
-  <form method="post" data-moodle-create class="d-inline-block">{% csrf_token %}
+  <form method="post" data-moodle-create data-success-url="{% url 'academico:coordinacion_planificacion_list' %}" class="d-inline-block">{% csrf_token %}
     <button class="btn btn-primary" type="submit" {% if errors %}disabled{% endif %}>{% if materia_curso.aula_moodle.curso_id %}Sincronizar temario y matrículas{% else %}Crear curso y matricular participantes{% endif %}</button>
   </form>
 </section>
 {% endblock %}
 {% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
 <script>
-document.querySelector('[data-moodle-create]')?.addEventListener('submit', function () {
-  const button = this.querySelector('button');
-  button.disabled = true;
-  button.textContent = 'Creando curso…';
-});
+(function () {
+  const form = document.querySelector('[data-moodle-create]');
+  if (!form) return;
+
+  const button = form.querySelector('button[type="submit"]');
+  const stages = [
+    { key: 'connection', label: 'Conexión y permisos' },
+    { key: 'course', label: 'Creación o recuperación del aula' },
+    { key: 'structure', label: 'Temas y subtemas' },
+    { key: 'accounts', label: 'Cuentas de participantes' },
+    { key: 'enrolments', label: 'Matrículas y comprobación final' }
+  ];
+  const wait = milliseconds => new Promise(resolve => window.setTimeout(resolve, milliseconds));
+  const activityLog = [];
+  let synchronizationRunning = false;
+
+  window.addEventListener('beforeunload', function (event) {
+    if (!synchronizationRunning) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
+  function escapeHtml(value) {
+    const element = document.createElement('div');
+    element.textContent = value || '';
+    return element.innerHTML;
+  }
+
+  function processHtml(activeIndex, completedSteps, attempt, notice, errorMessage) {
+    const percentage = Math.round((completedSteps / stages.length) * 100);
+    const stageItems = stages.map(function (stage, index) {
+      let icon = '<i class="ri-checkbox-blank-circle-line text-muted"></i>';
+      let cssClass = 'text-muted';
+      if (index < completedSteps) {
+        icon = '<i class="ri-checkbox-circle-fill text-success"></i>';
+        cssClass = 'text-success';
+      } else if (index === activeIndex) {
+        icon = '<span class="spinner-border spinner-border-sm text-primary" aria-hidden="true"></span>';
+        cssClass = 'fw-semibold text-primary';
+      }
+      return `<li class="d-flex align-items-center gap-2 mb-2 ${cssClass}">${icon}<span>${stage.label}</span></li>`;
+    }).join('');
+    const logItems = activityLog.slice(-5).map(function (entry) {
+      const icon = entry.error ? 'ri-error-warning-line text-danger' : 'ri-check-line text-success';
+      return `<li class="d-flex gap-2"><i class="${icon}"></i><span>${escapeHtml(entry.message)}</span></li>`;
+    }).join('');
+    return `
+      <div class="text-start">
+        <div class="d-flex justify-content-between mb-1">
+          <strong>Progreso confirmado</strong>
+          <strong>${percentage}%</strong>
+        </div>
+        <div class="progress mb-3" role="progressbar" aria-valuenow="${percentage}" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: ${percentage}%"></div>
+        </div>
+        <ul class="list-unstyled mb-3">${stageItems}</ul>
+        <p class="mb-2"><strong>Intento ${attempt}</strong> en esta etapa.</p>
+        ${errorMessage ? `<div class="alert alert-danger py-2 mb-2"><strong>Error devuelto:</strong> ${escapeHtml(errorMessage)}</div>` : ''}
+        <p class="mb-2 text-muted">${escapeHtml(notice)}</p>
+        ${logItems ? `<div class="border-top pt-2"><small class="fw-semibold">Confirmaciones del servidor</small><ul class="list-unstyled small mb-0 mt-1">${logItems}</ul></div>` : ''}
+      </div>`;
+  }
+
+  function updateProgress(activeIndex, completedSteps, attempt, notice, errorMessage) {
+    Swal.update({
+      title: 'Creando aula completa en Moodle',
+      html: processHtml(activeIndex, completedSteps, attempt, notice, errorMessage),
+      showConfirmButton: false
+    });
+  }
+
+  async function requestStage(stageIndex, attempt) {
+    const stage = stages[stageIndex];
+    updateProgress(
+      stageIndex,
+      stageIndex,
+      attempt,
+      `Ejecutando realmente: ${stage.label}. La ventana permanecerá abierta hasta completar todo.`,
+      ''
+    );
+
+    const formData = new FormData(form);
+    formData.set('step', stage.key);
+    let response;
+    let payload;
+    try {
+      response = await fetch(form.action || window.location.href, {
+        method: 'POST',
+        body: formData,
+        credentials: 'same-origin',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+      if (response.redirected) {
+        throw new Error('La sesión terminó o el servidor redirigió la solicitud.');
+      }
+      payload = await response.json();
+    } catch (error) {
+      payload = {
+        ok: false,
+        retryable: true,
+        message: error.message || 'La conexión con el servidor se interrumpió.',
+        progress: 'El servidor puede seguir trabajando; se comprobará nuevamente esta misma etapa.'
+      };
+    }
+
+    if (response && response.ok && payload.ok) {
+      activityLog.push({ error: false, message: payload.message });
+      const completedSteps = payload.completed_steps;
+      updateProgress(
+        stageIndex + 1,
+        completedSteps,
+        attempt,
+        payload.complete ? 'Todas las etapas fueron confirmadas.' : 'Etapa confirmada por Moodle.',
+        ''
+      );
+
+      if (payload.complete) {
+        await wait(500);
+        await Swal.fire({
+          title: 'Aula creada completamente',
+          html: processHtml(stages.length, stages.length, attempt, payload.message, ''),
+          icon: 'success',
+          confirmButtonText: 'Continuar',
+          confirmButtonColor: '#0f766e',
+          allowEscapeKey: false,
+          allowOutsideClick: false
+        });
+        synchronizationRunning = false;
+        window.location.assign(form.dataset.successUrl);
+        return;
+      }
+
+      await wait(450);
+      return requestStage(stageIndex + 1, 1);
+    }
+
+    const errorMessage = payload.message || 'Moodle no devolvió una respuesta válida.';
+    activityLog.push({ error: true, message: `${stage.label}: ${errorMessage}` });
+    if (payload.retryable) {
+      const retryDelay = Math.min(3 + Math.max(0, attempt - 1) * 2, 15);
+      for (let remaining = retryDelay; remaining > 0; remaining -= 1) {
+        updateProgress(
+          stageIndex,
+          stageIndex,
+          attempt,
+          `${payload.progress || ''} Reintentando esta etapa en ${remaining} segundo(s).`,
+          errorMessage
+        );
+        await wait(1000);
+      }
+      return requestStage(stageIndex, attempt + 1);
+    }
+
+    await Swal.fire({
+      title: 'La etapa necesita corrección',
+      html: processHtml(
+        stageIndex,
+        stageIndex,
+        attempt,
+        `${payload.progress || ''} Corrige el problema y luego pulsa “Volver a intentar”.`,
+        errorMessage
+      ),
+      icon: 'error',
+      allowEscapeKey: false,
+      allowOutsideClick: false,
+      confirmButtonText: 'Volver a intentar',
+      confirmButtonColor: '#0f766e',
+      showCancelButton: false
+    });
+    return requestStage(stageIndex, attempt + 1);
+  }
+
+  form.addEventListener('submit', function (event) {
+    if (!window.Swal) {
+      button.disabled = true;
+      button.textContent = 'Creando curso…';
+      return;
+    }
+    event.preventDefault();
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Sincronizando…';
+    synchronizationRunning = true;
+    Swal.fire({
+      title: 'Preparando sincronización',
+      html: processHtml(0, 0, 1, 'Iniciando la primera etapa…', ''),
+      allowEscapeKey: false,
+      allowOutsideClick: false,
+      showConfirmButton: false
+    }).then(function () {
+      // La promesa solo se resolverá si el proceso la reemplaza al terminar.
+    });
+    requestStage(0, 1);
+  });
+}());
 </script>
 {% endblock %}
