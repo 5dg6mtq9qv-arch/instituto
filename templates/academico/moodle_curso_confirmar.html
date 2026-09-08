@@ -9,11 +9,41 @@
   <h2>{{ materia_curso.materia }} – {{ materia_curso.grupo }}</h2>
   <p>Se creará o actualizará el curso y se matricularán los siguientes participantes.</p>
   <p class="alert alert-info">Cada tema será una sección principal de Moodle y cada subtema será una subsección dentro de ella. El docente podrá agregar manualmente actividades y recursos.</p>
-  <p>Las cuentas nuevas usarán nombre_apellido (con un número si se repite) y una clave inicial. Moodle exigirá cambiarla al entrar. El director podrá descargar el Excel de accesos. Las cuentas existentes conservarán su contraseña.</p>
+  <p>Una persona conserva el mismo usuario aunque participe en varias aulas. Las cuentas nuevas usarán nombre_apellido (con un número si se repite) y una clave inicial. Moodle exigirá cambiarla al entrar. El director podrá descargar el Excel de accesos. Las cuentas existentes conservarán su contraseña.</p>
   <h3>Docentes ({{ docentes|length }})</h3>
-  <ul>{% for persona in docentes %}<li>{{ persona }} — {{ persona.email|default:"Se generará un correo provisional" }}</li>{% empty %}<li>Sin docentes activos.</li>{% endfor %}</ul>
+  <ul>
+    {% for row in docente_rows %}
+      <li>
+        {{ row.persona }} — {{ row.persona.email|default:"Se generará un correo provisional" }} —
+        {% if row.cuenta.usuario_id %}
+          <strong>Usuario existente: {{ row.cuenta.usuario }}</strong>
+        {% elif row.cuenta %}
+          <strong>Usuario reservado: {{ row.cuenta.usuario }}</strong>
+        {% else %}
+          <span class="text-muted">Se creará un usuario Moodle</span>
+        {% endif %}
+      </li>
+    {% empty %}
+      <li>Sin docentes activos.</li>
+    {% endfor %}
+  </ul>
   <h3>Alumnos ({{ alumnos|length }})</h3>
-  <ul>{% for persona in alumnos %}<li>{{ persona }} — {{ persona.email|default:"Se generará un correo provisional" }}</li>{% empty %}<li>Sin alumnos activos.</li>{% endfor %}</ul>
+  <ul>
+    {% for row in alumno_rows %}
+      <li>
+        {{ row.persona }} — {{ row.persona.email|default:"Se generará un correo provisional" }} —
+        {% if row.cuenta.usuario_id %}
+          <strong>Usuario existente: {{ row.cuenta.usuario }}</strong>
+        {% elif row.cuenta %}
+          <strong>Usuario reservado: {{ row.cuenta.usuario }}</strong>
+        {% else %}
+          <span class="text-muted">Se creará un usuario Moodle</span>
+        {% endif %}
+      </li>
+    {% empty %}
+      <li>Sin alumnos activos.</li>
+    {% endfor %}
+  </ul>
   <h3>Temario</h3>
   <ol>{% for tema in temas %}<li>{{ tema.nombre }}<ul>{% for subtema in tema.subtemas_planificacion.all %}<li>{{ subtema.nombre }}</li>{% endfor %}</ul></li>{% empty %}<li>Sin temas planificados.</li>{% endfor %}</ol>
   {% if errors %}<div class="alert alert-warning"><strong>Completa estos datos antes de continuar:</strong><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}

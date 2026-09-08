@@ -74,11 +74,10 @@ class PartnerTypeListView(InstitutoListView):
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("tipo_identificacion", "empresa")
-        q = self.request.GET.get("q")
-        if q:
+        for term in self.request.GET.get("q", "").split():
             query = Q()
             for field in self.search_fields:
-                query |= Q(**{f"{field}__icontains": q})
+                query |= Q(**{f"{field}__icontains": term})
             queryset = queryset.filter(query)
         return queryset
 
@@ -87,6 +86,8 @@ class PartnerTypeListView(InstitutoListView):
             return "Activo" if obj.activo else "Inactivo"
         if attr == "nombre_completo":
             return obj.nombre_completo()
+        if attr == "apellidos_nombres":
+            return " ".join(part for part in [obj.apellido, obj.nombre] if part).strip()
         if attr == "usuario_acceso":
             return obj.usuario.username if obj.usuario_id else "-"
         if attr == "representante_principal":
@@ -119,23 +120,162 @@ class PartnerTypeListView(InstitutoListView):
 
 class EstudianteListView(PartnerTypeListView):
     title = "Estudiantes"
+    template_name = "core/estudiante_list.html"
     update_url_name = "core:estudiante_editar"
+    search_fields = PartnerTypeListView.search_fields + (
+        "codigo",
+        "codigo_aux",
+        "direccion",
+        "fecha_nacimiento",
+        "genero",
+        "ocupacion",
+        "comentario",
+        "fichas_estudiante__numero",
+        "fichas_estudiante__colegio",
+        "fichas_estudiante__curso_grado",
+        "fichas_estudiante__carrera",
+        "fichas_estudiante__universidad",
+        "fichas_estudiante__horario",
+        "fichas_estudiante__aula__nombre",
+        "grupo_asignaciones__grupo__nombre",
+        "grupo_asignaciones__grupo__aula_cursos__aula__nombre",
+        "relaciones_a__partner_b__nombre",
+        "relaciones_a__partner_b__apellido",
+        "relaciones_a__partner_b__identificacion",
+        "relaciones_a__partner_b__telefono",
+        "relaciones_a__partner_b__telefono_celular",
+        "relaciones_a__partner_b__email",
+        "cuentas_moodle__usuario",
+        "cuentas_moodle__usuario_id",
+    )
     columns = (
-        ("Nombre", "nombre_completo"),
+        ("Apellidos y nombres", "apellidos_nombres"),
         ("Identificacion", "identificacion"),
         ("Celular", "telefono_celular"),
         ("Email", "email"),
         ("Representante", "representante_principal"),
+        ("Grupo", "grupos_asignados"),
+        ("Aula", "aulas_asignadas"),
+        ("Usuario Moodle", "usuario_moodle"),
+        ("Ibarra", "ibarra_estado"),
         ("Estado", "estado_operativo"),
     )
 
     def get_queryset(self):
-        return (
+        queryset = (
             super()
             .get_queryset()
             .filter(es_estudiante=True)
-            .prefetch_related("relaciones_a__partner_b")
+            .prefetch_related(
+                "relaciones_a__partner_b",
+                "fichas_estudiante__aula",
+                "fichas_estudiante__representante",
+                "fichas_estudiante__cliente",
+                "grupo_asignaciones__grupo__aula_cursos__aula",
+                "cuentas_moodle",
+            )
         )
+        estado = self.request.GET.get("estado", "")
+        if estado in {"activo", "inactivo"}:
+            queryset = queryset.filter(activo=estado == "activo")
+
+        ibarra = self.request.GET.get("ibarra", "")
+        if ibarra in {"si", "no"}:
+            queryset = queryset.filter(es_de_ibarra=ibarra == "si")
+
+        grupo = self.request.GET.get("grupo", "")
+        if grupo == "sin_grupo":
+            queryset = queryset.exclude(grupo_asignaciones__estado="activo")
+        elif grupo.isdigit():
+            queryset = queryset.filter(grupo_asignaciones__estado="activo", grupo_asignaciones__grupo_id=grupo)
+
+        aula = self.request.GET.get("aula", "")
+        if aula in {"con_aula", "sin_aula"}:
+            aula_filter = (
+                Q(
+                    fichas_estudiante__activo=True,
+                    fichas_estudiante__estado__in=("borrador", "activa", "retirada", "finalizada"),
+                    fichas_estudiante__aula__isnull=False,
+                )
+                | Q(
+                    grupo_asignaciones__estado="activo",
+                    grupo_asignaciones__grupo__aula_cursos__aula__isnull=False,
+                )
+            )
+            estudiantes_con_aula = Partner.objects.filter(es_estudiante=True).filter(aula_filter).values("pk")
+            if aula == "con_aula":
+                queryset = queryset.filter(pk__in=estudiantes_con_aula)
+            else:
+                queryset = queryset.exclude(pk__in=estudiantes_con_aula)
+
+        moodle = self.request.GET.get("moodle", "")
+        if moodle == "con_usuario":
+            queryset = queryset.filter(cuentas_moodle__usuario_id__isnull=False)
+        elif moodle == "sin_usuario":
+            queryset = queryset.exclude(cuentas_moodle__usuario_id__isnull=False)
+        return queryset.distinct().order_by("apellido", "nombre", "pk")
+
+    def get_context_data(self, **kwargs):
+        from apps.academico.models import Curso
+
+        context = super().get_context_data(**kwargs)
+        context["student_groups"] = Curso.objects.filter(activo=True).order_by("nombre")
+        context["search_placeholder"] = (
+            "Buscar por estudiante, ficha, representante, grupo, aula o usuario Moodle"
+        )
+        return context
+
+    def get_column_value(self, obj, attr):
+        if attr == "grupos_asignados":
+            grupos = {
+                asignacion.grupo.nombre
+                for asignacion in obj.grupo_asignaciones.all()
+                if asignacion.estado == "activo"
+            }
+            return ", ".join(sorted(grupos)) or "Sin grupo"
+        if attr == "aulas_asignadas":
+            aulas = {
+                str(ficha.aula)
+                for ficha in obj.fichas_estudiante.all()
+                if ficha.activo and ficha.estado != "anulada" and ficha.aula_id
+            }
+            for asignacion in obj.grupo_asignaciones.all():
+                if asignacion.estado != "activo":
+                    continue
+                aulas.update(str(aula_curso.aula) for aula_curso in asignacion.grupo.aula_cursos.all())
+            return ", ".join(sorted(aulas)) or "Sin aula"
+        if attr == "ibarra_estado":
+            return "Sí" if obj.es_de_ibarra else "No"
+        if attr == "usuario_moodle":
+            cuentas = sorted(
+                {
+                    cuenta.usuario
+                    for cuenta in obj.cuentas_moodle.all()
+                    if cuenta.usuario_id
+                }
+            )
+            if cuentas:
+                return ", ".join(cuentas)
+            reservadas = sorted({cuenta.usuario for cuenta in obj.cuentas_moodle.all()})
+            return f"Reservado: {', '.join(reservadas)}" if reservadas else "Sin usuario"
+        return super().get_column_value(obj, attr)
+
+    def get_column_kind(self, attr):
+        if attr == "ibarra_estado":
+            return "status"
+        return super().get_column_kind(attr)
+
+    def get_representante_principal(self, obj):
+        representantes = {
+            relacion.partner_b.nombre_completo()
+            for relacion in obj.relaciones_a.all()
+            if relacion.activo and relacion.relacion == "representante" and relacion.partner_b.es_representante
+        }
+        for ficha in obj.fichas_estudiante.all():
+            representante = ficha.representante or ficha.cliente
+            if representante and representante.es_representante:
+                representantes.add(representante.nombre_completo())
+        return ", ".join(sorted(representantes)) or "-"
 
 
 class RepresentanteListView(PartnerTypeListView):

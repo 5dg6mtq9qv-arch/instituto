@@ -24,7 +24,7 @@
     <form class="list-toolbar" method="get">
       <div class="list-search">
         <i class="ri-search-line"></i>
-        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar">
+        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="{{ search_placeholder|default:'Buscar' }}">
       </div>
       {% block list_filters %}{% endblock %}
       <button class="btn btn-primary-600 list-search-btn" type="submit">Buscar</button>

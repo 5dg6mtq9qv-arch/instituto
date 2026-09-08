@@ -74,6 +74,7 @@ from .models import (
     Materia,
     MateriaCurso,
     MoodleConfiguracion,
+    MoodleCuenta,
     MateriaSubtema,
     MateriaTema,
     Periodo,
@@ -2962,7 +2963,26 @@ class CoordinacionMoodleCursoView(TemasAsignadosMixin, CoordinacionRequiredMixin
     def get(self, request, *args, **kwargs):
         from .moodle_courses import course_data
         materia_curso = self.get_materia_curso()
-        return render(request, self.template_name, {"materia_curso": materia_curso, **course_data(materia_curso)})
+        data = course_data(materia_curso)
+        participantes = data["docentes"] + data["alumnos"]
+        configuracion = MoodleConfiguracion.objects.first()
+        sitio = configuracion.base_url if configuracion else ""
+        cuentas = {}
+        if sitio:
+            cuentas = {
+                cuenta.persona_id: cuenta
+                for cuenta in MoodleCuenta.objects.filter(
+                    persona_id__in=[persona.pk for persona in participantes],
+                    sitio=sitio,
+                )
+            }
+        data["docente_rows"] = [
+            {"persona": persona, "cuenta": cuentas.get(persona.pk)} for persona in data["docentes"]
+        ]
+        data["alumno_rows"] = [
+            {"persona": persona, "cuenta": cuentas.get(persona.pk)} for persona in data["alumnos"]
+        ]
+        return render(request, self.template_name, {"materia_curso": materia_curso, **data})
 
     def post(self, request, *args, **kwargs):
         from .moodle import MoodleError

@@ -32,6 +32,8 @@ from apps.academico.models import (
     HorarioDia,
     Materia,
     MateriaCurso,
+    MoodleConfiguracion,
+    MoodleCuenta,
     MateriaSubtema,
     MateriaTema,
     Periodo,
@@ -151,11 +153,20 @@ class DocenteHorariosPanelTests(TestCase):
 
     def test_moodle_preview_and_missing_students_do_not_call_remote(self):
         from unittest.mock import patch
+        MoodleConfiguracion.objects.create(base_url="https://moodle.example")
+        MoodleCuenta.objects.create(
+            persona=self.docente,
+            sitio="https://moodle.example",
+            usuario="docente_prueba",
+            usuario_id=71,
+        )
         self.client.force_login(self.create_coordinator())
         url = reverse("academico:coordinacion_moodle_curso", args=[self.materia_curso.pk])
         with patch("apps.academico.moodle_courses.MoodleClient") as client:
             response = self.client.get(url, HTTP_HOST="localhost")
             self.assertContains(response, "El grupo no tiene alumnos activos matriculados")
+            self.assertContains(response, "Usuario existente: docente_prueba")
+            self.assertContains(response, "conserva el mismo usuario aunque participe en varias aulas")
             self.assertContains(response, "disabled")
             response = self.client.post(url, HTTP_HOST="localhost")
             self.assertEqual(response.status_code, 302)

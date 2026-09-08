@@ -1,0 +1,63 @@
+{% extends "web/object_list.html" %}
+
+{% block list_filters %}
+  <select class="form-select student-list-filter" name="estado" aria-label="Filtrar por estado">
+    <option value="">Todos los estados</option>
+    <option value="activo"{% if request.GET.estado == "activo" %} selected{% endif %}>Activos</option>
+    <option value="inactivo"{% if request.GET.estado == "inactivo" %} selected{% endif %}>Inactivos</option>
+  </select>
+  <select class="form-select student-list-filter" name="ibarra" aria-label="Filtrar por procedencia">
+    <option value="">Ibarra: todos</option>
+    <option value="si"{% if request.GET.ibarra == "si" %} selected{% endif %}>Es de Ibarra</option>
+    <option value="no"{% if request.GET.ibarra == "no" %} selected{% endif %}>No es de Ibarra</option>
+  </select>
+  <select class="form-select student-list-filter" name="grupo" aria-label="Filtrar por grupo">
+    <option value="">Todos los grupos</option>
+    <option value="sin_grupo"{% if request.GET.grupo == "sin_grupo" %} selected{% endif %}>Sin grupo</option>
+    {% for grupo in student_groups %}
+      <option value="{{ grupo.pk }}"{% if request.GET.grupo == grupo.pk|stringformat:"s" %} selected{% endif %}>{{ grupo }}</option>
+    {% endfor %}
+  </select>
+  <select class="form-select student-list-filter" name="aula" aria-label="Filtrar por aula">
+    <option value="">Todas las aulas</option>
+    <option value="con_aula"{% if request.GET.aula == "con_aula" %} selected{% endif %}>Con aula</option>
+    <option value="sin_aula"{% if request.GET.aula == "sin_aula" %} selected{% endif %}>Sin aula</option>
+  </select>
+  <select class="form-select student-list-filter" name="moodle" aria-label="Filtrar por usuario Moodle">
+    <option value="">Moodle: todos</option>
+    <option value="con_usuario"{% if request.GET.moodle == "con_usuario" %} selected{% endif %}>Con usuario Moodle</option>
+    <option value="sin_usuario"{% if request.GET.moodle == "sin_usuario" %} selected{% endif %}>Sin usuario Moodle</option>
+  </select>
+  {% if request.GET %}
+    <a class="btn btn-outline-secondary student-list-clear" href="{% url 'core:estudiante_list' %}">Limpiar</a>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .list-toolbar {
+      flex-wrap: wrap;
+    }
+
+    .student-list-filter {
+      flex: 1 1 150px;
+      max-width: 210px;
+      min-height: 44px;
+    }
+
+    .student-list-clear {
+      min-height: 44px;
+    }
+
+    @media (max-width: 767px) {
+      .list-search,
+      .student-list-filter,
+      .student-list-clear,
+      .list-search-btn {
+        flex-basis: 100%;
+        max-width: none;
+        width: 100%;
+      }
+    }
+  </style>
+{% endblock %}

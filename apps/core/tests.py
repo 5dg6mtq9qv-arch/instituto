@@ -361,6 +361,114 @@ class PartnerRoleViewTests(TestCase):
         self.assertNotContains(representatives_response, "Alumno Uno")
         self.assertNotContains(representatives_response, "list-create-btn")
 
+    def test_student_list_searches_and_filters_group_and_classroom_assignments(self):
+        from datetime import date
+
+        from apps.academico.models import Aula, AulaCurso, Curso, GrupoEstudiante, MoodleCuenta
+        from apps.matricula.models import FichaInscripcion
+
+        self.estudiante.apellido = "Zamora"
+        self.estudiante.save(update_fields=["apellido"])
+        ficha_asignada = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="F-AULA-001",
+            fecha=date(2026, 9, 7),
+            cliente=self.representante,
+            estudiante=self.estudiante,
+            representante=self.representante,
+            carrera="Medicina",
+            estado="activa",
+        )
+        grupo = Curso.objects.create(nombre="Grupo Norte", activo=True)
+        aula = Aula.objects.create(nombre="Aula Norte")
+        AulaCurso.objects.create(aula=aula, curso=grupo)
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha_asignada,
+            estudiante=self.estudiante,
+            grupo=grupo,
+            estado="activo",
+        )
+        MoodleCuenta.objects.create(
+            persona=self.estudiante,
+            sitio="https://moodle.example",
+            usuario="alumno_zamora",
+            usuario_id=321,
+        )
+        estudiante_sin_aula = Partner.objects.create(
+            empresa=self.empresa,
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion="1002003099",
+            nombre="Alumno Dos",
+            apellido="Álvarez",
+            es_estudiante=True,
+            es_de_ibarra=False,
+            activo=False,
+        )
+        FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="F-AULA-002",
+            fecha=date(2026, 9, 7),
+            cliente=self.representante,
+            estudiante=estudiante_sin_aula,
+            representante=self.representante,
+            estado="activa",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("core:estudiante_list"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [obj.pk for obj in response.context["object_list"]],
+            [estudiante_sin_aula.pk, self.estudiante.pk],
+        )
+        first_row_values = {
+            attr: cell["value"]
+            for (_, attr), cell in zip(response.context["columns"], response.context["object_rows"][1]["values"])
+        }
+        self.assertEqual(first_row_values["apellidos_nombres"], "Zamora Alumno Uno")
+        self.assertEqual(first_row_values["grupos_asignados"], "Grupo Norte")
+        self.assertEqual(first_row_values["aulas_asignadas"], "Aula Norte")
+        self.assertEqual(first_row_values["usuario_moodle"], "alumno_zamora")
+        self.assertEqual(first_row_values["representante_principal"], "Representante Uno")
+        self.assertContains(response, 'name="estado"')
+        self.assertContains(response, 'name="ibarra"')
+        self.assertContains(response, 'name="grupo"')
+        self.assertContains(response, 'name="aula"')
+        self.assertContains(response, 'name="moodle"')
+        self.assertContains(
+            response,
+            'placeholder="Buscar por estudiante, ficha, representante, grupo, aula o usuario Moodle"',
+        )
+
+        response = self.client.get(
+            reverse("core:estudiante_list"),
+            {"q": "Aula Norte"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual([obj.pk for obj in response.context["object_list"]], [self.estudiante.pk])
+
+        response = self.client.get(
+            reverse("core:estudiante_list"),
+            {"estado": "inactivo", "ibarra": "no", "grupo": "sin_grupo", "aula": "sin_aula"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual([obj.pk for obj in response.context["object_list"]], [estudiante_sin_aula.pk])
+
+        response = self.client.get(
+            reverse("core:estudiante_list"),
+            {"grupo": grupo.pk, "aula": "con_aula", "moodle": "con_usuario"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual([obj.pk for obj in response.context["object_list"]], [self.estudiante.pk])
+
+        response = self.client.get(
+            reverse("core:estudiante_list"),
+            {"moodle": "sin_usuario"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual([obj.pk for obj in response.context["object_list"]], [estudiante_sin_aula.pk])
+
     def test_student_and_representative_edit_forms_do_not_expose_role_flags(self):
         self.client.force_login(self.user)
 
