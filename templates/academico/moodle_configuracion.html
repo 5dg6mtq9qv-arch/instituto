@@ -37,6 +37,21 @@
             </div>
             {% for error in form.token.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
           </div>
+          <div class="col-12">
+            <label class="form-label" for="{{ form.clave_inicial.id_for_label }}">{{ form.clave_inicial.label }}</label>
+            {{ form.clave_inicial }}
+            <div class="form-text">
+              {% if clave_inicial_guardada %}
+                Hay una clave inicial cifrada guardada. Déjala vacía para conservarla.
+              {% elif clave_inicial_configurada %}
+                Actualmente se usa la clave de respaldo del servidor. Puedes guardar aquí una nueva.
+              {% else %}
+                Debes definirla antes de crear cuentas nuevas en Moodle.
+              {% endif %}
+              Moodle exigirá al usuario cambiarla en su primer ingreso.
+            </div>
+            {% for error in form.clave_inicial.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
         </div>
         <div class="form-actions">
           <a class="btn btn-outline-secondary" href="{% url 'home' %}">Cancelar</a>

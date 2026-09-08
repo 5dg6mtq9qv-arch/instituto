@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manual de usuario — Instituto</title>
+  <link rel="stylesheet" href="manuales.css">
+</head>
+<body>
+<main>
+  <section class="cover">
+    <div>
+      <div class="mark">I</div>
+      <h1>Manual de usuario</h1>
+      <p class="subtitle">Sistema de gestión del Instituto: matrícula, cartera, operación académica, docentes, coordinación e integración con Moodle.</p>
+    </div>
+    <div class="meta">
+      <div><strong>Versión del documento</strong><br>1.0</div>
+      <div><strong>Fecha de revisión</strong><br>8 de septiembre de 2026</div>
+      <div><strong>Base revisada</strong><br>Sistema Django del Instituto</div>
+      <div><strong>Uso</strong><br>Personal administrativo y académico</div>
+    </div>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Introducción</p>
+    <h1>Qué permite hacer el sistema</h1>
+    <p class="lead">La plataforma concentra el registro institucional de personas, matrículas y pagos, la preparación de grupos y clases, el trabajo de docentes y coordinación, y la creación controlada de aulas virtuales en Moodle.</p>
+
+    <div class="cards three">
+      <article class="card"><h3>Matrícula</h3><p>Registra estudiante y representante, asigna datos académicos, crea el convenio, el plan de pago y todas sus cuotas.</p></article>
+      <article class="card"><h3>Cartera</h3><p>Consulta saldos, registra abonos o pagos, adjunta comprobantes y permite revisar o editar los pagos registrados.</p></article>
+      <article class="card"><h3>Académico</h3><p>Configura periodos, grupos, aulas, horarios, materias, docentes, estudiantes, clases y temarios.</p></article>
+      <article class="card"><h3>Docente</h3><p>Muestra horarios y calendario; permite planificar clases, adjuntar recursos y registrar asistencia.</p></article>
+      <article class="card"><h3>Coordinación</h3><p>Administra temas, revisa planificaciones y asistencia, consulta reportes y controla horas docentes.</p></article>
+      <article class="card"><h3>Moodle</h3><p>Crea o recupera el aula, sincroniza temario, reutiliza cuentas y matricula docentes y alumnos.</p></article>
+    </div>
+
+    <div class="callout warning">
+      <strong>Alcance actual</strong>
+      Los pagos son registros internos manuales. No existe pasarela bancaria, facturación SRI ni contabilidad. Moodle se sincroniza por servicio web; no hay SSO ni sincronización de calificaciones.
+    </div>
+
+    <h2>Contenido</h2>
+    <ol class="toc">
+      <li><strong>1. Acceso y navegación</strong>Inicio de sesión, menú y perfil.</li>
+      <li><strong>2. Roles y permisos</strong>Qué ve cada tipo de usuario.</li>
+      <li><strong>3. Preparación inicial</strong>Orden recomendado de configuración.</li>
+      <li><strong>4. Matrícula</strong>Proceso completo en cuatro pasos.</li>
+      <li><strong>5. Estudiantes y representantes</strong>Búsqueda, filtros y edición.</li>
+      <li><strong>6. Cartera y pagos</strong>Cobro, comprobantes y fechas.</li>
+      <li><strong>7. Operación académica</strong>Grupos, aulas, horarios y materias.</li>
+      <li><strong>8. Temas y subtemas</strong>Temario base y duplicados.</li>
+      <li><strong>9. Moodle</strong>Creación, progreso y reintentos.</li>
+      <li><strong>10. Docentes</strong>Planificación y asistencia.</li>
+      <li><strong>11. Coordinación y Dirección</strong>Revisiones y reportes.</li>
+      <li><strong>12. Documentos y ayuda</strong>Descargas y errores frecuentes.</li>
+    </ol>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Capítulo 1</p>
+    <h1>Acceso y navegación</h1>
+
+    <h3>Ingresar</h3>
+    <ol>
+      <li>Abra la dirección del sistema. En desarrollo local es <span class="route">http://127.0.0.1:8000/login/</span>.</li>
+      <li>Escriba su usuario y contraseña.</li>
+      <li>Después de autenticarse llegará al Panel.</li>
+    </ol>
+
+    <h3>Menú principal</h3>
+    <p>El menú lateral solo muestra las opciones permitidas para el usuario. Sus grupos principales son Dashboard, Matrículas, Administrativo, Académico, Coordinación, Docente y Cartera.</p>
+    <p>Si una opción descrita en este manual no aparece, primero confirme el grupo y los permisos del usuario con un administrador.</p>
+
+    <h3>Perfil y contraseña</h3>
+    <p>Desde el bloque del usuario elija <strong>Mi perfil</strong>. Allí puede actualizar sus datos personales y cambiar su contraseña. Para cerrar la sesión use <strong>Salir</strong>.</p>
+
+    <h2>Roles de operación</h2>
+    <table>
+      <thead><tr><th>Rol</th><th>Uso principal</th><th>Acceso característico</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Administrador</strong></td><td>Configuración y seguridad.</td><td>Empresas, usuarios, grupos, permisos, configuración Moodle y administración general.</td></tr>
+        <tr><td><strong>Dirección / Director</strong></td><td>Supervisión institucional.</td><td>Consulta académica, revisiones, docentes, horas y reportes según permisos asignados.</td></tr>
+        <tr><td><strong>Coordinación</strong></td><td>Operación académica.</td><td>Temarios, planificación, grupos, asistencia, revisión y creación de aulas Moodle.</td></tr>
+        <tr><td><strong>Docente</strong></td><td>Ejecución de clases.</td><td>Sus materias, horarios, calendario, planificación, recursos y asistencia.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <strong>Los permisos mandan</strong>
+      Dos usuarios del mismo rol pueden ver opciones distintas si el administrador ajustó permisos individuales o grupos adicionales.
+    </div>
+
+    <h2>Orden recomendado antes de operar</h2>
+    <div class="flow">
+      <div>Empresa y usuarios</div>
+      <div>Periodo, grupos y aulas</div>
+      <div>Horarios y materias</div>
+      <div>Docentes y estudiantes</div>
+      <div>Temario, clases y Moodle</div>
+    </div>
+    <p>No conviene crear clases o aulas Moodle antes de completar las relaciones de periodo, grupo, materia, horario, docente y estudiantes.</p>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Capítulo 2</p>
+    <h1>Matrícula de estudiantes</h1>
+    <p>Ruta directa: <span class="route">/matricula/matricular/</span>. También puede ingresar desde <strong>Matrículas → Matricular</strong>.</p>
+
+    <h2>Proceso en cuatro pasos</h2>
+    <div class="flow">
+      <div>1. Estudiante</div>
+      <div>2. Representante</div>
+      <div>3. Matrícula</div>
+      <div>4. Convenio</div>
+      <div>Documentos y cuotas</div>
+    </div>
+
+    <h3>1. Estudiante</h3>
+    <ul>
+      <li>Seleccione una persona existente o cree una nueva.</li>
+      <li>Registre identificación, nombres, apellidos, fecha de nacimiento, correo y celular.</li>
+      <li>Marque correctamente <strong>Es de Ibarra</strong>; después podrá usar este dato como filtro.</li>
+    </ul>
+
+    <h3>2. Representante</h3>
+    <ul>
+      <li>Seleccione un representante existente, cree uno nuevo o indique que el estudiante se representa a sí mismo.</li>
+      <li>El documento del representante no puede ser igual al del estudiante cuando son personas distintas.</li>
+      <li>Complete teléfono, correo, ocupación y dirección para disponer de datos de contacto.</li>
+    </ul>
+
+    <h3>3. Matrícula</h3>
+    <ul>
+      <li>Confirme número de ficha, fecha, periodo, curso, aula, colegio, carrera, universidad y horario.</li>
+      <li>Revise cuidadosamente la asignación. La ficha será la referencia para documentos y cartera.</li>
+    </ul>
+
+    <h3>4. Convenio de pago</h3>
+    <ul>
+      <li>Elija periodicidad mensual o quincenal.</li>
+      <li>Defina fecha de la primera cuota, valor de matrícula, valor por cuota, número de cuotas y abono inicial.</li>
+      <li>Al confirmar se crean la ficha, el plan de pago y el calendario completo de cuotas.</li>
+    </ul>
+
+    <div class="callout warning">
+      <strong>Revise antes de confirmar</strong>
+      Si ya existen pagos registrados, los campos que alteran el convenio quedan bloqueados para proteger la trazabilidad financiera.
+    </div>
+
+    <h2>Después de matricular</h2>
+    <p>El sistema abre la ficha documental. Desde allí puede generar la ficha en ODT/PDF, el contrato en DOCX/PDF, revisar las cuotas generadas y cargar documentos firmados.</p>
+    <p>Listado de fichas: <span class="route">/matricula/fichas/</span>.</p>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Capítulo 3</p>
+    <h1>Estudiantes y representantes</h1>
+
+    <h2>Listado de estudiantes</h2>
+    <p>Ingrese por <strong>Matrículas → Estudiantes</strong> o por <span class="route">/core/estudiantes/</span>. El listado se ordena alfabéticamente por apellidos y nombres.</p>
+
+    <h3>Búsqueda general</h3>
+    <p>El buscador acepta nombres, apellidos, identificación, teléfonos, correo, ficha, colegio, carrera, universidad, representante, grupo, aula y usuario Moodle. Puede escribir varias palabras; todas se aplican a la búsqueda.</p>
+
+    <h3>Filtros disponibles</h3>
+    <table>
+      <thead><tr><th>Filtro</th><th>Opciones</th><th>Para qué sirve</th></tr></thead>
+      <tbody>
+        <tr><td>Estado</td><td>Activo / Inactivo</td><td>Separar estudiantes vigentes.</td></tr>
+        <tr><td>Ibarra</td><td>Sí / No</td><td>Identificar procedencia registrada.</td></tr>
+        <tr><td>Grupo</td><td>Grupo específico / Sin grupo</td><td>Comprobar asignaciones académicas.</td></tr>
+        <tr><td>Aula</td><td>Con aula / Sin aula</td><td>Detectar estudiantes pendientes de aula.</td></tr>
+        <tr><td>Moodle</td><td>Con usuario / Sin usuario</td><td>Revisar cuentas virtuales.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Editar estudiante</h3>
+    <p>Abra el menú de acciones de la fila y pulse <strong>Editar</strong>. La ruta tiene el formato <span class="route">/core/estudiantes/ID/editar/</span>. La pantalla muestra los representantes vinculados y permite abrir su edición si cuenta con permiso.</p>
+
+    <h2>Representantes</h2>
+    <p>Ingrese por <strong>Matrículas → Representantes</strong> o <span class="route">/core/representantes/</span>. Puede buscar por datos personales y ver los estudiantes vinculados. La edición usa <span class="route">/core/representantes/ID/editar/</span>.</p>
+
+    <div class="callout">
+      <strong>Una persona, varios roles</strong>
+      El registro central de persona puede actuar como estudiante, representante o docente según sus indicadores. No cree duplicados si la identificación ya existe.
+    </div>
+
+    <h2>Estudiantes por grupo</h2>
+    <p>En <strong>Académico → Estudiantes por grupo</strong>, ruta <span class="route">/academico/estudiantes-grupo/</span>, puede:</p>
+    <ul class="checklist">
+      <li>Asignar en bloque estudiantes que todavía no tienen grupo.</li>
+      <li>Sincronizar la lista base del grupo con sus clases.</li>
+      <li>Mover una materia de un estudiante hacia otro horario.</li>
+      <li>Revisar o cancelar movimientos registrados.</li>
+    </ul>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Capítulo 4</p>
+    <h1>Cartera, cuotas y pagos</h1>
+
+    <h2>Cobrar a un estudiante</h2>
+    <ol>
+      <li>Ingrese a <strong>Cartera → Cobros por alumno</strong> o <span class="route">/cartera/alumnos/</span>.</li>
+      <li>Busque al estudiante y abra sus cuotas pendientes.</li>
+      <li>Seleccione una o varias cuotas, o escriba un valor de abono para distribuirlo sobre saldos pendientes.</li>
+      <li>Elija forma de pago, fecha y hora, número de comprobante, comentario y archivo adjunto si corresponde.</li>
+      <li>Pulse <strong>Registrar pago</strong> y confirme el saldo actualizado.</li>
+    </ol>
+
+    <p>El sistema evita reutilizar el mismo número de comprobante dentro de la empresa. Un pago puede cubrir totalmente una cuota o dejarla en estado parcial.</p>
+
+    <h2>Consultar y editar pagos</h2>
+    <ul>
+      <li>Todos los pagos: <span class="route">/cartera/pagos/</span>.</li>
+      <li>Detalle: <span class="route">/cartera/pagos/ID/</span>.</li>
+      <li>Editar: <span class="route">/cartera/pagos/ID/editar/</span>.</li>
+      <li>Historial del alumno: <span class="route">/cartera/alumnos/FICHA_ID/pagos/</span>.</li>
+    </ul>
+    <p>Desde el detalle puede imprimir la ficha del pago y descargar el comprobante adjunto.</p>
+
+    <h2>Fechas del convenio</h2>
+    <p>Si una ficha todavía no tiene pagos, al editar la <strong>Fecha primera cuota</strong> se recalculan las fechas de todas las cuotas ordinarias:</p>
+    <ul>
+      <li><strong>Mensual:</strong> conserva el día cuando existe; en meses cortos usa el último día disponible.</li>
+      <li><strong>Quincenal:</strong> suma intervalos de 15 días.</li>
+      <li>La cuota especial de matrícula no se mueve con este calendario.</li>
+    </ul>
+
+    <div class="callout warning">
+      <strong>Fecha del pago y fecha de vencimiento son distintas</strong>
+      Editar la fecha de un pago cambia cuándo se registró ese comprobante. Para cambiar el calendario completo debe editar la ficha y su fecha de primera cuota, siempre que aún no existan pagos.
+    </div>
+
+    <h2>Catálogos financieros</h2>
+    <p>Los permisos correspondientes permiten mantener <strong>Formas de pago</strong>, <strong>Planes de pago</strong> y <strong>Cuotas</strong>. Evite editar manualmente saldos si pueden derivarse de los pagos registrados.</p>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Capítulo 5</p>
+    <h1>Configuración académica</h1>
+
+    <h2>Elementos principales</h2>
+    <table>
+      <thead><tr><th>Elemento</th><th>Ruta</th><th>Función</th></tr></thead>
+      <tbody>
+        <tr><td>Periodos</td><td><span class="route">/academico/periodos/</span></td><td>Define fechas de inicio y fin.</td></tr>
+        <tr><td>Cursos / grupos</td><td><span class="route">/academico/cursos/</span></td><td>Organiza cohortes de estudiantes.</td></tr>
+        <tr><td>Aulas</td><td><span class="route">/academico/aulas/</span></td><td>Catálogo de espacios físicos.</td></tr>
+        <tr><td>Materias</td><td><span class="route">/academico/materias/</span></td><td>Nombre, abreviatura, color y descripción.</td></tr>
+        <tr><td>Horario</td><td><span class="route">/academico/horario-distribucion/</span></td><td>Distribución recurrente de días y horas.</td></tr>
+        <tr><td>Planificación académica</td><td><span class="route">/academico/planificacion-academica/</span></td><td>Genera y edita clases del periodo.</td></tr>
+        <tr><td>Planificación docente</td><td><span class="route">/academico/planificacion-docente/</span></td><td>Asigna docentes a materias y grupos.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Planificación académica</h3>
+    <p>Seleccione el grupo, la fecha y la celda del horario. Puede asignar materia y docente a una clase o activar <strong>Actualizar desde esta fecha al resto del periodo</strong> para aplicar cambios recurrentes. También existe exportación a Excel.</p>
+
+    <h3>Asignación docente</h3>
+    <p>Seleccione el docente y asigne las materias de los grupos. Una materia de un grupo no debe quedar asignada simultáneamente a docentes diferentes, salvo el manejo explícito de reemplazo por clase.</p>
+
+    <div class="callout">
+      <strong>Clases sin docente</strong>
+      El sistema detecta clases próximas sin un docente real asignado. Resuelva estas alertas antes de que empiece la semana académica.
+    </div>
+
+    <h2>Temas y subtemas</h2>
+    <p>Coordinación administra el temario en <span class="route">/academico/coordinacion/temas/</span>. El temario base de una materia se comparte con todos los grupos que tienen esa materia.</p>
+    <ol>
+      <li>Abra la materia y agregue o edite temas.</li>
+      <li>Dentro de cada tema agregue sus subtemas en el orden requerido.</li>
+      <li>Guarde. El sistema sincroniza el contenido con los grupos asociados.</li>
+    </ol>
+    <p>Si hay un nombre repetido, aparece un resumen de error arriba y los campos se marcan junto al tema o subtema. El mensaje indica el nombre, sus posiciones y, para subtemas, el tema al que pertenecen. Nada se elimina mientras exista el error.</p>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Capítulo 6</p>
+    <h1>Creación de aulas en Moodle</h1>
+
+    <h2>Requisitos previos</h2>
+    <ul class="checklist">
+      <li>Conexión Moodle configurada y probada por Administrador.</li>
+      <li>Materia con temas y subtemas.</li>
+      <li>Docente activo asignado.</li>
+      <li>Grupo con alumnos activos.</li>
+      <li>Correos válidos cuando estén registrados y sin correos personales compartidos.</li>
+    </ul>
+
+    <h2>Crear o completar un curso</h2>
+    <ol>
+      <li>Ingrese a <strong>Coordinación → Temas</strong>.</li>
+      <li>En la materia/grupo pulse <strong>Crear curso en Moodle</strong> o <strong>Completar curso en Moodle</strong>.</li>
+      <li>Revise docentes, alumnos y temario.</li>
+      <li>Pulse <strong>Crear curso y matricular participantes</strong>.</li>
+      <li>No cierre la ventana hasta que las cinco etapas estén confirmadas.</li>
+    </ol>
+
+    <div class="flow">
+      <div>Conexión y permisos</div>
+      <div>Crear o recuperar aula</div>
+      <div>Temas y subtemas</div>
+      <div>Cuentas</div>
+      <div>Matrículas y comprobación</div>
+    </div>
+
+    <p>La ventana de progreso muestra la etapa real, el porcentaje, el intento actual, el mensaje devuelto y el avance conservado. Los errores temporales se reintentan sobre la misma etapa sin volver a crear el curso.</p>
+
+    <h3>Usuarios reutilizables</h3>
+    <ul>
+      <li>Una persona conserva la misma cuenta para varias aulas del mismo sitio Moodle.</li>
+      <li>Los alumnos nuevos usan un usuario basado en nombre y apellido.</li>
+      <li>Los docentes se registran con rol Docente, aunque participen en varios cursos.</li>
+      <li>Si Moodle ya tiene la cuenta por correo, se vincula sin cambiar su contraseña.</li>
+      <li>Las cuentas nuevas reciben una clave inicial y Moodle exige cambiarla al primer ingreso.</li>
+    </ul>
+
+    <h3>Sincronizar después</h3>
+    <p><strong>Sincronizar temario</strong> agrega elementos faltantes y actualiza las vinculaciones necesarias. No elimina automáticamente contenido creado por el docente ni sincroniza calificaciones.</p>
+
+    <h3>Excel de accesos</h3>
+    <p>Los usuarios autorizados pueden descargar el Excel de accesos desde el listado de temas. Contiene identificación, rol, usuario, clave inicial disponible, URL y estado. Debe tratarse como documento confidencial.</p>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Capítulo 7</p>
+    <h1>Trabajo docente y revisión</h1>
+
+    <h2>Docente</h2>
+    <p>En <strong>Docente → Mis planificaciones</strong> el profesor ve únicamente sus materias y clases. Puede planificar por tema o abrir una clase específica.</p>
+    <ul>
+      <li>Seleccionar tema y subtemas.</li>
+      <li>Registrar descripción, objetivo y contenido pedagógico.</li>
+      <li>Seleccionar competencias, estrategias y recursos.</li>
+      <li>Adjuntar recursos de clase.</li>
+      <li>Enviar la planificación a revisión y corregirla cuando sea rechazada.</li>
+    </ul>
+    <p>En <strong>Mi calendario</strong>, ruta <span class="route">/academico/docente/calendario/</span>, consulta su semana y puede descargarla en Excel.</p>
+
+    <h3>Asistencia</h3>
+    <p>Desde la clase pulse <strong>Asistencia</strong>. Registre el estado de cada estudiante y guarde. Una asistencia cerrada queda protegida contra cambios normales.</p>
+
+    <h2>Coordinación</h2>
+    <ul>
+      <li><strong>Revisión docente:</strong> lista planificaciones por estado, abre el contenido y permite aprobar o rechazar con observaciones.</li>
+      <li><strong>Revisión asistencia:</strong> filtra clases y abre su reporte detallado.</li>
+      <li><strong>Asistencia alumno:</strong> consulta el historial individual y exporta a Excel.</li>
+    </ul>
+
+    <h2>Dirección</h2>
+    <p>El módulo de horas docentes permite marcar asistencia del profesor, ausencia, suspensión o reemplazo, y definir horas pagables. El reporte filtra por fechas y docente y puede exportarse a Excel.</p>
+
+    <div class="callout warning">
+      <strong>Permiso por confirmar</strong>
+      Actualmente existe una diferencia entre la configuración y una prueba automatizada respecto a si Coordinación debe acceder a Horas docente. Hasta definir la política institucional, el administrador debe revisar ese permiso.
+    </div>
+  </section>
+
+  <section class="page">
+    <p class="eyebrow">Capítulo 8</p>
+    <h1>Documentos, exportaciones y solución de problemas</h1>
+
+    <h2>Salidas disponibles</h2>
+    <table>
+      <thead><tr><th>Documento</th><th>Formato</th><th>Origen</th></tr></thead>
+      <tbody>
+        <tr><td>Ficha de matrícula</td><td>ODT y PDF</td><td>Documentos de la ficha.</td></tr>
+        <tr><td>Contrato de servicios</td><td>DOCX y PDF</td><td>Documentos de la ficha.</td></tr>
+        <tr><td>Planificación académica</td><td>Excel</td><td>Planificación académica.</td></tr>
+        <tr><td>Calendario docente</td><td>Excel</td><td>Mi calendario.</td></tr>
+        <tr><td>Asistencia del alumno</td><td>Excel</td><td>Coordinación.</td></tr>
+        <tr><td>Horas docentes</td><td>Excel</td><td>Reporte horas.</td></tr>
+        <tr><td>Accesos Moodle</td><td>Excel</td><td>Temas por materia/grupo.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Errores frecuentes</h2>
+    <h3>No aparece una opción del menú</h3>
+    <p>El usuario no pertenece al grupo correcto o no posee el permiso. Solicite revisión al Administrador.</p>
+
+    <h3>No se puede cambiar el convenio</h3>
+    <p>La ficha ya tiene pagos. Los campos financieros se bloquean para evitar que el historial deje de coincidir con saldos y comprobantes.</p>
+
+    <h3>Un tema o subtema está repetido</h3>
+    <p>Revise la alerta superior. El sistema considera iguales los nombres que solo cambian mayúsculas, minúsculas o espacios. Corrija una de las posiciones indicadas y vuelva a guardar.</p>
+
+    <h3>Moodle reintenta una etapa</h3>
+    <p>Espere mientras la ventana continúa. El sistema conserva el curso y las cuentas ya confirmadas. Si el error se declara no reintentable, corrija el requisito mostrado y ejecute nuevamente.</p>
+
+    <h3>Un estudiante no aparece para asignar</h3>
+    <p>Confirme que su ficha esté activa, no anulada y que no tenga ya una asignación activa de grupo.</p>
+
+    <div class="callout danger">
+      <strong>Protección de información</strong>
+      Los comprobantes, contratos, identificaciones y Excel de accesos contienen datos personales o credenciales iniciales. Descárguelos únicamente cuando sea necesario y no los comparta por canales no autorizados.
+    </div>
+
+    <p class="footer-note">Manual elaborado a partir del código, rutas, permisos, pruebas y datos operativos disponibles al 8 de septiembre de 2026. Las opciones visibles pueden variar según permisos.</p>
+  </section>
+</main>
+</body>
+</html>

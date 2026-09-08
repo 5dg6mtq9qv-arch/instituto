@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from urllib.parse import urlencode
 
+from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.urls import reverse_lazy
 from django.db import IntegrityError, connection, transaction
@@ -2870,7 +2871,7 @@ class MoodleAccesosExcelView(TemasAsignadosMixin, CoordinacionRequiredMixin, Vie
         return response
 
 
-@method_decorator(sensitive_post_parameters("token"), name="dispatch")
+@method_decorator(sensitive_post_parameters("token", "clave_inicial"), name="dispatch")
 class MoodleConfiguracionView(LoginRequiredMixin, UserPassesTestMixin, View):
     template_name = "academico/moodle_configuracion.html"
 
@@ -2891,6 +2892,10 @@ class MoodleConfiguracionView(LoginRequiredMixin, UserPassesTestMixin, View):
                 "form": form,
                 "configuracion": configuracion,
                 "token_configurado": bool(configuracion.token_cifrado),
+                "clave_inicial_configurada": bool(
+                    configuracion.clave_inicial_cifrada or settings.MOODLE_INITIAL_PASSWORD
+                ),
+                "clave_inicial_guardada": bool(configuracion.clave_inicial_cifrada),
             },
         )
 
@@ -2941,10 +2946,14 @@ class MoodleConfiguracionView(LoginRequiredMixin, UserPassesTestMixin, View):
         form = MoodleConfiguracionForm(request.POST, instance=original or MoodleConfiguracion())
         if not form.is_valid():
             return self.render_form(form)
-        changed = not original or form.cleaned_data["base_url"] != original_url or bool(form.cleaned_data["token"])
+        connection_changed = (
+            not original
+            or form.cleaned_data["base_url"] != original_url
+            or bool(form.cleaned_data["token"])
+        )
         configuracion = form.save(commit=False)
         configuracion.usuario_updated = request.user
-        if changed:
+        if connection_changed:
             configuracion.ultima_prueba = None
             configuracion.ultima_prueba_exitosa = None
             configuracion.ultimo_resultado = ""

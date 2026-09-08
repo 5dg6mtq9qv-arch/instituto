@@ -48,6 +48,22 @@ class MoodleConfiguracionForm(BootstrapFormMixin, forms.ModelForm):
             attrs={"autocomplete": "new-password", "placeholder": "Pega aquí el token de Moodle"},
         ),
     )
+    clave_inicial = forms.CharField(
+        label="Clave inicial para cuentas nuevas",
+        required=False,
+        min_length=8,
+        help_text=(
+            "Se asigna solo a cuentas nuevas y Moodle solicitará cambiarla al ingresar. "
+            "Déjala vacía para conservar la configuración actual."
+        ),
+        widget=forms.PasswordInput(
+            render_value=False,
+            attrs={
+                "autocomplete": "new-password",
+                "placeholder": "Mínimo 8 caracteres; usa letras, números y símbolos",
+            },
+        ),
+    )
 
     class Meta:
         model = MoodleConfiguracion
@@ -72,13 +88,25 @@ class MoodleConfiguracionForm(BootstrapFormMixin, forms.ModelForm):
             raise forms.ValidationError("Ingresa el token del servicio web de Moodle.")
         return token
 
+    def clean_clave_inicial(self):
+        from django.conf import settings
+
+        password = self.cleaned_data.get("clave_inicial") or ""
+        if not password and not self.instance.clave_inicial_cifrada and not settings.MOODLE_INITIAL_PASSWORD:
+            raise forms.ValidationError("Ingresa la clave inicial que recibirán las cuentas nuevas.")
+        return password
+
     def save(self, commit=True):
         from .moodle import encrypt_moodle_token
+        from .moodle_accounts import encrypt_configured_initial_password
 
         instance = super().save(commit=False)
         token = self.cleaned_data.get("token")
+        password = self.cleaned_data.get("clave_inicial")
         if token:
             instance.token_cifrado = encrypt_moodle_token(token)
+        if password:
+            instance.clave_inicial_cifrada = encrypt_configured_initial_password(password)
         if commit:
             instance.save()
         return instance

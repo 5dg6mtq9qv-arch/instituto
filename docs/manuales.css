@@ -1,0 +1,385 @@
+@page {
+  size: A4;
+  margin: 16mm 15mm 18mm;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --ink: #172033;
+  --muted: #5f6b7d;
+  --line: #d9e1ea;
+  --soft: #f4f7fa;
+  --brand: #0f8f83;
+  --brand-dark: #11655f;
+  --blue: #2857a4;
+  --warning: #9a5a05;
+  --danger: #a62d38;
+  --success: #197149;
+}
+
+html {
+  background: #e8edf2;
+}
+
+body {
+  background: white;
+  color: var(--ink);
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-size: 10.2pt;
+  line-height: 1.48;
+  margin: 0 auto;
+  max-width: 210mm;
+  overflow-wrap: anywhere;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+main {
+  padding: 0;
+}
+
+.cover {
+  align-content: space-between;
+  background:
+    radial-gradient(circle at 86% 13%, rgba(255,255,255,.2) 0 42px, transparent 43px),
+    linear-gradient(145deg, #0b665f 0%, #0f9486 58%, #1aafa0 100%);
+  color: white;
+  display: grid;
+  min-height: 260mm;
+  padding: 24mm 20mm 18mm;
+  page-break-after: always;
+}
+
+.cover .mark {
+  align-items: center;
+  background: white;
+  border-radius: 14px;
+  color: var(--brand);
+  display: flex;
+  font-size: 26pt;
+  font-weight: 800;
+  height: 62px;
+  justify-content: center;
+  width: 62px;
+}
+
+.cover h1 {
+  color: white;
+  font-size: 31pt;
+  letter-spacing: -1.1px;
+  line-height: 1.04;
+  margin: 18mm 0 6mm;
+  max-width: 155mm;
+}
+
+.cover .subtitle {
+  color: rgba(255,255,255,.9);
+  font-size: 14pt;
+  max-width: 150mm;
+}
+
+.cover .meta {
+  border-top: 1px solid rgba(255,255,255,.35);
+  display: grid;
+  font-size: 9.5pt;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  padding-top: 7mm;
+}
+
+.page {
+  page-break-after: always;
+  padding: 3mm 0 0;
+}
+
+.page:last-child {
+  page-break-after: auto;
+}
+
+h1, h2, h3, h4 {
+  color: #152138;
+  page-break-after: avoid;
+}
+
+h1 {
+  font-size: 23pt;
+  line-height: 1.12;
+  margin: 0 0 8mm;
+}
+
+h2 {
+  border-bottom: 2px solid var(--brand);
+  font-size: 17pt;
+  margin: 0 0 6mm;
+  padding-bottom: 3mm;
+}
+
+h3 {
+  font-size: 12.5pt;
+  margin: 7mm 0 2.5mm;
+}
+
+h4 {
+  font-size: 10.5pt;
+  margin: 5mm 0 1.5mm;
+}
+
+p {
+  margin: 0 0 3.2mm;
+}
+
+ul, ol {
+  margin: 2mm 0 4mm;
+  padding-left: 6mm;
+}
+
+li {
+  margin: 1.2mm 0;
+}
+
+.eyebrow {
+  color: var(--brand);
+  font-size: 8.5pt;
+  font-weight: 800;
+  letter-spacing: 1.1px;
+  margin-bottom: 2mm;
+  text-transform: uppercase;
+}
+
+.lead {
+  color: #354156;
+  font-size: 12pt;
+  line-height: 1.55;
+}
+
+.toc {
+  column-count: 2;
+  column-gap: 12mm;
+  list-style: none;
+  padding: 0;
+}
+
+.toc li {
+  border-bottom: 1px dotted #bcc7d3;
+  break-inside: avoid;
+  margin: 0 0 3mm;
+  padding-bottom: 2mm;
+}
+
+.toc strong {
+  color: var(--brand-dark);
+  display: block;
+}
+
+.callout {
+  background: #eef9f7;
+  border-left: 4px solid var(--brand);
+  border-radius: 0 7px 7px 0;
+  margin: 5mm 0;
+  padding: 4mm 5mm;
+  page-break-inside: avoid;
+}
+
+.callout.warning {
+  background: #fff7e8;
+  border-color: #d98a19;
+}
+
+.callout.danger {
+  background: #fff0f1;
+  border-color: var(--danger);
+}
+
+.callout.success {
+  background: #edf8f1;
+  border-color: var(--success);
+}
+
+.callout strong {
+  display: block;
+  margin-bottom: 1mm;
+}
+
+.cards {
+  display: grid;
+  gap: 4mm;
+  grid-template-columns: repeat(2, 1fr);
+  margin: 5mm 0;
+}
+
+.cards.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.card {
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4mm;
+  page-break-inside: avoid;
+}
+
+.card h3, .card h4 {
+  color: var(--brand-dark);
+  margin-top: 0;
+}
+
+.metric {
+  color: var(--brand-dark);
+  display: block;
+  font-size: 21pt;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 2mm;
+}
+
+table {
+  border-collapse: collapse;
+  font-size: 8.9pt;
+  margin: 4mm 0 6mm;
+  page-break-inside: auto;
+  width: 100%;
+}
+
+thead {
+  display: table-header-group;
+}
+
+tr {
+  page-break-inside: avoid;
+}
+
+th {
+  background: #e8f3f1;
+  color: #164e49;
+  font-weight: 800;
+  text-align: left;
+}
+
+th, td {
+  border: 1px solid #ccd6e0;
+  padding: 2.5mm 2.8mm;
+  vertical-align: top;
+}
+
+.status {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 8pt;
+  font-weight: 800;
+  padding: 1mm 2.5mm;
+  white-space: nowrap;
+}
+
+.status.ok {
+  background: #dff4e8;
+  color: var(--success);
+}
+
+.status.partial {
+  background: #fff0d2;
+  color: var(--warning);
+}
+
+.status.risk {
+  background: #fde0e3;
+  color: var(--danger);
+}
+
+.route, code {
+  background: #edf1f5;
+  border-radius: 4px;
+  color: #1f496d;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 8.7pt;
+  padding: .5mm 1.2mm;
+}
+
+pre {
+  background: #172235;
+  border-radius: 8px;
+  color: #e8eff7;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 8.4pt;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  padding: 4mm;
+  white-space: pre-wrap;
+}
+
+.flow {
+  align-items: stretch;
+  display: grid;
+  gap: 2mm;
+  grid-template-columns: repeat(5, 1fr);
+  margin: 5mm 0;
+}
+
+.flow div {
+  align-items: center;
+  background: #eaf5f3;
+  border: 1px solid #b9dad5;
+  border-radius: 7px;
+  display: flex;
+  font-size: 8.3pt;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 19mm;
+  padding: 2.5mm;
+  position: relative;
+  text-align: center;
+}
+
+.flow div:not(:last-child)::after {
+  color: var(--brand);
+  content: "›";
+  font-size: 18pt;
+  font-weight: 800;
+  position: absolute;
+  right: -3.3mm;
+  z-index: 2;
+}
+
+.checklist {
+  list-style: none;
+  padding-left: 0;
+}
+
+.checklist li {
+  padding-left: 6mm;
+  position: relative;
+}
+
+.checklist li::before {
+  color: var(--brand);
+  content: "✓";
+  font-weight: 800;
+  left: 0;
+  position: absolute;
+}
+
+.small {
+  color: var(--muted);
+  font-size: 8.5pt;
+}
+
+.footer-note {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 8pt;
+  margin-top: 8mm;
+  padding-top: 3mm;
+}
+
+.avoid-break {
+  page-break-inside: avoid;
+}
+
+@media print {
+  html, body {
+    background: white;
+  }
+}

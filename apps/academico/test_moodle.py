@@ -20,6 +20,7 @@ from apps.academico.moodle import (
     encrypt_moodle_token,
     normalize_moodle_url,
 )
+from apps.academico.moodle_accounts import configured_initial_password
 from apps.core.menu import permitted_menu_groups
 
 
@@ -213,7 +214,7 @@ class MoodleClientTests(SimpleTestCase):
         self.assertLess(summary.index("<li>A</li>"), summary.index("<li>B</li>"))
 
 
-@override_settings(SECRET_KEY="test-secret", SECRET_KEY_FALLBACKS=[])
+@override_settings(SECRET_KEY="test-secret", SECRET_KEY_FALLBACKS=[], MOODLE_INITIAL_PASSWORD="")
 class MoodleConfiguracionViewTests(TestCase):
     def setUp(self):
         self.admin_group = Group.objects.get_or_create(name="Administrador")[0]
@@ -231,31 +232,46 @@ class MoodleConfiguracionViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Guardar configuración")
         self.assertContains(response, "Probar conexión guardada")
+        self.assertContains(response, "Clave inicial para cuentas nuevas")
         administrativo = next(
             group for group in permitted_menu_groups(self.admin) if group["label"] == "Administrativo"
         )
         self.assertIn("Configuración Moodle", [item["label"] for item in administrativo["items"]])
 
-    def test_saves_encrypted_token_and_blank_token_keeps_it(self):
+    def test_saves_encrypted_secrets_and_blank_fields_keep_them(self):
         self.client.force_login(self.admin)
         response = self.client.post(
             self.url,
-            {"base_url": "https://aula.solucionesintegrales.xyz/", "token": "token-super-secreto", "action": "save"},
+            {
+                "base_url": "https://aula.solucionesintegrales.xyz/",
+                "token": "token-super-secreto",
+                "clave_inicial": "Inicial-Segura-123!",
+                "action": "save",
+            },
             HTTP_HOST="localhost",
         )
         self.assertRedirects(response, self.url, fetch_redirect_response=False)
         configuration = MoodleConfiguracion.objects.get()
-        original = configuration.token_cifrado
-        self.assertNotIn("token-super-secreto", original)
-        self.assertEqual(decrypt_moodle_token(original), "token-super-secreto")
+        original_token = configuration.token_cifrado
+        original_password = configuration.clave_inicial_cifrada
+        self.assertNotIn("token-super-secreto", original_token)
+        self.assertNotIn("Inicial-Segura-123!", original_password)
+        self.assertEqual(decrypt_moodle_token(original_token), "token-super-secreto")
+        self.assertEqual(configured_initial_password(), "Inicial-Segura-123!")
 
         self.client.post(
             self.url,
-            {"base_url": "http://127.0.0.1/moodle", "token": "", "action": "save"},
+            {
+                "base_url": "http://127.0.0.1/moodle",
+                "token": "",
+                "clave_inicial": "",
+                "action": "save",
+            },
             HTTP_HOST="localhost",
         )
         configuration.refresh_from_db()
-        self.assertEqual(configuration.token_cifrado, original)
+        self.assertEqual(configuration.token_cifrado, original_token)
+        self.assertEqual(configuration.clave_inicial_cifrada, original_password)
         self.assertEqual(configuration.base_url, "http://127.0.0.1/moodle")
 
     @patch("apps.academico.moodle.MoodleClient")
@@ -270,7 +286,12 @@ class MoodleConfiguracionViewTests(TestCase):
         self.client.force_login(self.admin)
         self.client.post(
             self.url,
-            {"base_url": "https://aula.solucionesintegrales.xyz", "token": "valid-token", "action": "save"},
+            {
+                "base_url": "https://aula.solucionesintegrales.xyz",
+                "token": "valid-token",
+                "clave_inicial": "Inicial-Segura-123!",
+                "action": "save",
+            },
             HTTP_HOST="localhost",
         )
         saved_token = MoodleConfiguracion.objects.get().token_cifrado

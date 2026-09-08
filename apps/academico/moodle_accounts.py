@@ -9,7 +9,7 @@ from django.db import connection, transaction
 from django.utils.text import slugify
 from django.views.decorators.debug import sensitive_variables
 
-from .models import MoodleCuenta
+from .models import MoodleConfiguracion, MoodleCuenta
 from .moodle import MoodleError
 
 
@@ -27,6 +27,24 @@ def initial_password(account):
         except InvalidToken:
             continue
     raise MoodleError("No se pudo descifrar la clave inicial. Revisa la clave de cifrado del servidor.")
+
+
+@sensitive_variables("password")
+def encrypt_configured_initial_password(password):
+    return cipher().encrypt(password.encode()).decode()
+
+
+def configured_initial_password():
+    """Prioriza la clave cifrada administrable y conserva .env como respaldo."""
+    configuration = MoodleConfiguracion.objects.first()
+    if configuration and configuration.clave_inicial_cifrada:
+        for secret in [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]:
+            try:
+                return cipher(secret).decrypt(configuration.clave_inicial_cifrada.encode()).decode()
+            except InvalidToken:
+                continue
+        raise MoodleError("No se pudo descifrar la clave inicial de Moodle. Revisa la clave del servidor.")
+    return settings.MOODLE_INITIAL_PASSWORD
 
 
 def person_names(person):
@@ -145,12 +163,15 @@ def _ensure_account(client, person):
                 raise MoodleError("La cuenta Moodle ya está vinculada a otra persona del instituto.")
             return MoodleCuenta.objects.create(persona=person, sitio=client.base_url,
                                               usuario=user["username"], usuario_id=user["id"])
-        if not settings.MOODLE_INITIAL_PASSWORD:
-            raise MoodleError("Configura MOODLE_INITIAL_PASSWORD antes de crear cuentas nuevas.")
+        password = configured_initial_password()
+        if not password:
+            raise MoodleError(
+                "Configura la clave inicial en Administrativo → Configuración Moodle antes de crear cuentas nuevas."
+            )
         username = available_username(client, person)
         account = MoodleCuenta.objects.create(
             persona=person, sitio=client.base_url, usuario=username,
-            clave_inicial_cifrada=cipher().encrypt(settings.MOODLE_INITIAL_PASSWORD.encode()).decode(),
+            clave_inicial_cifrada=cipher().encrypt(password.encode()).decode(),
         )
     marker = "instituto-" + str(account.clave)
     existing = client.users_by_field("username", [account.usuario])

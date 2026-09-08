@@ -20,7 +20,11 @@ Si la persona no tiene correo, se usa `usuario@felixiot.site` únicamente en Moo
 la dirección provisional no pertenezca a otra cuenta; en caso de coincidencia
 se añade un número al usuario. Los correos personales registrados se conservan.
 
-`MOODLE_INITIAL_PASSWORD` define la clave temporal común de las cuentas nuevas.
+La clave temporal común de las cuentas nuevas se administra junto con la URL y
+el token en **Administrativo → Configuración Moodle**. Se guarda cifrada, nunca
+se vuelve a mostrar y dejar el campo vacío conserva la existente.
+`MOODLE_INITIAL_PASSWORD` queda como respaldo de entorno mientras no exista una
+clave guardada en la configuración.
 Moodle recibe `auth_forcepasswordchange=1` y exige cambiarla al entrar. No se envían
 correos de bienvenida. Las claves iniciales se guardan cifradas mediante Fernet;
 la clave de cifrado se deriva de `SECRET_KEY`. Al rotarla, conservar la anterior

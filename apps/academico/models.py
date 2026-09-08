@@ -1680,6 +1680,7 @@ class MoodleConfiguracion(models.Model):
         default="https://aula.solucionesintegrales.xyz",
     )
     token_cifrado = models.TextField(blank=True, editable=False)
+    clave_inicial_cifrada = models.TextField(blank=True, editable=False)
     ultima_prueba = models.DateTimeField(null=True, blank=True)
     ultima_prueba_exitosa = models.BooleanField(null=True, blank=True)
     ultimo_resultado = models.CharField(max_length=500, blank=True)

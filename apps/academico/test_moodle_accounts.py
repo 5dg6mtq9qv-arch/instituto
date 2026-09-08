@@ -10,9 +10,22 @@ from openpyxl import load_workbook
 
 from apps.core.current_user import set_current_request
 from apps.core.models import Partner, TipoIdentificacion
-from .models import Curso, Materia, MateriaCurso, MoodleCuenta, MoodleCurso, MoodleMatricula
+from .models import (
+    Curso,
+    Materia,
+    MateriaCurso,
+    MoodleConfiguracion,
+    MoodleCuenta,
+    MoodleCurso,
+    MoodleMatricula,
+)
 from .moodle import MoodleError
-from .moodle_accounts import ensure_account, initial_password, username_base
+from .moodle_accounts import (
+    encrypt_configured_initial_password,
+    ensure_account,
+    initial_password,
+    username_base,
+)
 from .moodle_exports import access_workbook
 
 
@@ -40,6 +53,18 @@ class MoodleAccountsTests(TestCase):
         self.assertIn({"type": "auth_forcepasswordchange", "value": "1"}, payload["preferences"])
         self.assertNotIn("Inicial-Test-123!", account.clave_inicial_cifrada)
         self.assertEqual(initial_password(account), "Inicial-Test-123!")
+
+    def test_saved_configuration_password_has_priority_over_environment(self):
+        MoodleConfiguracion.objects.create(
+            base_url=self.client_api.base_url,
+            clave_inicial_cifrada=encrypt_configured_initial_password("Guardada-456!"),
+        )
+
+        account = ensure_account(self.client_api, self.person)
+
+        payload = self.client_api.create_users.call_args.args[0][0]
+        self.assertEqual(payload["password"], "Guardada-456!")
+        self.assertEqual(initial_password(account), "Guardada-456!")
 
     def test_teacher_without_surname_uses_teacher_fallback(self):
         self.person.nombre = "Liz"
