@@ -3125,6 +3125,8 @@ class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequi
     def prepare_subtemas_for_redisplay(self, formset):
         """Conserva los subtemas enviados y señala duplicados antes de tocar la base."""
         all_subtemas_are_valid = True
+        if not hasattr(formset, "error_summary"):
+            formset.error_summary = []
         for tema_index, tema_form in enumerate(formset.forms):
             submitted_subtemas = self.get_subtemas_from_post(tema_index)
             visible_subtemas = [item for item in submitted_subtemas if not item["delete"]]
@@ -3152,6 +3154,7 @@ class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequi
                     f'El subtema "{repeated_name}" está repetido en las posiciones {positions} '
                     f'del tema "{tema_nombre}".'
                 )
+                formset.error_summary.append(message)
                 for _index, subtema in repeated_subtemas:
                     subtema["errors"].append(message)
 

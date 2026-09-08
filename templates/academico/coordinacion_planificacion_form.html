@@ -21,6 +21,16 @@
     {% if formset.non_form_errors %}
       <div class="alert alert-danger">{{ formset.non_form_errors }}</div>
     {% endif %}
+    {% if formset.error_summary %}
+      <div class="alert alert-danger" role="alert" data-topic-error-summary>
+        <strong>No se pudo guardar el temario. Revisa estos nombres repetidos:</strong>
+        <ul class="mb-0 mt-2">
+          {% for error in formset.error_summary %}
+            <li>{{ error }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
 
     <section class="panel topic-builder-head">
       <div class="topic-builder-title">

@@ -589,6 +589,7 @@ class CoordinacionTemaForm(BootstrapFormMixin, forms.Form):
 
 class BaseCoordinacionTemaFormSet(BaseFormSet):
     def clean(self):
+        self.error_summary = []
         super().clean()
         if any(self.errors):
             return
@@ -612,6 +613,7 @@ class BaseCoordinacionTemaFormSet(BaseFormSet):
                 f'El tema "{repeated_name}" está repetido en las posiciones {positions}. '
                 "Cada tema de la materia debe tener un nombre diferente."
             )
+            self.error_summary.append(message)
             for _index, topic_form, _name in repeated_topics:
                 topic_form.add_error("nombre", message)
 

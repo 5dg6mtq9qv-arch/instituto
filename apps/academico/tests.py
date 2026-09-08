@@ -1347,6 +1347,8 @@ class DocenteHorariosPanelTests(TestCase):
         )
         self.assertEqual(response.context["formset"].forms[0].errors["nombre"], [expected_error])
         self.assertEqual(response.context["formset"].forms[1].errors["nombre"], [expected_error])
+        self.assertEqual(response.context["formset"].error_summary, [expected_error])
+        self.assertContains(response, "Revisa estos nombres repetidos")
         first_topic.refresh_from_db()
         second_topic.refresh_from_db()
         self.assertEqual(first_topic.nombre, "Operaciones con naturales y decimales")
@@ -1404,6 +1406,8 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(displayed_subtopics[0]["errors"], [expected_error])
         self.assertEqual(displayed_subtopics[1]["errors"], [expected_error])
         self.assertEqual(displayed_subtopics[2]["errors"], [])
+        self.assertEqual(response.context["formset"].error_summary, [expected_error])
+        self.assertContains(response, "Revisa estos nombres repetidos")
         self.assertContains(response, 'value="Trinomios"')
         materia_tema.refresh_from_db()
         self.assertEqual(
