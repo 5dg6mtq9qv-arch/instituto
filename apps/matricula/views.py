@@ -1,5 +1,4 @@
-from calendar import monthrange
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.contrib import messages
@@ -34,14 +33,7 @@ from .forms import (
 )
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
 from .odt import build_contract_response_file, build_document_response_file
-
-
-def add_months(value, months):
-    month_index = value.month - 1 + months
-    year = value.year + month_index // 12
-    month = month_index % 12 + 1
-    day = min(value.day, monthrange(year, month)[1])
-    return value.replace(year=year, month=month, day=day)
+from .payment_schedule import fecha_cuota
 
 
 def format_ficha_numero(sequence):
@@ -703,9 +695,7 @@ class MatriculaProcesoView(LoginRequiredMixin, PermissionRequiredMixin, View):
         return partner
 
     def fecha_cuota(self, data, indice):
-        if data["forma_pago_convenio"] == "quincenal":
-            return data["fecha_inicio_cobro"] + timedelta(days=15 * (indice - 1))
-        return add_months(data["fecha_inicio_cobro"], indice - 1)
+        return fecha_cuota(data["fecha_inicio_cobro"], data["forma_pago_convenio"], indice)
 
     def proximo_pago_pendiente(self, data):
         restante_abono = data["abono"]

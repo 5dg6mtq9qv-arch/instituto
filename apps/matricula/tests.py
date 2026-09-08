@@ -468,6 +468,98 @@ class MatriculaProcesoTests(TestCase):
         for field_name in ["forma_pago_convenio", "fecha_proximo_pago", "valor_proximo_pago", "valor_matricula", "abono", "saldo"]:
             self.assertTrue(form.fields[field_name].disabled)
 
+    def test_ficha_edit_recalculates_all_installment_dates_from_first_date(self):
+        from django.forms.models import model_to_dict
+
+        estudiante = self.create_partner("1002003097", "Alumno Cronograma", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000197",
+            fecha=date(2026, 8, 28),
+            cliente=estudiante,
+            estudiante=estudiante,
+            forma_pago_convenio="mensual",
+            fecha_proximo_pago=date(2026, 9, 1),
+            valor_proximo_pago=Decimal("95.00"),
+            valor_matricula=Decimal("75.00"),
+            saldo=Decimal("360.00"),
+            estado="activa",
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("435.00"),
+            valor_matricula=Decimal("75.00"),
+            saldo=Decimal("435.00"),
+        )
+        matricula = Cuota.objects.create(
+            plan_pago=plan,
+            numero=Cuota.NUMERO_MATRICULA,
+            fecha_pago_debito=ficha.fecha,
+            valor=Decimal("75.00"),
+        )
+        for numero in range(1, 4):
+            Cuota.objects.create(
+                plan_pago=plan,
+                numero=numero,
+                fecha_pago_debito=date(2026, 8 + numero, 1),
+                valor=Decimal("120.00"),
+            )
+
+        data = model_to_dict(ficha)
+        data["fecha_proximo_pago"] = "2026-10-05"
+        form = FichaInscripcionForm(data=data, instance=ficha)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.fields["fecha_proximo_pago"].label, "Fecha primera cuota")
+        form.save()
+
+        fechas = list(plan.cuotas.filter(numero__gt=0).order_by("numero").values_list("fecha_pago_debito", flat=True))
+        self.assertEqual(fechas, [date(2026, 10, 5), date(2026, 11, 5), date(2026, 12, 5)])
+        matricula.refresh_from_db()
+        self.assertEqual(matricula.fecha_pago_debito, date(2026, 8, 28))
+
+    def test_ficha_edit_recalculates_quincenal_installment_dates(self):
+        from django.forms.models import model_to_dict
+
+        estudiante = self.create_partner("1002003098", "Alumno Quincenal", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000198",
+            fecha=date(2026, 8, 28),
+            cliente=estudiante,
+            estudiante=estudiante,
+            forma_pago_convenio="mensual",
+            fecha_proximo_pago=date(2026, 9, 1),
+            valor_proximo_pago=Decimal("50.00"),
+            saldo=Decimal("150.00"),
+            estado="activa",
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("150.00"),
+            saldo=Decimal("150.00"),
+        )
+        for numero in range(1, 4):
+            Cuota.objects.create(
+                plan_pago=plan,
+                numero=numero,
+                fecha_pago_debito=date(2026, 8 + numero, 1),
+                valor=Decimal("50.00"),
+            )
+
+        data = model_to_dict(ficha)
+        data["forma_pago_convenio"] = "quincenal"
+        data["fecha_proximo_pago"] = "2026-10-05"
+        form = FichaInscripcionForm(data=data, instance=ficha)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        fechas = list(plan.cuotas.order_by("numero").values_list("fecha_pago_debito", flat=True))
+        self.assertEqual(fechas, [date(2026, 10, 5), date(2026, 10, 20), date(2026, 11, 4)])
+
     def test_ficha_edit_creates_and_updates_matricula_without_duplicates(self):
         from django.forms.models import model_to_dict
 

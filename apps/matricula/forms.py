@@ -12,6 +12,7 @@ from apps.cartera.forms import pago_comprobante_duplicado, pago_comprobante_dupl
 from apps.cartera.models import Cuota, FormaPago, PlanPago
 
 from .models import Aula, Curso, FichaInscripcion, PeriodoAcademico
+from .payment_schedule import fecha_cuota
 
 
 class PeriodoAcademicoForm(BootstrapFormMixin, forms.ModelForm):
@@ -109,6 +110,7 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             "observacion": forms.Textarea(attrs={"rows": 3}),
         }
         labels = {
+            "fecha_proximo_pago": "Fecha primera cuota",
             "valor_proximo_pago": "Valor de cuota",
             "saldo": "Restante",
         }
@@ -118,6 +120,9 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["numero"].disabled = True
         self.fields["numero"].widget.attrs["readonly"] = "readonly"
         self.fields["numero"].widget.attrs["aria-readonly"] = "true"
+        self.fields["fecha_proximo_pago"].help_text = (
+            "Al guardar, se recalcularán las fechas de todas las cuotas según el convenio."
+        )
         if self.instance.pk and self.instance.estudiante_id:
             self.fields["estudiante_es_de_ibarra"].initial = self.instance.estudiante.es_de_ibarra
         self.payment_fields_locked = self.has_registered_payments()
@@ -156,20 +161,29 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
     @transaction.atomic
     def save(self, commit=True):
         plan = None
+        cuotas = []
+        valor_matricula_inicial = self.initial.get("valor_matricula", Decimal("0.00"))
+        matricula_changed = self.cleaned_data["valor_matricula"] != valor_matricula_inicial
+        schedule_changed = (
+            self.cleaned_data.get("fecha_proximo_pago") != self.initial.get("fecha_proximo_pago")
+            or self.cleaned_data.get("forma_pago_convenio") != self.initial.get("forma_pago_convenio")
+        )
+        update_matricula = False
         if commit and self.instance.pk and not self.payment_fields_locked:
             plan = PlanPago.objects.select_for_update().filter(ficha_inscripcion=self.instance, activo=True).first()
-            if plan and self.cleaned_data["valor_matricula"] == self.initial.get("valor_matricula", Decimal("0.00")):
+            if plan:
                 missing = self.cleaned_data["valor_matricula"] > 0 and not plan.cuotas.filter(
                     numero=Cuota.NUMERO_MATRICULA, activo=True,
                 ).exists()
-                if not missing:
+                update_matricula = matricula_changed or missing
+                if not update_matricula and not schedule_changed:
                     plan = None
             if plan:
-                list(plan.cuotas.select_for_update())
+                cuotas = list(plan.cuotas.select_for_update())
                 if plan.cuotas.filter(pagos__isnull=False).exists():
                     raise forms.ValidationError("Se registraron pagos mientras editabas. Recarga la ficha antes de guardar.")
         ficha = super().save(commit=commit)
-        if plan:
+        if plan and update_matricula:
             valor = ficha.valor_matricula
             cuota = plan.cuotas.filter(numero=Cuota.NUMERO_MATRICULA).first()
             if valor > 0 or cuota:
@@ -189,6 +203,18 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             plan.save(update_fields=["valor_matricula", "valor_total", "saldo", "estado", "updated"])
             ficha.saldo = plan.saldo
             ficha.save(update_fields=["saldo"])
+        if plan and schedule_changed and ficha.fecha_proximo_pago:
+            for cuota in cuotas:
+                if cuota.numero <= 0:
+                    continue
+                cuota.fecha_pago_debito = fecha_cuota(
+                    ficha.fecha_proximo_pago,
+                    ficha.forma_pago_convenio,
+                    cuota.numero,
+                )
+                if cuota.estado not in {"pagada", "anulada"}:
+                    cuota.estado = "parcial" if cuota.valor_pagado > 0 else "pendiente"
+                cuota.save(update_fields=["fecha_pago_debito", "estado", "updated"])
         estudiante = self.cleaned_data.get("estudiante")
         if commit and estudiante:
             estudiante.es_de_ibarra = self.cleaned_data.get("estudiante_es_de_ibarra", False)
