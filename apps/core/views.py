@@ -188,12 +188,31 @@ class PartnerUpdateView(LoginRequiredMixin, View):
 class EstudianteUpdateView(InstitutoUpdateView):
     model = Partner
     form_class = EstudianteForm
+    template_name = "core/estudiante_form.html"
     title = "Editar estudiante"
     success_url = reverse_lazy("core:estudiante_list")
     cancel_url = reverse_lazy("core:estudiante_list")
 
     def get_queryset(self):
         return super().get_queryset().filter(es_estudiante=True)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["representantes"] = (
+            Partner.objects.filter(
+                Q(
+                    relaciones_b__partner_a=self.object,
+                    relaciones_b__relacion="representante",
+                    relaciones_b__activo=True,
+                )
+                | Q(fichas_representante__estudiante=self.object)
+                | Q(fichas_cliente__estudiante=self.object),
+                es_representante=True,
+            )
+            .distinct()
+            .order_by("apellido", "nombre", "pk")
+        )
+        return context
 
 
 class RepresentanteUpdateView(InstitutoUpdateView):

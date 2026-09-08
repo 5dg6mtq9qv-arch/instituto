@@ -1,0 +1,155 @@
+{% extends "web/object_form.html" %}
+
+{% block form_extra_sections %}
+  {% if representantes %}
+    <section class="student-representatives-section">
+      <div class="section-heading">
+        <h2>{% if representantes|length == 1 %}Representante vinculado{% else %}Representantes vinculados{% endif %}</h2>
+      </div>
+      <div class="student-representatives-grid">
+        {% for representante in representantes %}
+          <article class="student-representative-card">
+            <header>
+              <span class="student-representative-icon"><i class="ri-user-heart-line"></i></span>
+              <div>
+                <strong>{{ representante.nombre_completo }}</strong>
+                <small>{{ representante.tipo_identificacion|default:"Documento" }}: {{ representante.identificacion|default:"-" }}</small>
+              </div>
+              <span class="status-badge status-{% if representante.activo %}activo{% else %}inactivo{% endif %}">
+                {% if representante.activo %}Activo{% else %}Inactivo{% endif %}
+              </span>
+            </header>
+            <div class="student-representative-details">
+              <div>
+                <span>Celular</span>
+                <strong>{{ representante.telefono_celular|default:"-" }}</strong>
+              </div>
+              <div>
+                <span>Teléfono fijo</span>
+                <strong>{{ representante.telefono|default:"-" }}</strong>
+              </div>
+              <div>
+                <span>Correo</span>
+                <strong>{{ representante.email|default:"-" }}</strong>
+              </div>
+              <div>
+                <span>Dirección</span>
+                <strong>{{ representante.direccion|default:"-" }}</strong>
+              </div>
+            </div>
+            {% if perms.core.change_partner %}
+              <footer>
+                <a class="btn btn-outline-primary btn-sm" href="{% url 'core:representante_editar' representante.pk %}">
+                  <i class="ri-edit-line"></i>
+                  Editar representante
+                </a>
+              </footer>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  {{ block.super }}
+  <style>
+    .student-representatives-section {
+      border-top: 1px solid #e5e7eb;
+      margin-top: 22px;
+      padding-top: 20px;
+    }
+
+    .student-representatives-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .student-representative-card {
+      background: #f8fafc;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: grid;
+      gap: 14px;
+      padding: 14px;
+    }
+
+    .student-representative-card header {
+      align-items: center;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+    }
+
+    .student-representative-icon {
+      align-items: center;
+      background: #ecfeff;
+      border-radius: 8px;
+      color: #0f766e;
+      display: inline-flex;
+      font-size: 20px;
+      height: 42px;
+      justify-content: center;
+      width: 42px;
+    }
+
+    .student-representative-card header strong,
+    .student-representative-card header small,
+    .student-representative-details span,
+    .student-representative-details strong {
+      display: block;
+    }
+
+    .student-representative-card header strong {
+      color: #111827;
+      font-size: 16px;
+    }
+
+    .student-representative-card header small,
+    .student-representative-details span {
+      color: #667085;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .student-representative-details {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .student-representative-details div {
+      min-width: 0;
+    }
+
+    .student-representative-details strong {
+      color: #344054;
+      margin-top: 3px;
+      overflow-wrap: anywhere;
+    }
+
+    .student-representative-card footer {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    @media (max-width: 767px) {
+      .student-representatives-grid,
+      .student-representative-details {
+        grid-template-columns: 1fr;
+      }
+
+      .student-representative-card header {
+        align-items: start;
+        grid-template-columns: 42px minmax(0, 1fr);
+      }
+
+      .student-representative-card header .status-badge {
+        grid-column: 2;
+        justify-self: start;
+      }
+    }
+  </style>
+{% endblock %}

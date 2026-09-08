@@ -6,7 +6,7 @@ from django.urls import reverse
 from apps.core.forms import SystemUserForm
 from apps.core.current_user import set_current_request
 from apps.core.menu import permitted_menu_groups
-from apps.core.models import Empresa, Partner, TipoIdentificacion
+from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacion
 
 
 class SystemUserFormPasswordTests(TestCase):
@@ -375,6 +375,68 @@ class PartnerRoleViewTests(TestCase):
         self.assertNotContains(response, 'name="es_estudiante"')
         self.assertNotContains(response, 'name="es_representante"')
         self.assertNotContains(response, 'name="es_docente"')
+
+    def test_student_edit_shows_linked_representative_details(self):
+        PartnerPartner.objects.create(
+            partner_a=self.estudiante,
+            partner_b=self.representante,
+            relacion="representante",
+            principal=True,
+            activo=True,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("core:estudiante_editar", kwargs={"pk": self.estudiante.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Representante vinculado")
+        self.assertContains(response, self.representante.nombre_completo())
+        self.assertContains(response, self.representante.identificacion)
+        self.assertContains(response, self.representante.telefono_celular)
+        self.assertContains(response, self.representante.email)
+        self.assertContains(
+            response,
+            reverse("core:representante_editar", kwargs={"pk": self.representante.pk}),
+        )
+
+    def test_student_edit_hides_representative_section_without_link(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("core:estudiante_editar", kwargs={"pk": self.estudiante.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Representante vinculado")
+
+    def test_student_edit_finds_representative_from_existing_enrollment(self):
+        from datetime import date
+
+        from apps.matricula.models import FichaInscripcion
+
+        FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="F-REP-001",
+            fecha=date(2026, 9, 7),
+            cliente=self.representante,
+            estudiante=self.estudiante,
+            representante=self.representante,
+            estado="activa",
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("core:estudiante_editar", kwargs={"pk": self.estudiante.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Representante vinculado")
+        self.assertContains(response, self.representante.identificacion)
 
     def test_generic_partner_create_is_blocked_even_with_add_permission(self):
         self.client.force_login(self.user)

@@ -92,6 +92,7 @@
         {% endwith %}
       {% endfor %}
     </div>
+    {% block form_extra_sections %}{% endblock %}
     <div class="form-actions">
       <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
       {% for action in submit_actions %}
