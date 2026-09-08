@@ -90,6 +90,22 @@
               <div class="invalid-feedback d-block">{{ error }}</div>
             {% endfor %}
           </div>
+          <div>
+            <label class="form-label" for="student-active-filter">Estado del estudiante</label>
+            <select class="form-select" id="student-active-filter" data-transfer-filter="active">
+              <option value="all">Todos</option>
+              <option value="yes">Activos</option>
+              <option value="no">Inactivos</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" for="student-ibarra-filter">Es de Ibarra</label>
+            <select class="form-select" id="student-ibarra-filter" data-transfer-filter="ibarra">
+              <option value="all">Todos</option>
+              <option value="yes">Sí</option>
+              <option value="no">No</option>
+            </select>
+          </div>
         </div>
         {% if bulk_form.non_field_errors %}
           <div class="alert alert-danger mt-3">{{ bulk_form.non_field_errors }}</div>
@@ -107,17 +123,17 @@
               </div>
               <div class="transfer-search">
                 <i class="ri-search-line"></i>
-                <input type="search" placeholder="Buscar" data-transfer-search="available">
+                <input type="search" placeholder="Buscar en todos los campos" data-transfer-search="available">
               </div>
             </header>
             <div class="transfer-list" data-transfer-list="available">
-              {% for ficha in available_fichas %}
-                <button class="transfer-item" type="button" data-transfer-item data-kind="ficha" data-id="{{ ficha.pk }}" data-origin="available" data-target="available">
-                  <span>{{ ficha.estudiante.nombre }}</span>
-                  <small>Ficha {{ ficha.numero }}{% if ficha.estudiante.identificacion %} - {{ ficha.estudiante.identificacion }}{% endif %}</small>
+              {% for row in available_students %}
+                <button class="transfer-item" type="button" data-transfer-item data-kind="ficha" data-id="{{ row.ficha.pk }}" data-origin="available" data-target="available" data-sort="{{ row.sort_key }}" data-search="{{ row.search_text }}" data-active="{{ row.active|yesno:'yes,no' }}" data-ibarra="{{ row.ibarra|yesno:'yes,no' }}">
+                  <span>{{ row.display_name }}</span>
+                  <small>Ficha {{ row.ficha.numero }}{% if row.ficha.estudiante.identificacion %} - {{ row.ficha.estudiante.identificacion }}{% endif %} · {% if row.active %}Activo{% else %}Inactivo{% endif %} · {% if row.ibarra %}Ibarra{% else %}Fuera de Ibarra{% endif %}</small>
                 </button>
               {% endfor %}
-              <div class="transfer-empty" data-transfer-empty="available"{% if available_fichas %} hidden{% endif %}>Sin estudiantes disponibles.</div>
+              <div class="transfer-empty" data-transfer-empty="available"{% if available_students %} hidden{% endif %}>Sin estudiantes que coincidan.</div>
             </div>
           </section>
 
@@ -144,17 +160,17 @@
               </div>
               <div class="transfer-search">
                 <i class="ri-search-line"></i>
-                <input type="search" placeholder="Buscar" data-transfer-search="assigned">
+                <input type="search" placeholder="Buscar en todos los campos" data-transfer-search="assigned">
               </div>
             </header>
             <div class="transfer-list" data-transfer-list="assigned">
-              {% for asignacion in asignaciones %}
-                <button class="transfer-item" type="button" data-transfer-item data-kind="assignment" data-id="{{ asignacion.pk }}" data-origin="assigned" data-target="assigned">
-                  <span>{{ asignacion.estudiante.nombre }}</span>
-                  <small>Ficha {{ asignacion.ficha_inscripcion.numero }}{% if asignacion.estudiante.identificacion %} - {{ asignacion.estudiante.identificacion }}{% endif %}</small>
+              {% for row in assigned_students %}
+                <button class="transfer-item" type="button" data-transfer-item data-kind="assignment" data-id="{{ row.asignacion.pk }}" data-origin="assigned" data-target="assigned" data-sort="{{ row.sort_key }}" data-search="{{ row.search_text }}" data-active="{{ row.active|yesno:'yes,no' }}" data-ibarra="{{ row.ibarra|yesno:'yes,no' }}">
+                  <span>{{ row.display_name }}</span>
+                  <small>Ficha {{ row.ficha.numero }}{% if row.ficha.estudiante.identificacion %} - {{ row.ficha.estudiante.identificacion }}{% endif %} · {% if row.active %}Activo{% else %}Inactivo{% endif %} · {% if row.ibarra %}Ibarra{% else %}Fuera de Ibarra{% endif %}</small>
                 </button>
               {% endfor %}
-              <div class="transfer-empty" data-transfer-empty="assigned"{% if asignaciones %} hidden{% endif %}>Sin estudiantes asignados.</div>
+              <div class="transfer-empty" data-transfer-empty="assigned"{% if assigned_students %} hidden{% endif %}>Sin estudiantes que coincidan.</div>
             </div>
           </section>
         </div>
@@ -297,9 +313,27 @@
         return Array.prototype.slice.call(lists[listName].querySelectorAll("[data-transfer-item]"));
       }
 
+      function normalizedText(value) {
+        return (value || "")
+          .toString()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+      }
+
+      function sortList(listName) {
+        itemsIn(listName)
+          .sort(function (first, second) {
+            return (first.dataset.sort || "").localeCompare(second.dataset.sort || "", "es");
+          })
+          .forEach(function (item) {
+            lists[listName].appendChild(item);
+          });
+      }
+
       function updateCounts() {
         ["available", "assigned"].forEach(function (listName) {
-          const count = itemsIn(listName).length;
+          const count = visibleItems(listName).length;
           const counter = transferForm.querySelector('[data-transfer-count="' + listName + '"]');
           const empty = transferForm.querySelector('[data-transfer-empty="' + listName + '"]');
           if (counter) counter.textContent = count;
@@ -316,7 +350,7 @@
 
       function selectedItems(listName) {
         return itemsIn(listName).filter(function (item) {
-          return item.classList.contains("is-selected");
+          return item.classList.contains("is-selected") && !item.hidden;
         });
       }
 
@@ -330,22 +364,37 @@
         selectedItems(fromName).forEach(function (item) {
           moveItem(item, toName);
         });
-        updateCounts();
+        refreshLists();
       }
 
       function moveAll(fromName, toName) {
         visibleItems(fromName).forEach(function (item) {
           moveItem(item, toName);
         });
-        updateCounts();
+        refreshLists();
       }
 
-      function applySearch(input) {
-        const listName = input.dataset.transferSearch;
-        const query = input.value.trim().toLowerCase();
+      function applyFilters(listName) {
+        const searchInput = transferForm.querySelector('[data-transfer-search="' + listName + '"]');
+        const activeFilter = transferForm.querySelector('[data-transfer-filter="active"]');
+        const ibarraFilter = transferForm.querySelector('[data-transfer-filter="ibarra"]');
+        const query = normalizedText(searchInput ? searchInput.value.trim() : "");
+        const active = activeFilter ? activeFilter.value : "all";
+        const ibarra = ibarraFilter ? ibarraFilter.value : "all";
         itemsIn(listName).forEach(function (item) {
-          item.hidden = query && item.textContent.toLowerCase().indexOf(query) === -1;
+          const matchesSearch = !query || normalizedText(item.dataset.search || item.textContent).indexOf(query) !== -1;
+          const matchesActive = active === "all" || item.dataset.active === active;
+          const matchesIbarra = ibarra === "all" || item.dataset.ibarra === ibarra;
+          item.hidden = !(matchesSearch && matchesActive && matchesIbarra);
         });
+      }
+
+      function refreshLists() {
+        ["available", "assigned"].forEach(function (listName) {
+          sortList(listName);
+          applyFilters(listName);
+        });
+        updateCounts();
       }
 
       transferForm.querySelectorAll("[data-transfer-item]").forEach(function (item) {
@@ -354,7 +403,7 @@
         });
         item.addEventListener("dblclick", function () {
           moveItem(item, item.dataset.target === "available" ? "assigned" : "available");
-          updateCounts();
+          refreshLists();
         });
       });
 
@@ -370,8 +419,13 @@
 
       transferForm.querySelectorAll("[data-transfer-search]").forEach(function (input) {
         input.addEventListener("input", function () {
-          applySearch(input);
+          applyFilters(input.dataset.transferSearch);
+          updateCounts();
         });
+      });
+
+      transferForm.querySelectorAll("[data-transfer-filter]").forEach(function (select) {
+        select.addEventListener("change", refreshLists);
       });
 
       transferForm.addEventListener("submit", function () {
@@ -402,7 +456,7 @@
         });
       }
 
-      updateCounts();
+      refreshLists();
     });
   </script>
   <style>
@@ -549,6 +603,13 @@
     .movement-form-grid {
       display: grid;
       gap: 14px;
+    }
+
+    .student-transfer-filters {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .movement-form-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -755,6 +816,10 @@
     }
 
     @media (max-width: 1199px) {
+      .student-transfer-filters {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
       .student-transfer-board {
         grid-template-columns: 1fr;
       }

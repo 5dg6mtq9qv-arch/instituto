@@ -1,5 +1,6 @@
 import calendar as calendar_module
 import json
+import unicodedata
 from io import BytesIO
 from datetime import date, timedelta
 from decimal import Decimal
@@ -2261,6 +2262,47 @@ class PlanificacionDocenteListView(LoginRequiredMixin, PermissionRequiredMixin, 
 class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View):
     permission_required = "academico.view_grupoestudiante"
     template_name = "academico/grupo_estudiantes.html"
+    STUDENT_SEARCH_FIELDS = (
+        "codigo",
+        "codigo_aux",
+        "nombre",
+        "apellido",
+        "identificacion",
+        "direccion",
+        "telefono",
+        "telefono_celular",
+        "email",
+        "fecha_nacimiento",
+        "genero",
+        "tipo",
+        "ocupacion",
+        "comentario",
+    )
+    FICHA_SEARCH_FIELDS = (
+        "numero",
+        "fecha",
+        "edad",
+        "colegio",
+        "curso_grado",
+        "nota_grado",
+        "carrera",
+        "universidad",
+        "correo_estudiante",
+        "correo_representante",
+        "horario",
+        "hora",
+        "duracion",
+        "forma_pago_convenio",
+        "fecha_proximo_pago",
+        "valor_proximo_pago",
+        "valor_total_curso",
+        "valor_matricula",
+        "descuento",
+        "abono",
+        "saldo",
+        "estado",
+        "observacion",
+    )
 
     def get(self, request):
         selected_group = self.get_selected_group()
@@ -2289,6 +2331,55 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             or user.has_perm("academico.add_grupoestudiante")
             or user.has_perm("academico.change_grupoestudiante")
         )
+
+    @staticmethod
+    def student_display_name(estudiante):
+        return " ".join(part.strip() for part in [estudiante.apellido or "", estudiante.nombre or ""] if part.strip())
+
+    @staticmethod
+    def normalized_text(value):
+        text = unicodedata.normalize("NFKD", str(value or "").casefold())
+        return "".join(character for character in text if not unicodedata.combining(character))
+
+    def student_row(self, ficha, asignacion=None):
+        estudiante = ficha.estudiante
+        representante = ficha.representante or ficha.cliente
+        display_name = self.student_display_name(estudiante)
+        search_values = [display_name]
+        search_values.extend(getattr(estudiante, field, "") for field in self.STUDENT_SEARCH_FIELDS)
+        search_values.extend(getattr(ficha, field, "") for field in self.FICHA_SEARCH_FIELDS)
+        search_values.extend(
+            [
+                getattr(ficha.curso, "nombre", ""),
+                getattr(ficha.aula, "nombre", ""),
+                getattr(ficha.periodo_academico, "nombre", ""),
+                getattr(representante, "nombre", ""),
+                getattr(representante, "apellido", ""),
+                getattr(representante, "identificacion", ""),
+                getattr(representante, "telefono", ""),
+                getattr(representante, "telefono_celular", ""),
+                getattr(representante, "email", ""),
+                "activo" if estudiante.activo else "inactivo",
+                "ibarra" if estudiante.es_de_ibarra else "fuera de ibarra",
+                getattr(asignacion, "estado", ""),
+            ]
+        )
+        return {
+            "ficha": ficha,
+            "asignacion": asignacion,
+            "display_name": display_name,
+            "sort_key": self.normalized_text(display_name),
+            "search_text": self.normalized_text(" ".join(str(value) for value in search_values if value not in (None, ""))),
+            "active": estudiante.activo,
+            "ibarra": estudiante.es_de_ibarra,
+        }
+
+    def student_rows(self, fichas_or_assignments, assigned=False):
+        rows = [
+            self.student_row(item.ficha_inscripcion, asignacion=item) if assigned else self.student_row(item)
+            for item in fichas_or_assignments
+        ]
+        return sorted(rows, key=lambda row: (row["sort_key"], row["ficha"].pk))
 
     def get_selected_group(self):
         grupo_id = self.request.POST.get("grupo") or self.request.GET.get("grupo") or ""
@@ -2435,8 +2526,23 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             "estudiante",
             "grupo",
         ).filter(grupo=selected_group) if selected_group else GrupoEstudiante.objects.none()
-        asignaciones = asignaciones.order_by("estudiante__nombre")
+        asignaciones = list(asignaciones.select_related(
+            "ficha_inscripcion__curso",
+            "ficha_inscripcion__aula",
+            "ficha_inscripcion__periodo_academico",
+            "ficha_inscripcion__representante",
+            "ficha_inscripcion__cliente",
+        ))
         bulk_form = bulk_form or GrupoEstudianteBulkForm(selected_group=selected_group)
+        available_fichas = list(bulk_form.fields["fichas"].queryset.select_related(
+            "curso",
+            "aula",
+            "periodo_academico",
+            "representante",
+            "cliente",
+        ))
+        available_students = self.student_rows(available_fichas)
+        assigned_students = self.student_rows(asignaciones, assigned=True)
         clases = list(self.get_group_classes(selected_group))
         movement_materia_cursos = list(self.get_movement_materia_cursos(selected_group))
         movimientos = self.get_group_movements(selected_group)
@@ -2446,7 +2552,9 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             "selected_group": selected_group,
             "selected_group_id": selected_group_id,
             "asignaciones": asignaciones,
-            "available_fichas": list(bulk_form.fields["fichas"].queryset),
+            "available_fichas": available_fichas,
+            "available_students": available_students,
+            "assigned_students": assigned_students,
             "clases": clases,
             "movement_materia_cursos": movement_materia_cursos,
             "movimientos": movimientos,

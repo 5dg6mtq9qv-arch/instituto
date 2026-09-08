@@ -293,13 +293,23 @@ class DocenteHorariosPanelTests(TestCase):
             fecha=fecha,
         )
 
-    def create_student_ficha(self, nombre="Estudiante Prueba", identificacion="EST-001", numero="F-001"):
+    def create_student_ficha(
+        self,
+        nombre="Estudiante Prueba",
+        identificacion="EST-001",
+        numero="F-001",
+        apellido="",
+        activo=True,
+        es_de_ibarra=True,
+    ):
         estudiante = Partner.objects.create(
             tipo_identificacion=self.tipo_identificacion,
             identificacion=identificacion,
             nombre=nombre,
+            apellido=apellido,
             es_estudiante=True,
-            activo=True,
+            activo=activo,
+            es_de_ibarra=es_de_ibarra,
         )
         representante = Partner.objects.create(
             tipo_identificacion=self.tipo_identificacion,
@@ -319,6 +329,71 @@ class DocenteHorariosPanelTests(TestCase):
             activo=True,
         )
         return estudiante, ficha
+
+    def test_group_student_selector_orders_by_last_name_and_exposes_full_filters(self):
+        self.make_superuser()
+        estudiante_zuniga, ficha_zuniga = self.create_student_ficha(
+            nombre="Juan",
+            apellido="Zúñiga",
+            identificacion="EST-FILTER-1",
+            numero="F-FILTER-1",
+        )
+        estudiante_alvarez, ficha_alvarez = self.create_student_ficha(
+            nombre="Ana",
+            apellido="Álvarez",
+            identificacion="EST-FILTER-2",
+            numero="F-FILTER-2",
+            activo=False,
+            es_de_ibarra=False,
+        )
+        estudiante_zamora, ficha_zamora = self.create_student_ficha(
+            nombre="Pedro",
+            apellido="Zamora",
+            identificacion="EST-FILTER-3",
+            numero="F-FILTER-3",
+        )
+        estudiante_acosta, ficha_acosta = self.create_student_ficha(
+            nombre="Beatriz",
+            apellido="Acosta",
+            identificacion="EST-FILTER-4",
+            numero="F-FILTER-4",
+            es_de_ibarra=False,
+        )
+        estudiante_alvarez.email = "ana.filtro@example.com"
+        estudiante_alvarez.telefono_celular = "0991234567"
+        estudiante_alvarez.save(update_fields=["email", "telefono_celular"])
+        ficha_alvarez.carrera = "Medicina"
+        ficha_alvarez.save(update_fields=["carrera"])
+        GrupoEstudiante.objects.create(ficha_inscripcion=ficha_zamora, estudiante=estudiante_zamora, grupo=self.curso)
+        GrupoEstudiante.objects.create(ficha_inscripcion=ficha_acosta, estudiante=estudiante_acosta, grupo=self.curso)
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:grupo_estudiantes"),
+            {"grupo": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [row["display_name"] for row in response.context["available_students"]],
+            ["Álvarez Ana", "Zúñiga Juan"],
+        )
+        self.assertEqual(
+            [row["display_name"] for row in response.context["assigned_students"]],
+            ["Acosta Beatriz", "Zamora Pedro"],
+        )
+        alvarez_row = response.context["available_students"][0]
+        self.assertIn("ana.filtro@example.com", alvarez_row["search_text"])
+        self.assertIn("0991234567", alvarez_row["search_text"])
+        self.assertIn("medicina", alvarez_row["search_text"])
+        self.assertFalse(alvarez_row["active"])
+        self.assertFalse(alvarez_row["ibarra"])
+        self.assertContains(response, 'data-transfer-filter="active"')
+        self.assertContains(response, 'data-transfer-filter="ibarra"')
+        self.assertContains(response, "Buscar en todos los campos", count=2)
+        self.assertContains(response, 'data-active="no"')
+        self.assertContains(response, 'data-ibarra="no"')
 
     def test_group_student_assignment_view_creates_academic_group_assignment(self):
         self.make_superuser()

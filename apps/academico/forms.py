@@ -434,10 +434,10 @@ class GrupoEstudianteBulkForm(BootstrapFormMixin, forms.Form):
             .filter(estudiante__es_estudiante=True, activo=True)
             .exclude(estado="anulada")
             .filter(asignacion_grupo__isnull=True)
-            .order_by("estudiante__nombre", "numero")
+            .order_by("estudiante__apellido", "estudiante__nombre", "numero")
         )
         self.fields["fichas"].label_from_instance = (
-            lambda ficha: f"{ficha.estudiante.nombre} - ficha {ficha.numero}"
+            lambda ficha: f"{' '.join(filter(None, [ficha.estudiante.apellido, ficha.estudiante.nombre]))} - ficha {ficha.numero}"
         )
         if selected_group:
             self.fields["grupo"].initial = selected_group
@@ -479,10 +479,12 @@ class ClaseEstudianteMovimientoForm(BootstrapFormMixin, forms.Form):
         if origin:
             materias_destino = materias_destino.filter(materia=origin.materia).exclude(pk=origin.pk)
 
-        self.fields["asignacion"].queryset = asignaciones.order_by("estudiante__nombre")
+        self.fields["asignacion"].queryset = asignaciones.order_by("estudiante__apellido", "estudiante__nombre")
         self.fields["materia_origen"].queryset = materias_origen.distinct().order_by("materia__nombre", "grupo__nombre")
         self.fields["materia_destino"].queryset = materias_destino.distinct().order_by("grupo__nombre", "materia__nombre")
-        self.fields["asignacion"].label_from_instance = lambda obj: obj.estudiante.nombre
+        self.fields["asignacion"].label_from_instance = (
+            lambda obj: " ".join(filter(None, [obj.estudiante.apellido, obj.estudiante.nombre]))
+        )
         self.fields["materia_origen"].label_from_instance = self.materia_curso_label
         self.fields["materia_destino"].label_from_instance = self.materia_curso_label
 
