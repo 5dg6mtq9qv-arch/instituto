@@ -3094,7 +3094,10 @@ class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequi
         materia = self.get_materia(materia_curso)
         form = CoordinacionPlanificacionForm(request.POST, materia=materia, materia_curso=materia_curso, materias=self.get_materias_permitidas())
         formset = CoordinacionTemaFormSet(request.POST)
-        if form.is_valid() and formset.is_valid():
+        form_is_valid = form.is_valid()
+        formset_is_valid = formset.is_valid()
+        subtemas_are_valid = self.prepare_subtemas_for_redisplay(formset)
+        if form_is_valid and formset_is_valid and subtemas_are_valid:
             materia = materia or form.cleaned_data["materia"]
             try:
                 with transaction.atomic():
@@ -3109,7 +3112,7 @@ class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequi
             except IntegrityError:
                 form.add_error(
                     None,
-                    "No se pudo guardar porque existe un tema o subtema repetido. Revisa los nombres.",
+                    "No se pudo guardar por una restricción de datos. Nada fue eliminado; revisa los nombres señalados.",
                 )
             else:
                 if target_materia_cursos:
@@ -3118,6 +3121,41 @@ class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequi
                     messages.success(request, "Temas y subtemas guardados para la materia.")
                 return redirect("academico:coordinacion_planificacion_materia_editar", materia_pk=materia.pk)
         return render(request, self.template_name, self.get_context(form, formset, materia, materia_curso, self.get_planificacion(materia_curso)))
+
+    def prepare_subtemas_for_redisplay(self, formset):
+        """Conserva los subtemas enviados y señala duplicados antes de tocar la base."""
+        all_subtemas_are_valid = True
+        for tema_index, tema_form in enumerate(formset.forms):
+            submitted_subtemas = self.get_subtemas_from_post(tema_index)
+            visible_subtemas = [item for item in submitted_subtemas if not item["delete"]]
+            tema_form.initial["subtemas"] = visible_subtemas
+
+            subtemas_by_name = {}
+            for subtema_position, subtema in enumerate(visible_subtemas, start=1):
+                subtema["errors"] = []
+                normalized_name = " ".join(subtema["nombre"].split()).casefold()
+                if normalized_name:
+                    subtemas_by_name.setdefault(normalized_name, []).append((subtema_position, subtema))
+
+            tema_nombre = (
+                tema_form.cleaned_data.get("nombre")
+                if hasattr(tema_form, "cleaned_data")
+                else tema_form.data.get(tema_form.add_prefix("nombre"), "")
+            ) or f"Tema {tema_index + 1}"
+            for repeated_subtemas in subtemas_by_name.values():
+                if len(repeated_subtemas) < 2:
+                    continue
+                all_subtemas_are_valid = False
+                positions = " y ".join(str(index) for index, _item in repeated_subtemas)
+                repeated_name = repeated_subtemas[0][1]["nombre"]
+                message = (
+                    f'El subtema "{repeated_name}" está repetido en las posiciones {positions} '
+                    f'del tema "{tema_nombre}".'
+                )
+                for _index, subtema in repeated_subtemas:
+                    subtema["errors"].append(message)
+
+        return all_subtemas_are_valid
 
     def save_materia_topics(self, materia, formset):
         kept_tema_ids = set()

@@ -3594,6 +3594,20 @@ dd {
   padding: 4px 0;
 }
 
+.nested-subtema-field {
+  min-width: 0;
+}
+
+.nested-subtema-row.has-error {
+  align-items: start;
+  border-color: #dc3545;
+}
+
+.nested-subtema-row.has-error .invalid-feedback {
+  line-height: 1.35;
+  margin: 3px 0 5px;
+}
+
 .subtopic-drag-handle {
   align-items: center;
   color: #8a96a8;

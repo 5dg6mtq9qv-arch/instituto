@@ -110,10 +110,15 @@
                 {% with topic_index=forloop.counter0 subtemas=topic_form.initial.subtemas %}
                   <input type="hidden" name="form-{{ topic_index }}-subtemas-TOTAL_FORMS" value="{% if subtemas %}{{ subtemas|length }}{% else %}1{% endif %}" data-subtopic-total>
                   {% for subtema in subtemas %}
-                    <div class="nested-subtema-row" data-subtopic-row>
+                    <div class="nested-subtema-row{% if subtema.errors %} has-error{% endif %}" data-subtopic-row>
                       <span class="subtopic-drag-handle"><i class="ri-drag-move-2-line"></i></span>
                       <input type="hidden" name="form-{{ topic_index }}-subtemas-{{ forloop.counter0 }}-id" value="{{ subtema.id }}">
-                      <input class="form-control" type="text" name="form-{{ topic_index }}-subtemas-{{ forloop.counter0 }}-nombre" value="{{ subtema.nombre }}" placeholder="Nombre del subtema">
+                      <div class="nested-subtema-field">
+                        <input class="form-control{% if subtema.errors %} is-invalid{% endif %}" type="text" name="form-{{ topic_index }}-subtemas-{{ forloop.counter0 }}-nombre" value="{{ subtema.nombre }}" placeholder="Nombre del subtema">
+                        {% for error in subtema.errors %}
+                          <div class="invalid-feedback d-block">{{ error }}</div>
+                        {% endfor %}
+                      </div>
                       <input type="checkbox" name="form-{{ topic_index }}-subtemas-{{ forloop.counter0 }}-DELETE" class="d-none" data-subtopic-delete>
                       <button class="btn btn-icon btn-subtopic-remove" type="button" data-remove-subtopic aria-label="Eliminar subtema">
                         <i class="ri-close-line"></i>

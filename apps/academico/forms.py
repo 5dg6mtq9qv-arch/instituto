@@ -594,20 +594,26 @@ class BaseCoordinacionTemaFormSet(BaseFormSet):
             return
 
         topics_by_name = {}
-        for topic_form in self.forms:
+        for topic_index, topic_form in enumerate(self.forms, start=1):
             if topic_form.cleaned_data.get("DELETE") or not topic_form.has_topic_data():
                 continue
             topic_name = topic_form.cleaned_data.get("nombre") or ""
             normalized_name = " ".join(topic_name.split()).casefold()
             if not normalized_name:
                 continue
-            previous_form = topics_by_name.get(normalized_name)
-            if previous_form is None:
-                topics_by_name[normalized_name] = topic_form
+            topics_by_name.setdefault(normalized_name, []).append((topic_index, topic_form, topic_name.strip()))
+
+        for repeated_topics in topics_by_name.values():
+            if len(repeated_topics) < 2:
                 continue
-            message = "Este tema está repetido. Cada tema de la materia debe tener un nombre diferente."
-            previous_form.add_error("nombre", message)
-            topic_form.add_error("nombre", message)
+            positions = " y ".join(str(index) for index, _form, _name in repeated_topics)
+            repeated_name = repeated_topics[0][2]
+            message = (
+                f'El tema "{repeated_name}" está repetido en las posiciones {positions}. '
+                "Cada tema de la materia debe tener un nombre diferente."
+            )
+            for _index, topic_form, _name in repeated_topics:
+                topic_form.add_error("nombre", message)
 
 
 CoordinacionTemaFormSet = formset_factory(

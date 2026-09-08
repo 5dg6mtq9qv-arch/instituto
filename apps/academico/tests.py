@@ -1341,15 +1341,75 @@ class DocenteHorariosPanelTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(
-            response,
-            "Este tema está repetido. Cada tema de la materia debe tener un nombre diferente.",
-            count=2,
+        expected_error = (
+            'El tema "operaciones CON fracciones y decimales" está repetido en las posiciones 1 y 2. '
+            "Cada tema de la materia debe tener un nombre diferente."
         )
+        self.assertEqual(response.context["formset"].forms[0].errors["nombre"], [expected_error])
+        self.assertEqual(response.context["formset"].forms[1].errors["nombre"], [expected_error])
         first_topic.refresh_from_db()
         second_topic.refresh_from_db()
         self.assertEqual(first_topic.nombre, "Operaciones con naturales y decimales")
         self.assertEqual(second_topic.nombre, "Operaciones con fracciones y decimales")
+
+    def test_coordinacion_topic_editor_identifies_duplicate_subtopics_and_preserves_all_rows(self):
+        coordinator = self.create_coordinator()
+        materia_tema = MateriaTema.objects.create(
+            materia=self.materia,
+            nombre="Álgebra",
+            orden=1,
+        )
+        first_subtopic = MateriaSubtema.objects.create(
+            tema=materia_tema,
+            nombre="Productos notables",
+            orden=1,
+        )
+        second_subtopic = MateriaSubtema.objects.create(
+            tema=materia_tema,
+            nombre="Factorización",
+            orden=2,
+        )
+        self.client.force_login(coordinator)
+
+        response = self.client.post(
+            reverse("academico:coordinacion_planificacion_materia_editar", args=[self.materia.pk]),
+            {
+                "materia": self.materia.pk,
+                "form-TOTAL_FORMS": "1",
+                "form-INITIAL_FORMS": "1",
+                "form-MIN_NUM_FORMS": "0",
+                "form-MAX_NUM_FORMS": "1000",
+                "form-0-tema_id": materia_tema.pk,
+                "form-0-nombre": "Álgebra",
+                "form-0-detalle": "",
+                "form-0-orden": "1",
+                "form-0-subtemas-TOTAL_FORMS": "3",
+                "form-0-subtemas-0-id": first_subtopic.pk,
+                "form-0-subtemas-0-nombre": " Productos notables ",
+                "form-0-subtemas-1-id": second_subtopic.pk,
+                "form-0-subtemas-1-nombre": "productos NOTABLES",
+                "form-0-subtemas-2-id": "",
+                "form-0-subtemas-2-nombre": "Trinomios",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        displayed_subtopics = response.context["formset"].forms[0].initial["subtemas"]
+        self.assertEqual(
+            [item["nombre"] for item in displayed_subtopics],
+            ["Productos notables", "productos NOTABLES", "Trinomios"],
+        )
+        expected_error = 'El subtema "Productos notables" está repetido en las posiciones 1 y 2 del tema "Álgebra".'
+        self.assertEqual(displayed_subtopics[0]["errors"], [expected_error])
+        self.assertEqual(displayed_subtopics[1]["errors"], [expected_error])
+        self.assertEqual(displayed_subtopics[2]["errors"], [])
+        self.assertContains(response, 'value="Trinomios"')
+        materia_tema.refresh_from_db()
+        self.assertEqual(
+            list(materia_tema.subtemas_base.order_by("orden").values_list("nombre", flat=True)),
+            ["Productos notables", "Factorización"],
+        )
 
     def test_coordinacion_topic_create_allows_subject_without_existing_group_link(self):
         coordinator = self.create_coordinator()
