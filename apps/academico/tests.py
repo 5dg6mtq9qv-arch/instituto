@@ -1304,6 +1304,53 @@ class DocenteHorariosPanelTests(TestCase):
             self.assertEqual(tema.materia_tema, materia_tema)
             self.assertTrue(tema.subtemas_planificacion.filter(nombre="Polinomios").exists())
 
+    def test_coordinacion_topic_editor_rejects_duplicate_topic_names_without_integrity_error(self):
+        coordinator = self.create_coordinator()
+        first_topic = MateriaTema.objects.create(
+            materia=self.materia,
+            nombre="Operaciones con naturales y decimales",
+            orden=1,
+        )
+        second_topic = MateriaTema.objects.create(
+            materia=self.materia,
+            nombre="Operaciones con fracciones y decimales",
+            orden=2,
+        )
+        self.client.force_login(coordinator)
+
+        response = self.client.post(
+            reverse("academico:coordinacion_planificacion_editar", args=[self.materia_curso.pk]),
+            {
+                "materia": self.materia.pk,
+                "form-TOTAL_FORMS": "2",
+                "form-INITIAL_FORMS": "2",
+                "form-MIN_NUM_FORMS": "0",
+                "form-MAX_NUM_FORMS": "1000",
+                "form-0-tema_id": first_topic.pk,
+                "form-0-nombre": "  operaciones CON fracciones y decimales  ",
+                "form-0-detalle": "",
+                "form-0-orden": "1",
+                "form-0-subtemas-TOTAL_FORMS": "0",
+                "form-1-tema_id": second_topic.pk,
+                "form-1-nombre": "Operaciones con fracciones y decimales",
+                "form-1-detalle": "",
+                "form-1-orden": "2",
+                "form-1-subtemas-TOTAL_FORMS": "0",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Este tema está repetido. Cada tema de la materia debe tener un nombre diferente.",
+            count=2,
+        )
+        first_topic.refresh_from_db()
+        second_topic.refresh_from_db()
+        self.assertEqual(first_topic.nombre, "Operaciones con naturales y decimales")
+        self.assertEqual(second_topic.nombre, "Operaciones con fracciones y decimales")
+
     def test_coordinacion_topic_create_allows_subject_without_existing_group_link(self):
         coordinator = self.create_coordinator()
         nueva_materia = Materia.objects.create(nombre="Fisica", nombre_corto="FIS", color="#0891b2")

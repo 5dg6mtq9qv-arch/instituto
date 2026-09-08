@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django import forms
-from django.forms import formset_factory
+from django.forms import BaseFormSet, formset_factory
 from django.utils import timezone
 
 from apps.core.forms import BootstrapFormMixin
@@ -586,8 +586,33 @@ class CoordinacionTemaForm(BootstrapFormMixin, forms.Form):
             cleaned_data["orden"] = 1
         return cleaned_data
 
+
+class BaseCoordinacionTemaFormSet(BaseFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+
+        topics_by_name = {}
+        for topic_form in self.forms:
+            if topic_form.cleaned_data.get("DELETE") or not topic_form.has_topic_data():
+                continue
+            topic_name = topic_form.cleaned_data.get("nombre") or ""
+            normalized_name = " ".join(topic_name.split()).casefold()
+            if not normalized_name:
+                continue
+            previous_form = topics_by_name.get(normalized_name)
+            if previous_form is None:
+                topics_by_name[normalized_name] = topic_form
+                continue
+            message = "Este tema está repetido. Cada tema de la materia debe tener un nombre diferente."
+            previous_form.add_error("nombre", message)
+            topic_form.add_error("nombre", message)
+
+
 CoordinacionTemaFormSet = formset_factory(
     CoordinacionTemaForm,
+    formset=BaseCoordinacionTemaFormSet,
     extra=0,
     can_delete=True,
 )

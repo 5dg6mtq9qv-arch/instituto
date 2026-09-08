@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from django.http import HttpResponse, JsonResponse
 from django.urls import reverse_lazy
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Prefetch
 from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.contrib import messages
@@ -3096,20 +3096,27 @@ class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequi
         formset = CoordinacionTemaFormSet(request.POST)
         if form.is_valid() and formset.is_valid():
             materia = materia or form.cleaned_data["materia"]
-            with transaction.atomic():
-                self.save_materia_topics(materia, formset)
-                target_materia_cursos = list(
-                    MateriaCurso.objects.select_related("materia", "grupo")
-                    .filter(materia=materia)
-                    .order_by("grupo__nombre")
+            try:
+                with transaction.atomic():
+                    self.save_materia_topics(materia, formset)
+                    target_materia_cursos = list(
+                        MateriaCurso.objects.select_related("materia", "grupo")
+                        .filter(materia=materia)
+                        .order_by("grupo__nombre")
+                    )
+                    for target_materia_curso in target_materia_cursos:
+                        sync_materia_temas_to_materia_curso(target_materia_curso)
+            except IntegrityError:
+                form.add_error(
+                    None,
+                    "No se pudo guardar porque existe un tema o subtema repetido. Revisa los nombres.",
                 )
-                for target_materia_curso in target_materia_cursos:
-                    sync_materia_temas_to_materia_curso(target_materia_curso)
-            if target_materia_cursos:
-                messages.success(request, f"Temas y subtemas guardados y aplicados en {len(target_materia_cursos)} grupo(s).")
             else:
-                messages.success(request, "Temas y subtemas guardados para la materia.")
-            return redirect("academico:coordinacion_planificacion_materia_editar", materia_pk=materia.pk)
+                if target_materia_cursos:
+                    messages.success(request, f"Temas y subtemas guardados y aplicados en {len(target_materia_cursos)} grupo(s).")
+                else:
+                    messages.success(request, "Temas y subtemas guardados para la materia.")
+                return redirect("academico:coordinacion_planificacion_materia_editar", materia_pk=materia.pk)
         return render(request, self.template_name, self.get_context(form, formset, materia, materia_curso, self.get_planificacion(materia_curso)))
 
     def save_materia_topics(self, materia, formset):
