@@ -74,7 +74,16 @@
         </span>
         <h2>{{ selected_estado_label }}</h2>
       </div>
-      <strong>{{ attendance_cards|length }} clase(s)</strong>
+      <div class="attendance-panel-overview">
+        <a class="attendance-taken-indicator{% if selected_estado == 'tomadas' %} is-active{% endif %}" href="{{ taken_filter_url }}" aria-label="Mostrar solo asistencias tomadas">
+          <i class="ri-checkbox-circle-line" aria-hidden="true"></i>
+          <div>
+            <span>Asistencias tomadas</span>
+            <strong>{{ attendance_stats.clases_completas }} de {{ attendance_stats.total }}</strong>
+          </div>
+        </a>
+        <strong class="attendance-visible-count">{{ attendance_cards|length }} clase(s)</strong>
+      </div>
     </header>
 
     <nav class="attendance-status-tabs" aria-label="Estados de asistencia">
@@ -256,9 +265,57 @@
       margin: 2px 0 0;
     }
 
-    .attendance-panel-header > strong {
+    .attendance-panel-overview {
+      align-items: center;
+      display: flex;
+      gap: 14px;
+    }
+
+    .attendance-taken-indicator {
+      align-items: center;
+      background: #ecfdf3;
+      border: 1px solid #abefc6;
+      border-radius: 10px;
+      color: #067647;
+      display: flex;
+      gap: 10px;
+      min-width: 210px;
+      padding: 9px 13px;
+      text-decoration: none;
+      transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .attendance-taken-indicator:hover,
+    .attendance-taken-indicator:focus,
+    .attendance-taken-indicator.is-active {
+      background: #d1fadf;
+      border-color: #079455;
+      box-shadow: 0 0 0 3px rgba(7, 148, 85, 0.12);
+      color: #05603a;
+      outline: 0;
+      text-decoration: none;
+    }
+
+    .attendance-taken-indicator > i {
+      font-size: 24px;
+    }
+
+    .attendance-panel-header .attendance-taken-indicator span {
+      color: #067647;
+      font-size: 11px;
+    }
+
+    .attendance-taken-indicator strong {
+      display: block;
+      font-size: 16px;
+      line-height: 1.2;
+      margin-top: 2px;
+    }
+
+    .attendance-visible-count {
       color: #475467;
       font-size: 14px;
+      white-space: nowrap;
     }
 
     .attendance-status-tabs {
@@ -550,6 +607,15 @@
       .attendance-panel-header {
         align-items: stretch;
         flex-direction: column;
+      }
+
+      .attendance-panel-overview {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .attendance-taken-indicator {
+        min-width: 0;
       }
 
       .attendance-filter-actions .btn,

@@ -1,6 +1,7 @@
 import calendar as calendar_module
 import json
 import unicodedata
+from collections import defaultdict
 from io import BytesIO
 from datetime import date, timedelta
 from decimal import Decimal
@@ -4923,35 +4924,54 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
             "cancel_url": reverse_lazy("academico:docente_horarios"),
         }
 
-    def get_roster_rows(self, clase):
-        base_asignaciones = list(
-            GrupoEstudiante.objects.select_related("estudiante", "ficha_inscripcion", "grupo")
-            .filter(grupo=clase.materia_curso.grupo, estado="activo")
-            .order_by("estudiante__nombre", "ficha_inscripcion__numero")
-        )
-        movimientos = list(
-            ClaseEstudianteMovimiento.objects.select_related(
-                "asignacion__estudiante",
-                "asignacion__ficha_inscripcion",
-                "asignacion__grupo",
-                "clase_origen__materia_curso__materia",
-                "clase_origen__materia_curso__grupo",
-                "clase_origen__horario_aula_curso__aula_curso__aula",
-                "clase_origen__horario_aula_curso__horario_dia__horario",
-                "clase_destino__materia_curso__materia",
-                "clase_destino__materia_curso__grupo",
-                "clase_destino__horario_aula_curso__aula_curso__aula",
-                "clase_destino__horario_aula_curso__horario_dia__horario",
+    def get_roster_rows(self, clase, roster_data=None):
+        if roster_data is None:
+            base_asignaciones = list(
+                GrupoEstudiante.objects.select_related("estudiante", "ficha_inscripcion", "grupo")
+                .filter(grupo=clase.materia_curso.grupo, estado="activo")
+                .order_by("estudiante__nombre", "ficha_inscripcion__numero")
             )
-            .filter(
-                activo=True,
-                fecha_inicio__lte=clase.fecha,
+            movimientos = list(
+                ClaseEstudianteMovimiento.objects.select_related(
+                    "asignacion__estudiante",
+                    "asignacion__ficha_inscripcion",
+                    "asignacion__grupo",
+                    "clase_origen__materia_curso__materia",
+                    "clase_origen__materia_curso__grupo",
+                    "clase_origen__horario_aula_curso__aula_curso__aula",
+                    "clase_origen__horario_aula_curso__horario_dia__horario",
+                    "clase_destino__materia_curso__materia",
+                    "clase_destino__materia_curso__grupo",
+                    "clase_destino__horario_aula_curso__aula_curso__aula",
+                    "clase_destino__horario_aula_curso__horario_dia__horario",
+                )
+                .filter(
+                    activo=True,
+                    fecha_inicio__lte=clase.fecha,
+                )
+                .filter(
+                    Q(clase_origen__materia_curso=clase.materia_curso)
+                    | Q(clase_destino__materia_curso=clase.materia_curso)
+                )
             )
-            .filter(
-                Q(clase_origen__materia_curso=clase.materia_curso)
-                | Q(clase_destino__materia_curso=clase.materia_curso)
+            attendance_by_student = {
+                attendance.estudiante_id: attendance
+                for attendance in ClaseAsistencia.objects.filter(clase=clase)
+            }
+        else:
+            base_asignaciones = roster_data["assignments_by_group"].get(
+                clase.materia_curso.grupo_id,
+                (),
             )
-        )
+            movimientos = [
+                movimiento
+                for movimiento in roster_data["movements_by_materia_curso"].get(
+                    clase.materia_curso_id,
+                    (),
+                )
+                if movimiento.fecha_inicio <= clase.fecha
+            ]
+            attendance_by_student = roster_data["attendance_by_class"].get(clase.pk, {})
         moved_out_by_assignment = {
             movimiento.asignacion_id: movimiento
             for movimiento in movimientos
@@ -4980,13 +5000,6 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
                 asignacion.ficha_inscripcion.numero or "",
             ),
         )
-        attendance_by_student = {
-            attendance.estudiante_id: attendance
-            for attendance in ClaseAsistencia.objects.filter(
-                clase=clase,
-                estudiante_id__in=[asignacion.estudiante_id for asignacion in visible_assignments],
-            )
-        }
         rows = []
         for asignacion in visible_assignments:
             attendance = attendance_by_student.get(asignacion.estudiante_id)
@@ -5045,7 +5058,9 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
         if selected_docente:
             clases_queryset = clases_queryset.filter(docente_responsable_filter(selected_docente))
 
-        cards = [self.build_attendance_card(clase) for clase in clases_queryset.distinct()]
+        clases = list(clases_queryset.distinct())
+        roster_data = self.get_roster_data(clases)
+        cards = [self.build_attendance_card(clase, roster_data=roster_data) for clase in clases]
         stats = self.get_attendance_stats(cards)
         selected_estado = self.get_selected_filter(requested_estado)
         attendance_cards = self.filter_cards(cards, selected_estado)
@@ -5064,6 +5079,7 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
                 "selected_docente_id": str(selected_docente.pk) if selected_docente else "",
                 "selected_estado": selected_estado,
                 "selected_estado_label": self.get_filter_label(selected_estado),
+                "taken_filter_url": self.get_filter_url("tomadas", selected_grupo, selected_docente),
                 "status_tabs": self.get_status_tabs(selected_estado, selected_grupo, selected_docente, stats),
             },
         )
@@ -5078,7 +5094,14 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__horario",
             )
-            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
+            .prefetch_related(
+                Prefetch(
+                    "materia_curso__profesor_materia_cursos",
+                    queryset=ProfesorMateriaCurso.objects.filter(
+                        auto_generada_por_clases=False,
+                    ).select_related("partner"),
+                )
+            )
             .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio", "materia_curso__grupo__nombre")
         )
 
@@ -5100,8 +5123,70 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
         except (TypeError, ValueError):
             return None
 
-    def build_attendance_card(self, clase):
-        rows, moved_out_rows = DocenteClaseAsistenciaView().get_roster_rows(clase)
+    def get_roster_data(self, clases):
+        assignments_by_group = defaultdict(list)
+        movements_by_materia_curso = defaultdict(list)
+        attendance_by_class = defaultdict(dict)
+        if not clases:
+            return {
+                "assignments_by_group": assignments_by_group,
+                "movements_by_materia_curso": movements_by_materia_curso,
+                "attendance_by_class": attendance_by_class,
+            }
+
+        group_ids = {clase.materia_curso.grupo_id for clase in clases}
+        materia_curso_ids = {clase.materia_curso_id for clase in clases}
+        clase_ids = [clase.pk for clase in clases]
+        latest_date = max(clase.fecha for clase in clases)
+
+        assignments = (
+            GrupoEstudiante.objects.select_related("estudiante", "ficha_inscripcion", "grupo")
+            .filter(grupo_id__in=group_ids, estado="activo")
+            .order_by("estudiante__nombre", "ficha_inscripcion__numero")
+        )
+        for assignment in assignments:
+            assignments_by_group[assignment.grupo_id].append(assignment)
+
+        movements = (
+            ClaseEstudianteMovimiento.objects.select_related(
+                "asignacion__estudiante",
+                "asignacion__ficha_inscripcion",
+                "asignacion__grupo",
+                "clase_origen__materia_curso__materia",
+                "clase_origen__materia_curso__grupo",
+                "clase_origen__horario_aula_curso__aula_curso__aula",
+                "clase_origen__horario_aula_curso__horario_dia__horario",
+                "clase_destino__materia_curso__materia",
+                "clase_destino__materia_curso__grupo",
+                "clase_destino__horario_aula_curso__aula_curso__aula",
+                "clase_destino__horario_aula_curso__horario_dia__horario",
+            )
+            .filter(activo=True, fecha_inicio__lte=latest_date)
+            .filter(
+                Q(clase_origen__materia_curso_id__in=materia_curso_ids)
+                | Q(clase_destino__materia_curso_id__in=materia_curso_ids)
+            )
+        )
+        for movement in movements:
+            origin_id = movement.clase_origen.materia_curso_id
+            destination_id = movement.clase_destino.materia_curso_id
+            if origin_id in materia_curso_ids:
+                movements_by_materia_curso[origin_id].append(movement)
+            if destination_id in materia_curso_ids and destination_id != origin_id:
+                movements_by_materia_curso[destination_id].append(movement)
+
+        attendances = ClaseAsistencia.objects.filter(clase_id__in=clase_ids).order_by()
+        for attendance in attendances:
+            attendance_by_class[attendance.clase_id][attendance.estudiante_id] = attendance
+
+        return {
+            "assignments_by_group": assignments_by_group,
+            "movements_by_materia_curso": movements_by_materia_curso,
+            "attendance_by_class": attendance_by_class,
+        }
+
+    def build_attendance_card(self, clase, roster_data=None):
+        rows, moved_out_rows = DocenteClaseAsistenciaView().get_roster_rows(clase, roster_data=roster_data)
         horario = clase.horario_aula_curso.horario_dia.horario
         counts = {key: 0 for key, _ in ClaseAsistencia.ESTADO_CHOICES}
         counts["pendiente"] = 0
@@ -5161,8 +5246,6 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
     def get_card_status(self, clase, total_estudiantes, pending_count):
         if not total_estudiantes:
             return "sin-estudiantes", "Sin estudiantes"
-        if clase.asistencia_cerrada:
-            return "cerrada", "Cerrada"
         if pending_count:
             return "pendiente", "Pendiente"
         return "completa", "Completa"
@@ -5179,6 +5262,7 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
             "observaciones": 0,
             "cerradas": 0,
             "clases_pendientes": 0,
+            "clases_completas": 0,
             "con_ausentes": 0,
             "con_observaciones": 0,
         }
@@ -5195,6 +5279,8 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
                 stats["cerradas"] += 1
             if card["pending_count"]:
                 stats["clases_pendientes"] += 1
+            if card["status_key"] == "completa":
+                stats["clases_completas"] += 1
             if counts.get("ausente", 0):
                 stats["con_ausentes"] += 1
             if card["observation_count"]:
@@ -5202,15 +5288,24 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
         return stats
 
     def get_selected_filter(self, requested_filter):
-        valid_filters = {item["key"] for item in self.status_filters}
+        valid_filters = {item["key"] for item in self.status_filters} | {"tomadas"}
         return requested_filter if requested_filter in valid_filters else "todas"
 
     def get_filter_label(self, selected_filter):
+        if selected_filter == "tomadas":
+            return "Asistencias tomadas"
         filter_item = next((item for item in self.status_filters if item["key"] == selected_filter), None)
         return filter_item["label"] if filter_item else ""
 
+    def get_filter_url(self, selected_filter, selected_grupo, selected_docente):
+        params = {"estado": selected_filter}
+        if selected_grupo:
+            params["grupo"] = selected_grupo.pk
+        if selected_docente:
+            params["docente"] = selected_docente.pk
+        return f"{reverse_lazy('academico:coordinacion_revision_asistencia')}?{urlencode(params)}"
+
     def get_status_tabs(self, selected_filter, selected_grupo, selected_docente, stats):
-        base_url = reverse_lazy("academico:coordinacion_revision_asistencia")
         count_map = {
             "todas": stats["total"],
             "pendientes": stats["clases_pendientes"],
@@ -5220,22 +5315,19 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
         }
         tabs = []
         for item in self.status_filters:
-            params = {"estado": item["key"]}
-            if selected_grupo:
-                params["grupo"] = selected_grupo.pk
-            if selected_docente:
-                params["docente"] = selected_docente.pk
             tabs.append(
                 {
                     **item,
                     "count": count_map.get(item["key"], 0),
-                    "url": f"{base_url}?{urlencode(params)}",
+                    "url": self.get_filter_url(item["key"], selected_grupo, selected_docente),
                     "is_active": item["key"] == selected_filter,
                 }
             )
         return tabs
 
     def filter_cards(self, cards, selected_filter):
+        if selected_filter == "tomadas":
+            return [card for card in cards if card["status_key"] == "completa"]
         if selected_filter == "pendientes":
             return [card for card in cards if card["pending_count"]]
         if selected_filter == "ausentes":

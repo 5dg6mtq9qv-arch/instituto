@@ -44,7 +44,7 @@ from apps.academico.models import (
     Subtema,
     Tema,
 )
-from apps.academico.views import DocenteClaseAsistenciaView
+from apps.academico.views import CoordinacionRevisionAsistenciaView, DocenteClaseAsistenciaView
 from apps.core.current_user import set_current_request
 from apps.core.models import Empresa, Partner, TipoIdentificacion
 from apps.matricula.models import FichaInscripcion
@@ -2967,6 +2967,60 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(report_response, "Ana Asistencia")
         self.assertContains(report_response, "No asistio.")
         self.assertEqual(report_response.context["card"]["counts"]["ausente"], 1)
+
+    def test_closed_attendance_with_all_students_registered_is_complete(self):
+        coordinator = self.create_coordinator()
+        estudiante, ficha = self.create_student_ficha(
+            nombre="Clase Cerrada",
+            identificacion="CER-001",
+            numero="CER-001",
+        )
+        GrupoEstudiante.objects.create(ficha_inscripcion=ficha, estudiante=estudiante, grupo=self.curso)
+        ClaseAsistencia.objects.create(
+            clase=self.revision,
+            estudiante=estudiante,
+            estado="presente",
+            registrado_por=self.docente,
+        )
+        self.revision.asistencia_cerrada = True
+        self.revision.fecha_cierre_asistencia = timezone.now()
+        self.revision.save(update_fields=["asistencia_cerrada", "fecha_cierre_asistencia"])
+        self.client.force_login(coordinator)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_revision_asistencia"),
+            {"grupo": self.curso.pk, "docente": self.docente.pk, "estado": "cerradas"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["attendance_cards"]), 1)
+        card = response.context["attendance_cards"][0]
+        self.assertEqual(card["status_key"], "completa")
+        self.assertEqual(card["status_label"], "Completa")
+        self.assertEqual(response.context["attendance_stats"]["clases_completas"], 1)
+        self.assertContains(response, "Completa")
+        self.assertContains(response, "Asistencias tomadas")
+        self.assertContains(response, "1 de 4")
+        self.assertContains(response, "ri-lock-2-line")
+
+        taken_response = self.client.get(response.context["taken_filter_url"], HTTP_HOST="localhost")
+
+        self.assertEqual(taken_response.status_code, 200)
+        self.assertEqual(taken_response.context["selected_estado"], "tomadas")
+        self.assertEqual(taken_response.context["selected_estado_label"], "Asistencias tomadas")
+        self.assertEqual(len(taken_response.context["attendance_cards"]), 1)
+        self.assertEqual(taken_response.context["attendance_cards"][0]["clase"], self.revision)
+
+    def test_attendance_cards_load_rosters_in_constant_queries(self):
+        view = CoordinacionRevisionAsistenciaView()
+
+        with self.assertNumQueries(5):
+            clases = list(view.get_clases_queryset().distinct())
+            roster_data = view.get_roster_data(clases)
+            cards = [view.build_attendance_card(clase, roster_data=roster_data) for clase in clases]
+
+        self.assertEqual(len(cards), 4)
 
     def test_coordinacion_student_attendance_report_exports_parent_excel(self):
         coordinator = self.create_coordinator()
