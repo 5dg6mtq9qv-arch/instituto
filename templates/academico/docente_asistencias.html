@@ -1,0 +1,119 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Docente</p>
+      <h1>{{ title }}</h1>
+    </div>
+  </header>
+
+  {% include "academico/includes/docente_tabs.html" with active_tab="asistencias" %}
+
+  {% if not docente %}
+    <section class="panel">
+      <p class="text-muted mb-0">Tu usuario no está vinculado a un docente activo.</p>
+    </section>
+  {% else %}
+    <section class="attendance-summary-grid">
+      <a class="attendance-summary-card pending{% if selected_status == 'pendientes' %} is-active{% endif %}" href="{% url 'academico:docente_asistencias' %}?estado=pendientes">
+        <span>Por tomar hoy</span>
+        <strong>{{ pending_count }}</strong>
+        <small>{{ today|date:"d/m/Y" }}</small>
+      </a>
+      <a class="attendance-summary-card taken{% if selected_status == 'tomadas' %} is-active{% endif %}" href="{% url 'academico:docente_asistencias' %}?estado=tomadas">
+        <span>Tomadas</span>
+        <strong>{{ taken_count }}</strong>
+        <small>Asistencias cerradas</small>
+      </a>
+    </section>
+
+    <section class="panel attendance-list-panel">
+      <header class="section-header">
+        <div>
+          <span>Control de clases</span>
+          <h2>{% if selected_status == 'tomadas' %}Asistencias tomadas{% else %}Asistencias por tomar{% endif %}</h2>
+        </div>
+      </header>
+
+      {% if attendance_cards %}
+        <div class="attendance-card-grid">
+          {% for card in attendance_cards %}
+            <article class="attendance-class-card{% if card.is_taken %} is-taken{% endif %}">
+              <div class="attendance-card-heading">
+                <span class="attendance-subject-color" style="background: {{ card.materia.color|default:'#0f766e' }}"></span>
+                <div>
+                  <h3>{{ card.materia }}</h3>
+                  <p>{{ card.grupo }}</p>
+                </div>
+                <span class="attendance-state-badge">
+                  {% if card.is_taken %}Tomada{% elif card.registered_count %}En proceso{% else %}Por tomar{% endif %}
+                </span>
+              </div>
+              <div class="attendance-class-meta">
+                <span><i class="ri-calendar-line"></i>{{ card.clase.fecha|date:"d/m/Y" }}</span>
+                <span><i class="ri-time-line"></i>{{ card.horario.hora_inicio|time:"H:i" }} - {{ card.horario.hora_fin|time:"H:i" }}</span>
+                <span><i class="ri-door-open-line"></i>{{ card.aula }}</span>
+                <span><i class="ri-group-line"></i>{{ card.registered_count }}/{{ card.student_count }} registrados</span>
+              </div>
+              <a class="btn {% if card.is_taken %}btn-outline-primary{% else %}btn-primary-600{% endif %}" href="{{ card.url }}">
+                <i class="{% if card.is_taken %}ri-eye-line{% else %}ri-list-check-3{% endif %}"></i>
+                {% if card.is_taken %}Ver asistencia{% elif card.registered_count %}Continuar asistencia{% else %}Tomar asistencia{% endif %}
+              </a>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="academic-empty-state">
+          {% if selected_status == 'tomadas' %}
+            Todavía no tienes asistencias tomadas.
+          {% else %}
+            No tienes asistencias pendientes para hoy.
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .attendance-summary-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+    .attendance-summary-card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      color: #111827;
+      display: grid;
+      padding: 18px;
+      text-decoration: none;
+    }
+    .attendance-summary-card.is-active { border-color: #0f766e; box-shadow: 0 0 0 2px rgba(15, 118, 110, .12); }
+    .attendance-summary-card span { font-size: 13px; font-weight: 800; text-transform: uppercase; }
+    .attendance-summary-card strong { font-size: 34px; line-height: 1.2; margin: 8px 0 2px; }
+    .attendance-summary-card small { color: #667085; }
+    .attendance-summary-card.pending strong { color: #b45309; }
+    .attendance-summary-card.taken strong { color: #15803d; }
+    .attendance-card-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .attendance-class-card { border: 1px solid #f0d6ad; border-radius: 10px; padding: 16px; }
+    .attendance-class-card.is-taken { border-color: #bbdfc5; }
+    .attendance-card-heading { align-items: start; display: grid; gap: 10px; grid-template-columns: 6px minmax(0, 1fr) auto; }
+    .attendance-subject-color { border-radius: 999px; display: block; height: 42px; }
+    .attendance-card-heading h3 { font-size: 16px; margin: 0; }
+    .attendance-card-heading p { color: #667085; margin: 4px 0 0; }
+    .attendance-state-badge { background: #fff7e6; border-radius: 999px; color: #9a6700; font-size: 11px; font-weight: 800; padding: 6px 9px; }
+    .is-taken .attendance-state-badge { background: #eaf7ee; color: #157f3d; }
+    .attendance-class-meta { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 16px 0; }
+    .attendance-class-meta span { align-items: center; color: #475467; display: flex; font-size: 13px; gap: 6px; }
+    @media (max-width: 720px) {
+      .attendance-summary-grid, .attendance-class-meta { grid-template-columns: 1fr; }
+    }
+  </style>
+{% endblock %}

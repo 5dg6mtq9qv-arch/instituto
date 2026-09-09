@@ -175,6 +175,7 @@ def home(request):
             ],
             "actions": [
                 action("Planificaciones", "academico:docente_horarios", "ri-task-line"),
+                action("Asistencias", "academico:docente_asistencias", "ri-list-check-3", "secondary"),
                 action("Calendario", "academico:docente_calendario", "ri-calendar-schedule-line", "secondary"),
             ],
             "priority_sections": [

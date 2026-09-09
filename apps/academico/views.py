@@ -3703,6 +3703,96 @@ class DocenteHorariosView(LoginRequiredMixin, View):
         }
 
 
+class DocenteAsistenciasView(LoginRequiredMixin, View):
+    template_name = "academico/docente_asistencias.html"
+    valid_statuses = {"pendientes", "tomadas"}
+
+    def get_docente(self):
+        docente = getattr(self.request.user, "partner", None)
+        if docente and docente.es_docente and docente.activo:
+            return docente
+        return None
+
+    def get_clases_queryset(self, docente):
+        return (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .filter(docente_responsable_filter(docente))
+            .distinct()
+        )
+
+    def get(self, request):
+        docente = self.get_docente()
+        if not docente:
+            return render(
+                request,
+                self.template_name,
+                {
+                    "title": "Asistencias",
+                    "docente": None,
+                    "selected_status": "pendientes",
+                    "pending_count": 0,
+                    "taken_count": 0,
+                    "attendance_cards": [],
+                },
+            )
+
+        today = timezone.localdate()
+        clases = self.get_clases_queryset(docente)
+        pendientes = clases.filter(fecha=today, asistencia_cerrada=False).order_by(
+            "horario_aula_curso__horario_dia__horario__hora_inicio",
+            "materia_curso__grupo__nombre",
+        )
+        tomadas = clases.filter(asistencia_cerrada=True).order_by(
+            "-fecha",
+            "-horario_aula_curso__horario_dia__horario__hora_inicio",
+        )
+        pending_count = pendientes.count()
+        taken_count = tomadas.count()
+        selected_status = request.GET.get("estado") or ("pendientes" if pending_count else "tomadas")
+        if selected_status not in self.valid_statuses:
+            selected_status = "pendientes"
+        selected_clases = pendientes if selected_status == "pendientes" else tomadas
+
+        roster_view = DocenteClaseAsistenciaView()
+        attendance_cards = []
+        for clase in selected_clases:
+            rows, _ = roster_view.get_roster_rows(clase)
+            registered_count = sum(1 for row in rows if row["attendance"])
+            horario = clase.horario_aula_curso.horario_dia.horario
+            attendance_cards.append(
+                {
+                    "clase": clase,
+                    "materia": clase.materia_curso.materia,
+                    "grupo": clase.materia_curso.grupo,
+                    "aula": clase.horario_aula_curso.aula_curso.aula,
+                    "horario": horario,
+                    "student_count": len(rows),
+                    "registered_count": registered_count,
+                    "is_taken": clase.asistencia_cerrada,
+                    "url": reverse_lazy("academico:docente_clase_asistencia", kwargs={"pk": clase.pk}),
+                }
+            )
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Asistencias",
+                "docente": docente,
+                "today": today,
+                "selected_status": selected_status,
+                "pending_count": pending_count,
+                "taken_count": taken_count,
+                "attendance_cards": attendance_cards,
+            },
+        )
+
+
 class DocenteCalendarioMixin:
     weekday_headers = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
 
@@ -4831,9 +4921,6 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
 
     def get(self, request, pk):
         clase = self.get_clase()
-        date_response = self.ensure_attendance_date(request, clase)
-        if date_response:
-            return date_response
         return render(request, self.template_name, self.get_context(clase))
 
     def post(self, request, pk):
@@ -4882,7 +4969,7 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
         if clase.fecha == timezone.localdate():
             return None
         messages.error(request, "La asistencia solo se habilita el dia de la clase.")
-        return redirect("academico:docente_horarios")
+        return redirect("academico:docente_asistencias")
 
     def handle_close(self, request, clase):
         if clase.asistencia_cerrada:
@@ -4921,7 +5008,7 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
             "can_close_attendance": can_edit_attendance and bool(rows) and has_saved_attendance,
             "has_saved_attendance": has_saved_attendance,
             "planificacion_url": reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}),
-            "cancel_url": reverse_lazy("academico:docente_horarios"),
+            "cancel_url": reverse_lazy("academico:docente_asistencias"),
         }
 
     def get_roster_rows(self, clase, roster_data=None):

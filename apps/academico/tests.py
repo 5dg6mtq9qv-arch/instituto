@@ -536,7 +536,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual([row["estudiante"] for row in second_response.context["rows"]], [estudiante])
         self.assertFalse(ClaseAsistencia.objects.filter(estudiante=estudiante).exists())
 
-    def test_docente_attendance_only_opens_on_class_date(self):
+    def test_docente_can_view_but_not_edit_attendance_outside_class_date(self):
         self.client.force_login(self.user)
 
         response = self.client.get(
@@ -544,8 +544,17 @@ class DocenteHorariosPanelTests(TestCase):
             HTTP_HOST="localhost",
         )
 
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["can_edit_attendance"])
+
+        response = self.client.post(
+            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+            {"attendance_action": "save"},
+            HTTP_HOST="localhost",
+        )
+
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("academico:docente_horarios"))
+        self.assertEqual(response.url, reverse("academico:docente_asistencias"))
 
     def test_class_student_movement_requires_same_materia_in_another_group(self):
         estudiante, ficha = self.create_student_ficha()
@@ -832,6 +841,75 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "docente-planning-card")
         self.assertEqual(response.context["planificacion_stats"]["total"], 4)
         self.assertEqual(response.context["planificacion_stats"]["por_atender"], 3)
+
+    def test_docente_attendance_panel_separates_pending_and_taken_classes(self):
+        today = timezone.localdate()
+        today_class = self.create_class_for_date(today, time(10, 0), time(11, 0), "Aula asistencia hoy")
+        closed_class = self.create_class_for_date(
+            today - timedelta(days=7),
+            time(10, 0),
+            time(11, 0),
+            "Aula asistencia cerrada",
+        )
+        estudiante, ficha = self.create_student_ficha()
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+        )
+        ClaseAsistencia.objects.create(
+            clase=closed_class,
+            estudiante=estudiante,
+            estado="presente",
+            registrado_por=self.docente,
+        )
+        closed_class.asistencia_cerrada = True
+        closed_class.asistencia_cerrada_por = self.docente
+        closed_class.fecha_cierre_asistencia = timezone.now()
+        closed_class.save(
+            update_fields=["asistencia_cerrada", "asistencia_cerrada_por", "fecha_cierre_asistencia"]
+        )
+        self.user.groups.add(Group.objects.get_or_create(name="Docente")[0])
+        self.user.groups.add(Group.objects.get_or_create(name="Coordinacion")[0])
+        self.client.force_login(self.user)
+
+        pending_response = self.client.get(
+            reverse("academico:docente_asistencias"),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(pending_response.status_code, 200)
+        self.assertEqual(pending_response.context["selected_status"], "pendientes")
+        self.assertEqual(pending_response.context["pending_count"], 1)
+        self.assertEqual(pending_response.context["taken_count"], 1)
+        self.assertEqual(
+            [card["clase"] for card in pending_response.context["attendance_cards"]],
+            [today_class],
+        )
+        self.assertContains(pending_response, "Tomar asistencia")
+
+        taken_response = self.client.get(
+            reverse("academico:docente_asistencias"),
+            {"estado": "tomadas"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(taken_response.status_code, 200)
+        self.assertEqual(taken_response.context["selected_status"], "tomadas")
+        self.assertEqual(
+            [card["clase"] for card in taken_response.context["attendance_cards"]],
+            [closed_class],
+        )
+        self.assertContains(taken_response, "Ver asistencia")
+
+        history_response = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[closed_class.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(history_response.status_code, 200)
+        self.assertContains(history_response, "Asistencia cerrada")
+        self.assertContains(history_response, "Registro bloqueado")
 
     def test_docente_dashboard_shows_assigned_subject_without_topics(self):
         materia = Materia.objects.create(nombre="Lenguaje", nombre_corto="LEN", color="#2563eb")
