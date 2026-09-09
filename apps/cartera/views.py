@@ -15,6 +15,7 @@ from apps.matricula.models import FichaInscripcion
 
 from .forms import (
     CuotaForm,
+    CuotaFechaPagoForm,
     FormaPagoForm,
     PagoForm,
     PlanPagoForm,
@@ -317,6 +318,7 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "cuotas_vencidas_count": sum(1 for item in cuota_items if item["is_overdue"]),
             "proxima_cuota": cuota_items[0] if cuota_items else None,
             "pagos_recientes": pagos_recientes,
+            "can_change_cuota_due_date": self.request.user.has_perm("cartera.change_fecha_pago_debito"),
         }
 
     def get_payment_targets(self, cuotas, selected_cuotas):
@@ -401,6 +403,36 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 messages.success(request, f"Pago registrado por {total_pagado:.2f}.")
             return redirect("cartera:alumno_pendientes", pk=ficha.pk)
         return render(request, self.template_name, self.get_context(ficha, cuotas, form))
+
+
+class CuotaFechaPagoUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = ("cartera.view_cuota", "cartera.change_fecha_pago_debito")
+
+    def get_cuota(self, ficha_pk, cuota_pk):
+        return get_object_or_404(
+            Cuota.objects.select_related("plan_pago__ficha_inscripcion"),
+            pk=cuota_pk,
+            plan_pago__ficha_inscripcion_id=ficha_pk,
+            activo=True,
+        )
+
+    def post(self, request, pk, cuota_pk):
+        cuota = self.get_cuota(pk, cuota_pk)
+        form = CuotaFechaPagoForm(request.POST, instance=cuota)
+        if not form.is_valid():
+            messages.error(request, "Selecciona una fecha de pago valida.")
+            return redirect("cartera:alumno_pendientes", pk=pk)
+
+        cuota = form.save(commit=False)
+        if cuota.estado not in {"pagada", "anulada"}:
+            if cuota.fecha_pago_debito < timezone.localdate():
+                cuota.estado = "vencida"
+            else:
+                cuota.estado = "parcial" if cuota.valor_pagado > 0 else "pendiente"
+        cuota.usuario_updated = request.user
+        cuota.save(update_fields=["fecha_pago_debito", "estado", "usuario_updated", "updated"])
+        messages.success(request, f"Fecha de {cuota.etiqueta()} actualizada correctamente.")
+        return redirect("cartera:alumno_pendientes", pk=pk)
 
 
 class AlumnoPagosView(LoginRequiredMixin, PermissionRequiredMixin, ListView):

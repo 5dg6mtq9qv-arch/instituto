@@ -7,6 +7,11 @@ app_name = "cartera"
 urlpatterns = [
     path("alumnos/", views.AlumnoCarteraListView.as_view(), name="alumno_cartera_list"),
     path("alumnos/<int:pk>/pendientes/", views.AlumnoCuotasPendientesView.as_view(), name="alumno_pendientes"),
+    path(
+        "alumnos/<int:pk>/cuotas/<int:cuota_pk>/fecha/",
+        views.CuotaFechaPagoUpdateView.as_view(),
+        name="cuota_fecha_pago_editar",
+    ),
     path("alumnos/<int:pk>/pagos/", views.AlumnoPagosView.as_view(), name="alumno_pagos"),
     path("formas-pago/", views.FormaPagoListView.as_view(), name="forma_pago_list"),
     path("formas-pago/nueva/", views.FormaPagoCreateView.as_view(), name="forma_pago_nueva"),

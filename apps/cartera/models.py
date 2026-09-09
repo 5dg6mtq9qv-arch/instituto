@@ -131,6 +131,9 @@ class Cuota(models.Model):
         db_table = '"cartera"."cuota"'
         unique_together = (("plan_pago", "numero"),)
         ordering = ["fecha_pago_debito", "numero"]
+        permissions = (
+            ("change_fecha_pago_debito", "Puede editar manualmente la fecha de pago de una cuota"),
+        )
 
     def __str__(self):
         return f"{self.etiqueta()} - {self.plan_pago}"

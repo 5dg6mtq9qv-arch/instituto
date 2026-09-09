@@ -125,7 +125,24 @@
                   </div>
 
                   <div class="payment-installment-amount">
-                    <span>Restante</span>
+                    <div class="payment-installment-amount-heading">
+                      <span>Restante</span>
+                      {% if can_change_cuota_due_date %}
+                        <button
+                          class="payment-date-settings"
+                          type="button"
+                          title="Editar fecha de pago"
+                          aria-label="Editar fecha de {{ item.cuota.etiqueta }}"
+                          data-edit-due-date
+                          data-update-url="{% url 'cartera:cuota_fecha_pago_editar' ficha.pk item.cuota.pk %}"
+                          data-installment-label="{{ item.cuota.etiqueta }}"
+                          data-current-date="{{ item.cuota.fecha_pago_debito|date:'Y-m-d' }}"
+                          data-current-date-label="{{ item.cuota.fecha_pago_debito|date:'d M Y' }}"
+                        >
+                          <i class="ri-settings-3-line" aria-hidden="true"></i>
+                        </button>
+                      {% endif %}
+                    </div>
                     <strong>${{ item.saldo|floatformat:2 }}</strong>
                     <button class="btn btn-outline-primary btn-sm" type="button" data-pay-single="{{ item.cuota.pk }}">
                       <i class="ri-secure-payment-line"></i>
@@ -267,6 +284,41 @@
       </div>
     </div>
   </form>
+
+  {% if can_change_cuota_due_date %}
+    <div class="modal fade" id="dueDateModal" tabindex="-1" aria-labelledby="dueDateModalTitle" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" data-due-date-form>
+          {% csrf_token %}
+          <div class="modal-header">
+            <div>
+              <span class="payment-modal-kicker">Opciones de cuota</span>
+              <h5 class="modal-title" id="dueDateModalTitle">Editar fecha de pago</h5>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body payment-date-modal-body">
+            <p>
+              Cambia manualmente la fecha de <strong data-due-date-installment></strong>.
+              Fecha actual: <strong data-due-date-current></strong>.
+            </p>
+            <div>
+              <label class="form-label" for="id_due_date">Nueva fecha de pago</label>
+              <input class="form-control" id="id_due_date" type="date" name="fecha_pago_debito" required data-due-date-input>
+            </div>
+            <small>El estado pendiente o vencido se actualizará de acuerdo con la nueva fecha.</small>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary-600" type="submit">
+              <i class="ri-save-line"></i>
+              Guardar fecha
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
 {% endblock %}
 
 {% block extra_scripts %}
@@ -284,6 +336,12 @@
       const modalList = document.querySelector("[data-payment-modal-list]");
       const openButtons = Array.from(document.querySelectorAll("[data-open-payment-modal]"));
       const singlePayButtons = Array.from(document.querySelectorAll("[data-pay-single]"));
+      const dueDateButtons = Array.from(document.querySelectorAll("[data-edit-due-date]"));
+      const dueDateModalElement = document.getElementById("dueDateModal");
+      const dueDateForm = document.querySelector("[data-due-date-form]");
+      const dueDateInput = document.querySelector("[data-due-date-input]");
+      const dueDateInstallment = document.querySelector("[data-due-date-installment]");
+      const dueDateCurrent = document.querySelector("[data-due-date-current]");
 
       function parseAmount(value) {
         return Number(String(value || "0").replace(",", "."));
@@ -417,6 +475,21 @@
           }
           updateSelectedState();
           bootstrap.Modal.getOrCreateInstance(modalElement).show();
+        });
+      });
+
+      dueDateButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          if (!dueDateModalElement || !dueDateForm || !dueDateInput) return;
+          dueDateForm.action = button.dataset.updateUrl;
+          dueDateInput.value = button.dataset.currentDate;
+          if (dueDateInstallment) {
+            dueDateInstallment.textContent = button.dataset.installmentLabel;
+          }
+          if (dueDateCurrent) {
+            dueDateCurrent.textContent = button.dataset.currentDateLabel;
+          }
+          bootstrap.Modal.getOrCreateInstance(dueDateModalElement).show();
         });
       });
 
@@ -711,6 +784,57 @@
       text-align: right;
     }
 
+    .payment-installment-amount-heading {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .payment-date-settings {
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      color: #475467;
+      display: inline-flex;
+      font-size: 17px;
+      height: 30px;
+      justify-content: center;
+      padding: 0;
+      transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+      width: 30px;
+    }
+
+    .payment-date-settings:hover,
+    .payment-date-settings:focus {
+      background: #eff6ff;
+      border-color: #60a5fa;
+      color: #1d4ed8;
+      outline: 0;
+    }
+
+    .payment-date-modal-body {
+      display: grid;
+      gap: 14px;
+    }
+
+    .payment-date-modal-body p,
+    .payment-date-modal-body small {
+      color: #475467;
+      margin: 0;
+    }
+
+    .payment-date-modal-body small {
+      background: #fffaeb;
+      border: 1px solid #fedf89;
+      border-radius: 8px;
+      color: #93370d;
+      display: block;
+      font-weight: 700;
+      padding: 10px;
+    }
+
     .payment-installment-amount strong {
       color: #111827;
       font-size: 22px;
@@ -980,6 +1104,10 @@
         grid-column: 2;
         justify-items: start;
         text-align: left;
+      }
+
+      .payment-installment-amount-heading {
+        justify-content: flex-start;
       }
     }
 

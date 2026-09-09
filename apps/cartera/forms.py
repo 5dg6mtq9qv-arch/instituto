@@ -179,6 +179,23 @@ class RegistrarPagoCuotasForm(BootstrapFormMixin, forms.Form):
         return cleaned_data
 
 
+class CuotaFechaPagoForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Cuota
+        fields = ["fecha_pago_debito"]
+        labels = {"fecha_pago_debito": "Nueva fecha de pago"}
+        widgets = {
+            "fecha_pago_debito": forms.DateInput(
+                format="%Y-%m-%d",
+                attrs={"type": "date", "required": True},
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["fecha_pago_debito"].input_formats = ["%Y-%m-%d"]
+
+
 class FormaPagoForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = FormaPago

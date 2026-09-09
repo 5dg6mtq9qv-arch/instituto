@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from tempfile import TemporaryDirectory
 
@@ -161,7 +161,7 @@ class FormaPagoFormTests(TestCase):
 
     def test_student_pending_payments_page_renders_flow_summary(self):
         self.client.force_login(self.user)
-        ficha, _, _, _, _ = self.create_payment_flow_data()
+        ficha, _, cuota_atrasada, _, _ = self.create_payment_flow_data()
 
         response = self.client.get(reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}), HTTP_HOST="localhost")
 
@@ -173,6 +173,95 @@ class FormaPagoFormTests(TestCase):
         self.assertContains(response, "Registrar pago")
         self.assertContains(response, "data-payment-modal-list")
         self.assertContains(response, "Fecha registro")
+        self.assertContains(
+            response,
+            f'data-update-url="{reverse("cartera:cuota_fecha_pago_editar", kwargs={"pk": ficha.pk, "cuota_pk": cuota_atrasada.pk})}"',
+        )
+        self.assertContains(response, "Editar fecha de pago")
+        self.assertContains(response, "data-due-date-form")
+
+    def test_due_date_gear_is_hidden_without_specific_permission(self):
+        ficha, _, cuota_atrasada, _, _ = self.create_payment_flow_data()
+        limited_user = get_user_model().objects.create_user(
+            username="cartera_sin_fechas",
+            password="ClaveActual987!",
+        )
+        limited_user.user_permissions.add(
+            Permission.objects.get(content_type__app_label="cartera", codename="view_cuota")
+        )
+        self.client.force_login(limited_user)
+
+        response = self.client.get(
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        update_url = reverse(
+            "cartera:cuota_fecha_pago_editar",
+            kwargs={"pk": ficha.pk, "cuota_pk": cuota_atrasada.pk},
+        )
+        self.assertNotContains(response, f'data-update-url="{update_url}"')
+
+        update_response = self.client.post(
+            update_url,
+            {"fecha_pago_debito": (timezone.localdate() + timedelta(days=10)).isoformat()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(update_response.status_code, 403)
+        cuota_atrasada.refresh_from_db()
+        self.assertEqual(cuota_atrasada.fecha_pago_debito, date(2026, 8, 1))
+
+    def test_authorized_user_can_update_installment_due_date(self):
+        ficha, _, cuota_atrasada, _, _ = self.create_payment_flow_data()
+        cuota_atrasada.estado = "vencida"
+        cuota_atrasada.save(update_fields=["estado"])
+        authorized_user = get_user_model().objects.create_user(
+            username="cartera_fechas",
+            password="ClaveActual987!",
+        )
+        authorized_user.user_permissions.add(
+            Permission.objects.get(content_type__app_label="cartera", codename="view_cuota"),
+            Permission.objects.get(
+                content_type__app_label="cartera",
+                codename="change_fecha_pago_debito",
+            ),
+        )
+        self.client.force_login(authorized_user)
+        new_date = timezone.localdate() + timedelta(days=10)
+
+        response = self.client.post(
+            reverse(
+                "cartera:cuota_fecha_pago_editar",
+                kwargs={"pk": ficha.pk, "cuota_pk": cuota_atrasada.pk},
+            ),
+            {"fecha_pago_debito": new_date.isoformat()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            fetch_redirect_response=False,
+        )
+        cuota_atrasada.refresh_from_db()
+        self.assertEqual(cuota_atrasada.fecha_pago_debito, new_date)
+        self.assertEqual(cuota_atrasada.estado, "parcial")
+        self.assertEqual(cuota_atrasada.usuario_updated, authorized_user)
+
+        past_date = timezone.localdate() - timedelta(days=10)
+        self.client.post(
+            reverse(
+                "cartera:cuota_fecha_pago_editar",
+                kwargs={"pk": ficha.pk, "cuota_pk": cuota_atrasada.pk},
+            ),
+            {"fecha_pago_debito": past_date.isoformat()},
+            HTTP_HOST="localhost",
+        )
+        cuota_atrasada.refresh_from_db()
+        self.assertEqual(cuota_atrasada.fecha_pago_debito, past_date)
+        self.assertEqual(cuota_atrasada.estado, "vencida")
 
     def test_student_wallet_list_renders_status_filters_and_payment_links(self):
         self.client.force_login(self.user)
