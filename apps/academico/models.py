@@ -1523,6 +1523,11 @@ class Competencia(models.Model):
     id = models.BigAutoField(primary_key=True)
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True, null=True)
+    materias = models.ManyToManyField(
+        Materia,
+        blank=True,
+        related_name="competencias_catalogo",
+    )
 
     class Meta:
         db_table = '"academico"."competencia"'
@@ -1582,6 +1587,11 @@ class Estrategia(models.Model):
     id = models.BigAutoField(primary_key=True)
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True, null=True)
+    materias = models.ManyToManyField(
+        Materia,
+        blank=True,
+        related_name="estrategias_catalogo",
+    )
 
     class Meta:
         db_table = '"academico"."estrategia"'
@@ -1620,6 +1630,11 @@ class Recurso(models.Model):
     id = models.BigAutoField(primary_key=True)
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True, null=True)
+    materias = models.ManyToManyField(
+        Materia,
+        blank=True,
+        related_name="recursos_catalogo",
+    )
 
     class Meta:
         db_table = '"academico"."recurso"'

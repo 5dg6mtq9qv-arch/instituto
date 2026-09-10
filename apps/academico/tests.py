@@ -94,6 +94,9 @@ class DocenteHorariosPanelTests(TestCase):
         self.competencia = Competencia.objects.create(nombre="Resolver problemas")
         self.estrategia = Estrategia.objects.create(nombre="Aprendizaje guiado")
         self.recurso = Recurso.objects.create(nombre="Pizarra")
+        self.competencia.materias.add(self.materia)
+        self.estrategia.materias.add(self.materia)
+        self.recurso.materias.add(self.materia)
         today = timezone.localdate()
         next_monday = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
         self.pendiente = Clase.objects.create(
@@ -2669,6 +2672,35 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "Planificar clase")
         self.assertContains(response, self.tema.nombre)
 
+    def test_docente_class_planning_only_shows_catalogs_for_its_subject(self):
+        other_materia = Materia.objects.create(nombre="Anatomia", nombre_corto="ANA")
+        other_competencia = Competencia.objects.create(nombre="Identifica estructuras anatomicas")
+        other_estrategia = Estrategia.objects.create(nombre="Practica con modelos anatomicos")
+        other_recurso = Recurso.objects.create(nombre="Modelo anatomico")
+        other_competencia.materias.add(other_materia)
+        other_estrategia.materias.add(other_materia)
+        other_recurso.materias.add(other_materia)
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        catalogs = {
+            group["prefix"]: [item["obj"] for item in group["items"]]
+            for group in response.context["tag_groups"]
+        }
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.competencia, catalogs["competencias"])
+        self.assertIn(self.estrategia, catalogs["estrategias"])
+        self.assertIn(self.recurso, catalogs["recursos"])
+        self.assertNotIn(other_competencia, catalogs["competencias"])
+        self.assertNotIn(other_estrategia, catalogs["estrategias"])
+        self.assertNotIn(other_recurso, catalogs["recursos"])
+        self.assertContains(response, "data-chip-search")
+        self.assertContains(response, "opción(es) de esta materia", count=3)
+
     def test_docente_topic_planning_does_not_take_class_from_other_topic(self):
         other_topic = Tema.objects.create(planificacion=self.planificacion, nombre="Geometria", orden=2)
         self.pendiente.tema = other_topic
@@ -2819,6 +2851,19 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertTrue(self.pendiente.competencias.filter(nombre="Opera polinomios con precision").exists())
         self.assertTrue(self.pendiente.estrategias.filter(nombre="Ejercicios en parejas").exists())
         self.assertTrue(self.pendiente.recursos.filter(nombre="Guia impresa").exists())
+        self.assertTrue(
+            self.pendiente.competencias.get(nombre="Opera polinomios con precision").materias.filter(
+                pk=self.materia.pk
+            ).exists()
+        )
+        self.assertTrue(
+            self.pendiente.estrategias.get(nombre="Ejercicios en parejas").materias.filter(
+                pk=self.materia.pk
+            ).exists()
+        )
+        self.assertTrue(
+            self.pendiente.recursos.get(nombre="Guia impresa").materias.filter(pk=self.materia.pk).exists()
+        )
 
     def test_docente_class_planning_returns_to_topic_after_send(self):
         self.client.force_login(self.user)

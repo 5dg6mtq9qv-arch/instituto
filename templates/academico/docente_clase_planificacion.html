@@ -167,15 +167,24 @@
                 <span class="teacher-step-pill" data-step-state="{{ group.prefix }}">Pendiente</span>
               </header>
 
+              <div class="teacher-chip-tools">
+                <label class="teacher-chip-search">
+                  <i class="ri-search-line"></i>
+                  <input type="search" placeholder="Buscar en {{ group.title|lower }}" data-chip-search autocomplete="off">
+                </label>
+                <small>{{ group.items|length }} opción(es) de esta materia</small>
+              </div>
+
               <div class="teacher-chip-pool" data-chip-pool>
                 {% for item in group.items %}
-                  <button class="teacher-pool-chip{% if item.selected %} is-selected{% endif %}" type="button" draggable="{% if can_edit %}true{% else %}false{% endif %}" data-available-chip data-tag-id="{{ item.obj.pk }}" data-tag-name="{{ item.obj.nombre }}"{% if not can_edit %} disabled{% endif %}>
+                  <button class="teacher-pool-chip{% if item.selected %} is-selected{% endif %}" type="button" draggable="{% if can_edit %}true{% else %}false{% endif %}" data-available-chip data-tag-id="{{ item.obj.pk }}" data-tag-name="{{ item.obj.nombre }}" title="{{ item.obj.nombre }}"{% if not can_edit %} disabled{% endif %}>
                     <i class="{% if item.selected %}ri-check-line{% else %}ri-add-line{% endif %}"></i>
                     <span>{{ item.obj.nombre }}</span>
                   </button>
                 {% empty %}
                   <p class="teacher-empty-text">Sin opciones creadas.</p>
                 {% endfor %}
+                <p class="teacher-empty-text" data-chip-search-empty hidden>Sin coincidencias.</p>
               </div>
 
               <div class="teacher-selected-list" data-selected-list data-drop-label="{{ group.title }}">
@@ -333,6 +342,14 @@
             seen.add(key);
             return true;
           });
+      }
+
+      function normalizedSearch(value) {
+        return String(value || "")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase()
+          .trim();
       }
 
       function renderSubtemas(keepCurrent) {
@@ -584,6 +601,20 @@
       });
 
       document.addEventListener("input", function (event) {
+        const chipSearch = event.target.closest("[data-chip-search]");
+        if (chipSearch) {
+          const group = chipSearch.closest("[data-tag-group]");
+          const query = normalizedSearch(chipSearch.value);
+          let visibleCount = 0;
+          group.querySelectorAll("[data-available-chip]").forEach(function (chip) {
+            const visible = !query || normalizedSearch(chip.dataset.tagName).includes(query);
+            chip.hidden = !visible;
+            if (visible) visibleCount += 1;
+          });
+          const empty = group.querySelector("[data-chip-search-empty]");
+          if (empty) empty.hidden = visibleCount > 0;
+          return;
+        }
         if (event.target.closest("[data-new-tags-textarea], [data-new-subtopics-textarea]")) {
           setAlert("");
           syncPlan();
@@ -1105,9 +1136,54 @@
     }
 
     .teacher-chip-pool {
+      align-content: flex-start;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+      max-height: 210px;
+      overflow-y: auto;
+      padding: 10px;
+      scrollbar-gutter: stable;
+    }
+
+    .teacher-chip-tools {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: space-between;
+    }
+
+    .teacher-chip-tools small {
+      color: #667085;
+      font-weight: 700;
+    }
+
+    .teacher-chip-search {
+      align-items: center;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      display: flex;
+      flex: 1 1 260px;
+      gap: 8px;
+      max-width: 440px;
+      min-height: 40px;
+      padding: 0 10px;
+    }
+
+    .teacher-chip-search i {
+      color: #667085;
+    }
+
+    .teacher-chip-search input {
+      background: transparent;
+      border: 0;
+      min-width: 0;
+      outline: 0;
+      width: 100%;
     }
 
     .teacher-pool-chip {
@@ -1147,7 +1223,7 @@
       opacity: 0.55;
     }
 
-    .teacher-written-tags {
+    .teacher-editor-card textarea.teacher-written-tags {
       min-height: 84px;
     }
 

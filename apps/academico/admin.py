@@ -138,7 +138,9 @@ class PlanificacionDocenteAdmin(admin.ModelAdmin):
 @admin.register(Competencia)
 class CompetenciaAdmin(admin.ModelAdmin):
     list_display = ("nombre",)
+    list_filter = ("materias",)
     search_fields = ("nombre", "descripcion")
+    filter_horizontal = ("materias",)
 
 
 @admin.register(ClasePlanificacion)
@@ -152,13 +154,17 @@ class ClasePlanificacionAdmin(admin.ModelAdmin):
 @admin.register(Estrategia)
 class EstrategiaAdmin(admin.ModelAdmin):
     list_display = ("nombre",)
+    list_filter = ("materias",)
     search_fields = ("nombre", "descripcion")
+    filter_horizontal = ("materias",)
 
 
 @admin.register(Recurso)
 class RecursoAdmin(admin.ModelAdmin):
     list_display = ("nombre",)
+    list_filter = ("materias",)
     search_fields = ("nombre", "descripcion")
+    filter_horizontal = ("materias",)
 
 
 @admin.register(HorarioClase)

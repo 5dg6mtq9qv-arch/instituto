@@ -207,6 +207,27 @@ def docente_responsable_search_filter(query):
     )
 
 
+def planning_catalog_queryset(model, materia):
+    if not materia:
+        return model.objects.none()
+    return (
+        model.objects.filter(
+            Q(materias=materia)
+            | Q(clases__materia_curso__materia=materia)
+        )
+        .distinct()
+        .order_by("nombre")
+    )
+
+
+def get_or_create_planning_catalog_item(model, materia, name):
+    item = model.objects.filter(nombre__iexact=name).order_by("pk").first()
+    if item is None:
+        item = model.objects.create(nombre=name)
+    item.materias.add(materia)
+    return item
+
+
 def get_clase_docentes(clase):
     if clase.docente_override:
         return [clase.docente] if clase.docente_id else []
@@ -4179,9 +4200,10 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
             clase.tema = tema
             clase.save(update_fields=["tema"])
             clase.sync_subtemas_planificados([*selected_subtemas, *created_subtemas])
-            self.sync_inline_tags(clase.competencias, Competencia, "competencias")
-            self.sync_inline_tags(clase.estrategias, Estrategia, "estrategias")
-            self.sync_inline_tags(clase.recursos, Recurso, "recursos")
+            materia = clase.materia_curso.materia
+            self.sync_inline_tags(clase.competencias, Competencia, "competencias", materia)
+            self.sync_inline_tags(clase.estrategias, Estrategia, "estrategias", materia)
+            self.sync_inline_tags(clase.recursos, Recurso, "recursos", materia)
             if send:
                 clase.estado_planificacion = "revision"
                 clase.notas_revision = ""
@@ -4284,10 +4306,14 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
             created.append(Subtema.objects.create(tema=tema, nombre=name, orden=next_order + offset))
         return created
 
-    def sync_inline_tags(self, relation, model, prefix):
-        selected_ids = self.get_inline_selected_ids(self.request, prefix)
+    def sync_inline_tags(self, relation, model, prefix, materia):
+        posted_ids = self.get_inline_selected_ids(self.request, prefix)
+        selected_items = list(planning_catalog_queryset(model, materia).filter(pk__in=posted_ids))
+        selected_ids = {item.pk for item in selected_items}
+        for item in selected_items:
+            item.materias.add(materia)
         for name in self.get_inline_new_names(self.request, prefix):
-            obj, _ = model.objects.get_or_create(nombre=name)
+            obj = get_or_create_planning_catalog_item(model, materia, name)
             selected_ids.add(obj.pk)
         relation.set(selected_ids)
 
@@ -4371,7 +4397,7 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
         pending_subtema_count = max(len(subtemas) - len(covered_subtema_ids), 0)
         assignment_blocker = self.get_assignment_blocker(tema, assigned_classes, covered_subtema_ids)
         assignable_classes = available_classes if not assignment_blocker else []
-        tag_catalogs = self.get_inline_tag_catalogs()
+        tag_catalogs = self.get_inline_tag_catalogs(materia_curso.materia)
         return {
             "title": "Planificar tema",
             "docente": docente,
@@ -4411,11 +4437,11 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
             return "Todos los subtemas del tema ya fueron planificados."
         return ""
 
-    def get_inline_tag_catalogs(self):
+    def get_inline_tag_catalogs(self, materia):
         return {
-            "competencias": list(Competencia.objects.order_by("nombre")),
-            "estrategias": list(Estrategia.objects.order_by("nombre")),
-            "recursos": list(Recurso.objects.order_by("nombre")),
+            "competencias": list(planning_catalog_queryset(Competencia, materia)),
+            "estrategias": list(planning_catalog_queryset(Estrategia, materia)),
+            "recursos": list(planning_catalog_queryset(Recurso, materia)),
         }
 
     def get_planificacion_periodo(self, materia_curso):
@@ -4432,7 +4458,7 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
     def build_class_slot(self, clase, tema, subtemas=None, covered_subtema_ids=None, tag_catalogs=None):
         subtemas = subtemas or []
         covered_subtema_ids = covered_subtema_ids or set()
-        tag_catalogs = tag_catalogs or self.get_inline_tag_catalogs()
+        tag_catalogs = tag_catalogs or self.get_inline_tag_catalogs(clase.materia_curso.materia)
         horario = clase.horario_aula_curso.horario_dia.horario
         competencias = list(clase.competencias.all())
         estrategias = list(clase.estrategias.all())
@@ -5854,9 +5880,15 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                             selected_subtemas.append(subtema)
                             selected_subtema_ids.add(subtema.pk)
                     clase.sync_subtemas_planificados(selected_subtemas)
-                self.sync_tags(clase.competencias, Competencia, "competencias")
-                self.sync_tags(clase.estrategias, Estrategia, "estrategias")
-                recurso_ids, new_resources_by_index = self.sync_tags(clase.recursos, Recurso, "recursos")
+                materia = clase.materia_curso.materia
+                self.sync_tags(clase.competencias, Competencia, "competencias", materia)
+                self.sync_tags(clase.estrategias, Estrategia, "estrategias", materia)
+                recurso_ids, new_resources_by_index = self.sync_tags(
+                    clase.recursos,
+                    Recurso,
+                    "recursos",
+                    materia,
+                )
                 self.sync_resource_files(clase, recurso_ids, new_resources_by_index)
                 if action == "send":
                     clase.estado_planificacion = "revision"
@@ -6096,11 +6128,15 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             if str(value).isdigit()
         }
 
-    def sync_tags(self, relation, model, prefix):
-        selected_ids = self.get_selected_tag_ids(prefix)
+    def sync_tags(self, relation, model, prefix, materia):
+        posted_ids = self.get_selected_tag_ids(prefix)
+        selected_items = list(planning_catalog_queryset(model, materia).filter(pk__in=posted_ids))
+        selected_ids = {item.pk for item in selected_items}
+        for item in selected_items:
+            item.materias.add(materia)
         new_items_by_index = {}
         for item in self.get_posted_new_tags(prefix):
-            obj, _ = model.objects.get_or_create(nombre=item["nombre"])
+            obj = get_or_create_planning_catalog_item(model, materia, item["nombre"])
             selected_ids.add(obj.pk)
             new_items_by_index[item["index"]] = obj
         relation.set(selected_ids)
@@ -6176,7 +6212,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             self.build_tag_group(
                 "Competencias",
                 "competencias",
-                Competencia.objects.order_by("nombre"),
+                planning_catalog_queryset(Competencia, clase.materia_curso.materia),
                 set(clase.competencias.values_list("id", flat=True)),
                 "Agregar competencia",
                 "Nueva competencia",
@@ -6187,7 +6223,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             self.build_tag_group(
                 "Estrategias",
                 "estrategias",
-                Estrategia.objects.order_by("nombre"),
+                planning_catalog_queryset(Estrategia, clase.materia_curso.materia),
                 set(clase.estrategias.values_list("id", flat=True)),
                 "Agregar estrategia",
                 "Nueva estrategia",
@@ -6198,7 +6234,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             self.build_tag_group(
                 "Recursos",
                 "recursos",
-                Recurso.objects.order_by("nombre"),
+                planning_catalog_queryset(Recurso, clase.materia_curso.materia),
                 set(clase.recursos.values_list("id", flat=True)),
                 "Agregar recurso",
                 "Nuevo recurso",
