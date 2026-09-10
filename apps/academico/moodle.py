@@ -209,6 +209,18 @@ class MoodleClient:
                 "invalidtoken": "El token de Moodle no es válido o ha caducado.",
                 "accessexception": "Moodle denegó el acceso. Revisa las funciones y los usuarios autorizados del servicio.",
                 "webservice_access_exception": "Moodle denegó el acceso. Revisa los permisos del servicio.",
+                "wsnoinstance": (
+                    "El aula no tiene habilitada la matriculación manual en Moodle. "
+                    "Actívala en Participantes → Métodos de matriculación."
+                ),
+                "wscannotenrol": (
+                    "Moodle no permite matricular en esta aula. Revisa que el método de "
+                    "matriculación manual esté activo."
+                ),
+                "wsusercannotassign": (
+                    "La cuenta del servicio web no puede asignar el rol configurado. "
+                    "Revisa sus permisos y los identificadores de rol."
+                ),
             }
             raise MoodleError(messages.get(result.get("errorcode"), "Moodle rechazó la operación. Revisa su configuración de servicios web."))
         return result

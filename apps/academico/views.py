@@ -3040,7 +3040,13 @@ class CoordinacionMoodleCursoView(TemasAsignadosMixin, CoordinacionRequiredMixin
 
     def post(self, request, *args, **kwargs):
         from .moodle import MoodleError
-        from .moodle_courses import MOODLE_SYNC_STEPS, create_moodle_course, sync_moodle_course_step
+        from .moodle_courses import (
+            MOODLE_SYNC_STEPS,
+            course_data,
+            create_moodle_course,
+            participant_roles,
+            sync_moodle_course_step,
+        )
         materia_curso = self.get_materia_curso()
         json_response = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         requested_step = request.POST.get("step", "")
@@ -3054,11 +3060,16 @@ class CoordinacionMoodleCursoView(TemasAsignadosMixin, CoordinacionRequiredMixin
             if json_response:
                 enlace = MoodleCurso.objects.filter(materia_curso=materia_curso).first()
                 aula_guardada = bool(enlace and enlace.curso_id)
-                matriculas_guardadas = enlace.matriculas.count() if enlace else 0
                 if aula_guardada:
+                    participantes = set(participant_roles(course_data(materia_curso)))
+                    confirmadas = enlace.matriculas.filter(
+                        cuenta__persona_id__in=participantes,
+                        confirmada=True,
+                    ).count()
                     avance = (
-                        f"El aula ya está guardada en Moodle y hay {matriculas_guardadas} "
-                        "matrícula(s) local(es). El siguiente intento continuará desde ese punto."
+                        f"El aula ya está guardada en Moodle y hay {confirmadas} de "
+                        f"{len(participantes)} matrícula(s) actual(es) confirmada(s). "
+                        "El siguiente intento continuará desde ese punto."
                     )
                 else:
                     avance = "Todavía no se confirmó el aula en Moodle; el siguiente intento volverá a comprobarla."

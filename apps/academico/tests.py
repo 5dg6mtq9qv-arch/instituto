@@ -34,6 +34,8 @@ from apps.academico.models import (
     MateriaCurso,
     MoodleConfiguracion,
     MoodleCuenta,
+    MoodleCurso,
+    MoodleMatricula,
     MateriaSubtema,
     MateriaTema,
     Periodo,
@@ -252,7 +254,111 @@ class DocenteHorariosPanelTests(TestCase):
             self.assertTrue(link.completo)
             self.assertEqual(client.call.call_count, 2)
             create_moodle_course(self.materia_curso)
-            self.assertEqual(client.enrol_users.call_count, 2)
+            self.assertEqual(client.enrol_users.call_count, 1)
+
+    def test_moodle_enrols_only_missing_participants(self):
+        from unittest.mock import MagicMock
+
+        from apps.academico.moodle_courses import sync_enrolments
+
+        alumno = Partner.objects.create(
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion="ALU-MOODLE-001",
+            nombre="Alumno Nuevo",
+            activo=True,
+        )
+        link = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=42,
+        )
+        docente_account = MoodleCuenta.objects.create(
+            persona=self.docente,
+            sitio=link.sitio,
+            usuario="docente_prueba",
+            usuario_id=7,
+        )
+        alumno_account = MoodleCuenta.objects.create(
+            persona=alumno,
+            sitio=link.sitio,
+            usuario="alumno_nuevo",
+            usuario_id=8,
+        )
+        MoodleMatricula.objects.create(
+            curso=link,
+            cuenta=docente_account,
+            rol="Docente",
+            confirmada=True,
+        )
+        MoodleMatricula.objects.create(
+            curso=link,
+            cuenta=alumno_account,
+            rol="Alumno",
+        )
+        client = MagicMock(base_url=link.sitio)
+        client.enrolled_users.side_effect = [[{"id": 7}], [{"id": 7}, {"id": 8}]]
+
+        detail = sync_enrolments(
+            client,
+            link,
+            {"temas": [], "docentes": [self.docente], "alumnos": [alumno], "errors": []},
+        )
+
+        client.enrol_users.assert_called_once_with([
+            {"roleid": 5, "userid": 8, "courseid": 42}
+        ])
+        matricula = alumno_account.moodlematricula_set.get(curso=link)
+        self.assertTrue(matricula.confirmada)
+        link.refresh_from_db()
+        self.assertTrue(link.completo)
+        self.assertIn("1 matrícula(s) nueva(s)", detail)
+
+    def test_moodle_keeps_partial_progress_and_identifies_rejected_student(self):
+        from unittest.mock import MagicMock
+
+        from apps.academico.moodle import MoodleError
+        from apps.academico.moodle_courses import sync_enrolments
+
+        alumnos = [
+            Partner.objects.create(
+                tipo_identificacion=self.tipo_identificacion,
+                identificacion=f"ALU-MOODLE-00{number}",
+                nombre=name,
+                activo=True,
+            )
+            for number, name in [(2, "Ana Aprobada"), (3, "Beto Rechazado")]
+        ]
+        link = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=42,
+        )
+        for user_id, alumno in enumerate(alumnos, start=8):
+            account = MoodleCuenta.objects.create(
+                persona=alumno,
+                sitio=link.sitio,
+                usuario=f"alumno_{user_id}",
+                usuario_id=user_id,
+            )
+            MoodleMatricula.objects.create(curso=link, cuenta=account, rol="Alumno")
+        client = MagicMock(base_url=link.sitio)
+        client.enrolled_users.return_value = []
+        client.enrol_users.side_effect = [None, MoodleError("Moodle rechazó la operación.")]
+
+        with self.assertRaisesMessage(MoodleError, "Beto Rechazado"):
+            sync_enrolments(
+                client,
+                link,
+                {"temas": [], "docentes": [], "alumnos": alumnos, "errors": []},
+            )
+
+        states = dict(
+            link.matriculas.values_list("cuenta__persona__nombre", "confirmada")
+        )
+        self.assertTrue(states["Ana Aprobada"])
+        self.assertFalse(states["Beto Rechazado"])
+        link.refresh_from_db()
+        self.assertFalse(link.completo)
 
     def test_moodle_recovers_course_after_response_timeout(self):
         from unittest.mock import patch

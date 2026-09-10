@@ -75,6 +75,24 @@ class MoodleClientTests(SimpleTestCase):
             client.site_info()
         self.assertNotIn("private-test-token", str(caught.exception))
 
+    def test_manual_enrolment_errors_have_actionable_messages(self):
+        cases = {
+            "wsnoinstance": "no tiene habilitada la matriculación manual",
+            "wscannotenrol": "matriculación manual esté activo",
+            "wsusercannotassign": "no puede asignar el rol",
+        }
+        for errorcode, expected in cases.items():
+            with self.subTest(errorcode=errorcode):
+                client = self.client_with_response(json.dumps({
+                    "exception": "moodle_exception",
+                    "errorcode": errorcode,
+                    "message": "private-test-token",
+                }).encode())
+                with self.assertRaises(MoodleError) as caught:
+                    client.enrol_users([{"roleid": 5, "userid": 15, "courseid": 8}])
+                self.assertIn(expected, str(caught.exception))
+                self.assertNotIn("private-test-token", str(caught.exception))
+
     def test_invalid_json_and_network_errors_are_safe(self):
         client = self.client_with_response(b'<html>private-test-token</html>')
         with self.assertRaises(MoodleError):

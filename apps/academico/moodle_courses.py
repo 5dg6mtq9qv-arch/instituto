@@ -230,11 +230,36 @@ def sync_enrolments(client, link, data):
             cuenta=account,
             defaults={"rol": "Docente" if role == settings.MOODLE_TEACHER_ROLE_ID else "Alumno"},
         )
-        enrolments.append({"roleid": role, "userid": account.usuario_id, "courseid": link.curso_id})
+        enrolments.append((person, account, {
+            "roleid": role,
+            "userid": account.usuario_id,
+            "courseid": link.curso_id,
+        }))
 
-    client.enrol_users(enrolments)
+    # Moodle revierte el lote completo al encontrar una sola matrícula inválida.
+    # Primero se reconcilia su estado real y luego se envían únicamente los
+    # participantes faltantes, de uno en uno, para conservar avances parciales.
     enrolled = {user["id"] for user in client.enrolled_users(link.curso_id)}
-    expected = {enrolment["userid"] for enrolment in enrolments}
+    if enrolled:
+        link.matriculas.filter(cuenta__usuario_id__in=enrolled).update(confirmada=True)
+
+    created = 0
+    for person, account, enrolment in enrolments:
+        if account.usuario_id in enrolled:
+            continue
+        try:
+            client.enrol_users([enrolment])
+        except MoodleError as exc:
+            raise MoodleError(
+                f"No se pudo matricular a {person}. {exc}",
+                retryable=exc.retryable,
+            ) from None
+        MoodleMatricula.objects.filter(curso=link, cuenta=account).update(confirmada=True)
+        enrolled.add(account.usuario_id)
+        created += 1
+
+    enrolled = {user["id"] for user in client.enrolled_users(link.curso_id)}
+    expected = {enrolment["userid"] for _person, _account, enrolment in enrolments}
     if not expected.issubset(enrolled):
         raise MoodleError(
             "El curso existe, pero faltan participantes. Reintenta la matrícula.",
@@ -243,7 +268,10 @@ def sync_enrolments(client, link, data):
     link.matriculas.filter(cuenta__usuario_id__in=enrolled).update(confirmada=True)
     link.completo = True
     link.save(update_fields=["completo"])
-    return f"{len(expected)} participante(s) matriculado(s) y comprobado(s) en Moodle."
+    return (
+        f"{len(expected)} participante(s) comprobado(s) en Moodle; "
+        f"{created} matrícula(s) nueva(s)."
+    )
 
 
 def sync_moodle_course_step(materia_curso, step):
