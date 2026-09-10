@@ -907,6 +907,12 @@ class Clase(models.Model):
         on_delete=models.CASCADE,
         related_name="clases",
     )
+    temas = models.ManyToManyField(
+        "academico.Tema",
+        through="academico.ClaseTema",
+        blank=True,
+        related_name="clases_asignadas",
+    )
     materia_curso = models.ForeignKey(
         MateriaCurso,
         db_column="id_materia_curso",
@@ -1017,6 +1023,52 @@ class Clase(models.Model):
             return [self.subtema]
         return subtemas
 
+    def get_temas_planificados(self):
+        if not self.pk:
+            return []
+        temas = [
+            item.tema
+            for item in self.clase_temas.select_related("tema").order_by(
+                "orden",
+                "tema__orden",
+                "tema__nombre",
+            )
+        ]
+        if not temas and self.tema_id:
+            return [self.tema]
+        return temas
+
+    def get_temas_label(self):
+        return ", ".join(str(tema) for tema in self.get_temas_planificados())
+
+    def has_tema_planificado(self, tema):
+        if not tema:
+            return False
+        return self.tema_id == tema.pk or self.clase_temas.filter(tema=tema).exists()
+
+    def sync_temas_planificados(self, temas):
+        selected = {}
+        for tema in temas:
+            if tema and tema.pk not in selected:
+                selected[tema.pk] = tema
+        selected_temas = list(selected.values())
+        selected_ids = list(selected.keys())
+
+        self.clase_temas.exclude(tema_id__in=selected_ids).delete()
+        for order, tema in enumerate(selected_temas, start=1):
+            relation, created = self.clase_temas.get_or_create(
+                tema=tema,
+                defaults={"orden": order},
+            )
+            if not created and relation.orden != order:
+                relation.orden = order
+                relation.save(update_fields=["orden"])
+
+        first_tema_id = selected_ids[0] if selected_ids else None
+        if self.tema_id != first_tema_id:
+            self.tema_id = first_tema_id
+            self.save(update_fields=["tema"])
+
     def get_subtemas_label(self):
         subtemas = self.get_subtemas_planificados()
         return ", ".join(str(subtema) for subtema in subtemas)
@@ -1068,6 +1120,31 @@ class ClaseSubtema(models.Model):
 
     def __str__(self):
         return f"{self.clase} - {self.subtema}"
+
+
+class ClaseTema(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    clase = models.ForeignKey(
+        Clase,
+        db_column="id_clase",
+        on_delete=models.CASCADE,
+        related_name="clase_temas",
+    )
+    tema = models.ForeignKey(
+        "academico.Tema",
+        db_column="id_tema",
+        on_delete=models.CASCADE,
+        related_name="clase_temas",
+    )
+    orden = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."clase_tema"'
+        unique_together = (("clase", "tema"),)
+        ordering = ["clase", "orden", "tema"]
+
+    def __str__(self):
+        return f"{self.clase} - {self.tema}"
 
 
 class ClaseRecurso(models.Model):

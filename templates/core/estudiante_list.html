@@ -2,8 +2,8 @@
 
 {% block list_filters %}
   <select class="form-select student-list-filter" name="estado" aria-label="Filtrar por estado">
-    <option value="">Todos los estados</option>
-    <option value="activo"{% if request.GET.estado == "activo" %} selected{% endif %}>Activos</option>
+    <option value="todos"{% if request.GET.estado == "todos" %} selected{% endif %}>Todos los estados</option>
+    <option value="activo"{% if not request.GET.estado or request.GET.estado == "activo" %} selected{% endif %}>Activos</option>
     <option value="inactivo"{% if request.GET.estado == "inactivo" %} selected{% endif %}>Inactivos</option>
   </select>
   <select class="form-select student-list-filter" name="ibarra" aria-label="Filtrar por procedencia">

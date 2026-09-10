@@ -175,7 +175,7 @@ class EstudianteListView(PartnerTypeListView):
                 "cuentas_moodle",
             )
         )
-        estado = self.request.GET.get("estado", "")
+        estado = self.request.GET.get("estado") or "activo"
         if estado in {"activo", "inactivo"}:
             queryset = queryset.filter(activo=estado == "activo")
 

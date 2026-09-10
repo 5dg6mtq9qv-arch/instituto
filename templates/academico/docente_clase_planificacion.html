@@ -108,35 +108,50 @@
             <span class="teacher-step-pill" data-step-state="tema">Pendiente</span>
           </header>
           <div class="teacher-field-grid">
-            {% if return_planificacion_tema %}
-              <div>
-                <label class="form-label">Tema</label>
-                <div class="teacher-fixed-topic">
-                  <i class="ri-node-tree"></i>
-                  <span>{{ return_tema.nombre }}</span>
+            <div>
+              <label class="form-label">Temas</label>
+              {{ form.tema }}
+              <div class="teacher-academic-dropdown" data-topic-dropdown>
+                <button class="teacher-dropdown-toggle" type="button" data-topic-dropdown-toggle aria-expanded="false"{% if not can_edit %} disabled{% endif %}>
+                  <span data-topic-summary>Seleccionar temas</span>
+                  <i class="ri-arrow-down-s-line"></i>
+                </button>
+                <div class="teacher-dropdown-menu" data-topic-dropdown-menu hidden>
+                  <p>Elige uno o varios temas para esta clase.</p>
+                  <div class="teacher-dropdown-options">
+                    {% for checkbox in form.temas_seleccionados %}
+                      <label class="teacher-dropdown-option">
+                        {{ checkbox.tag }}
+                        <span>{{ checkbox.choice_label }}</span>
+                      </label>
+                    {% empty %}
+                      <span class="teacher-empty-text">Sin temas disponibles.</span>
+                    {% endfor %}
+                  </div>
                 </div>
-                <div class="d-none">{{ form.tema }}</div>
-                {% for error in form.tema.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
               </div>
-            {% else %}
-              <div>
-                <label class="form-label" for="{{ form.tema.id_for_label }}">Tema</label>
-                {{ form.tema }}
-                {% for error in form.tema.errors %}
-                  <div class="invalid-feedback d-block">{{ error }}</div>
-                {% endfor %}
-              </div>
-            {% endif %}
+              {% for error in form.temas_seleccionados.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+              {% for error in form.tema.errors %}
+                <div class="invalid-feedback d-block">{{ error }}</div>
+              {% endfor %}
+            </div>
             <div>
               <label class="form-label">Subtemas</label>
               {{ form.subtema }}
-              <div class="teacher-subtopic-picker" data-subtopic-picker>
-                <div class="teacher-subtopic-list" data-subtopic-list></div>
-                <p class="teacher-empty-text" data-subtopic-empty>Sin subtemas para seleccionar.</p>
+              <div class="teacher-academic-dropdown" data-subtopic-dropdown>
+                <button class="teacher-dropdown-toggle" type="button" data-subtopic-dropdown-toggle aria-expanded="false"{% if not can_edit %} disabled{% endif %}>
+                  <span data-subtopic-summary>Seleccionar subtemas</span>
+                  <i class="ri-arrow-down-s-line"></i>
+                </button>
+                <div class="teacher-dropdown-menu teacher-subtopic-picker" data-subtopic-dropdown-menu data-subtopic-picker hidden>
+                  <p>Elige uno o varios subtemas. Puedes repetirlos en otras clases.</p>
+                  <div class="teacher-subtopic-list" data-subtopic-list></div>
+                  <p class="teacher-empty-text" data-subtopic-empty>Selecciona primero uno o varios temas.</p>
+                </div>
               </div>
-              <textarea class="form-control teacher-written-tags" name="subtemas_nuevos" data-new-subtopics-textarea placeholder="Nuevo subtema por linea"{% if not can_edit %} disabled{% endif %}>{% if request.method == "POST" %}{{ request.POST.subtemas_nuevos }}{% endif %}</textarea>
+              <textarea class="form-control teacher-written-tags" name="subtemas_nuevos" data-new-subtopics-textarea placeholder="Nuevo subtema por linea (cuando eliges un solo tema)"{% if not can_edit %} disabled{% endif %}>{% if request.method == "POST" %}{{ request.POST.subtemas_nuevos }}{% endif %}</textarea>
               {% for error in form.subtemas_seleccionados.errors %}
                 <div class="invalid-feedback d-block">{{ error }}</div>
               {% endfor %}
@@ -294,10 +309,21 @@
 
       const subtemasByTema = {{ subtemas_by_tema_json|safe }};
       const canEdit = form.dataset.canEdit === "true";
-      const temaSelect = document.getElementById("{{ form.tema.id_for_label }}");
+      const legacyTemaInput = document.getElementById("{{ form.tema.id_for_label }}");
       const legacySubtemaInput = document.getElementById("{{ form.subtema.id_for_label }}");
+      const topicDropdown = form.querySelector("[data-topic-dropdown]");
+      const topicDropdownToggle = form.querySelector("[data-topic-dropdown-toggle]");
+      const topicDropdownMenu = form.querySelector("[data-topic-dropdown-menu]");
+      const topicSummary = form.querySelector("[data-topic-summary]");
+      const subtopicDropdown = form.querySelector("[data-subtopic-dropdown]");
+      const subtopicDropdownToggle = form.querySelector("[data-subtopic-dropdown-toggle]");
+      const subtopicDropdownMenu = form.querySelector("[data-subtopic-dropdown-menu]");
+      const subtopicSummary = form.querySelector("[data-subtopic-summary]");
       const subtopicList = form.querySelector("[data-subtopic-list]");
       const subtopicEmpty = form.querySelector("[data-subtopic-empty]");
+      const initialSelectedTemaIds = new Set(({{ selected_tema_ids_json|safe }} || []).map(function (value) {
+        return String(value);
+      }));
       const initialSelectedSubtemaIds = new Set(({{ selected_subtema_ids_json|safe }} || []).map(function (value) {
         return String(value);
       }));
@@ -320,6 +346,19 @@
         }).map(function (input) {
           return String(input.value);
         });
+      }
+
+      function getCheckedTemaIds() {
+        return Array.from(form.querySelectorAll("[name='temas_seleccionados']")).filter(function (input) {
+          return input.checked;
+        }).map(function (input) {
+          return String(input.value);
+        });
+      }
+
+      function syncLegacyTema() {
+        if (!legacyTemaInput) return;
+        legacyTemaInput.value = getCheckedTemaIds()[0] || "";
       }
 
       function syncLegacySubtema() {
@@ -352,24 +391,56 @@
           .trim();
       }
 
-      function renderSubtemas(keepCurrent) {
-        if (!temaSelect || !subtopicList) return;
-        const currentValues = keepCurrent ? new Set(getCheckedSubtemaIds().concat(Array.from(initialSelectedSubtemaIds))) : new Set();
-        const subtemas = subtemasByTema[temaSelect.value] || [];
+      function updateAcademicSummaries() {
+        const selectedTopics = Array.from(form.querySelectorAll("[name='temas_seleccionados']:checked")).map(function (input) {
+          return input.closest("label")?.querySelector("span")?.textContent.trim() || "";
+        }).filter(Boolean);
+        if (topicSummary) {
+          topicSummary.textContent = selectedTopics.length ? selectedTopics.join(", ") : "Seleccionar temas";
+        }
+        const selectedSubtopics = getCheckedSubtemaIds().length;
+        if (subtopicSummary) {
+          subtopicSummary.textContent = selectedSubtopics
+            ? selectedSubtopics + (selectedSubtopics === 1 ? " subtema seleccionado" : " subtemas seleccionados")
+            : "Seleccionar subtemas";
+        }
+      }
+
+      function renderSubtemas(includeInitial) {
+        if (!subtopicList) return;
+        const currentValues = new Set(getCheckedSubtemaIds());
+        if (includeInitial) {
+          initialSelectedSubtemaIds.forEach(function (id) { currentValues.add(id); });
+        }
+        const selectedTemaIds = getCheckedTemaIds();
         subtopicList.innerHTML = "";
-        subtemas.forEach(function (subtema) {
-          const id = String(subtema.id);
-          const checked = currentValues.has(id);
-          const available = subtema.available !== false || checked;
-          subtopicList.insertAdjacentHTML("beforeend", `
-            <label class="teacher-subtopic-option${available ? "" : " is-unavailable"}" draggable="${canEdit && available ? "true" : "false"}" data-subtopic-option>
-              <input class="form-check-input" type="checkbox" name="subtemas_seleccionados" value="${escapeHtml(id)}" data-subtopic-check${checked ? " checked" : ""}${canEdit && available ? "" : " disabled"}>
-              <span>${escapeHtml(subtema.nombre)}${available ? "" : " · asignado"}</span>
-            </label>
-          `);
+        let subtopicCount = 0;
+        selectedTemaIds.forEach(function (temaId) {
+          const topicCheckbox = form.querySelector(`[name="temas_seleccionados"][value="${cssAttrValue(temaId)}"]`);
+          const topicName = topicCheckbox?.closest("label")?.querySelector("span")?.textContent.trim() || "Tema";
+          const subtemas = subtemasByTema[temaId] || [];
+          if (selectedTemaIds.length > 1 && subtemas.length) {
+            subtopicList.insertAdjacentHTML("beforeend", `<strong class="teacher-subtopic-group-title">${escapeHtml(topicName)}</strong>`);
+          }
+          subtemas.forEach(function (subtema) {
+            subtopicCount += 1;
+            const id = String(subtema.id);
+            const checked = currentValues.has(id);
+            subtopicList.insertAdjacentHTML("beforeend", `
+              <label class="teacher-subtopic-option" draggable="${canEdit ? "true" : "false"}" data-subtopic-option>
+                <input class="form-check-input" type="checkbox" name="subtemas_seleccionados" value="${escapeHtml(id)}" data-topic-id="${escapeHtml(temaId)}" data-subtopic-check${checked ? " checked" : ""}${canEdit ? "" : " disabled"}>
+                <span>${escapeHtml(subtema.nombre)}</span>
+              </label>
+            `);
+          });
         });
-        if (subtopicEmpty) subtopicEmpty.hidden = Boolean(subtemas.length);
+        if (subtopicEmpty) {
+          subtopicEmpty.textContent = selectedTemaIds.length ? "Los temas seleccionados no tienen subtemas registrados." : "Selecciona primero uno o varios temas.";
+          subtopicEmpty.hidden = Boolean(subtopicCount);
+        }
+        syncLegacyTema();
         syncLegacySubtema();
+        updateAcademicSummaries();
       }
 
       function visibleNewInputs(group) {
@@ -394,11 +465,14 @@
       }
 
       function stepStatus() {
-        const selectedTema = temaSelect ? temaSelect.value : "";
-        const temaSubtemas = subtemasByTema[selectedTema] || [];
-        const hasTopicReady = Boolean(selectedTema) && (
-          !temaSubtemas.length || getCheckedSubtemaIds().length > 0 || writtenNames("[name='subtemas_nuevos']").length > 0
-        );
+        const selectedTemas = getCheckedTemaIds();
+        const selectedSubtemaTemaIds = new Set(Array.from(form.querySelectorAll("[data-subtopic-check]:checked")).map(function (input) {
+          return String(input.dataset.topicId || "");
+        }));
+        const hasNewSubtopics = selectedTemas.length === 1 && writtenNames("[name='subtemas_nuevos']").length > 0;
+        const hasTopicReady = Boolean(selectedTemas.length) && selectedTemas.every(function (temaId) {
+          return !(subtemasByTema[temaId] || []).length || selectedSubtemaTemaIds.has(temaId) || hasNewSubtopics;
+        });
         return {
           tema: hasTopicReady,
           competencias: tagCount("competencias") > 0,
@@ -567,13 +641,43 @@
         });
       }
 
+      form.querySelectorAll("[name='temas_seleccionados']").forEach(function (input) {
+        if (initialSelectedTemaIds.has(String(input.value))) input.checked = true;
+      });
       renderSubtemas(true);
       syncPlan();
 
-      temaSelect?.addEventListener("change", function () {
-        renderSubtemas(false);
-        setAlert("");
-        syncPlan();
+      function setupAcademicDropdown(container, toggle, menu) {
+        if (!container || !toggle || !menu) return;
+        toggle.addEventListener("click", function () {
+          const willOpen = menu.hidden;
+          form.querySelectorAll("[data-topic-dropdown-menu], [data-subtopic-dropdown-menu]").forEach(function (otherMenu) {
+            otherMenu.hidden = true;
+          });
+          form.querySelectorAll("[data-topic-dropdown-toggle], [data-subtopic-dropdown-toggle]").forEach(function (otherToggle) {
+            otherToggle.setAttribute("aria-expanded", "false");
+          });
+          menu.hidden = !willOpen;
+          toggle.setAttribute("aria-expanded", willOpen ? "true" : "false");
+        });
+      }
+
+      setupAcademicDropdown(topicDropdown, topicDropdownToggle, topicDropdownMenu);
+      setupAcademicDropdown(subtopicDropdown, subtopicDropdownToggle, subtopicDropdownMenu);
+
+      document.addEventListener("click", function (event) {
+        [
+          [topicDropdown, topicDropdownToggle, topicDropdownMenu],
+          [subtopicDropdown, subtopicDropdownToggle, subtopicDropdownMenu],
+        ].forEach(function (parts) {
+          const container = parts[0];
+          const toggle = parts[1];
+          const menu = parts[2];
+          if (container && menu && !container.contains(event.target)) {
+            menu.hidden = true;
+            toggle?.setAttribute("aria-expanded", "false");
+          }
+        });
       });
 
       form.querySelectorAll("[data-tag-group]").forEach(function (group) {
@@ -587,9 +691,17 @@
           syncFilePreview(fileInput);
           return;
         }
+        const topicCheck = event.target.closest("[name='temas_seleccionados']");
+        if (topicCheck) {
+          renderSubtemas(false);
+          setAlert("");
+          syncPlan();
+          return;
+        }
         const subtopicCheck = event.target.closest("[data-subtopic-check]");
         if (subtopicCheck) {
           syncLegacySubtema();
+          updateAcademicSummaries();
           setAlert("");
           syncPlan();
           return;
@@ -1057,6 +1169,87 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .teacher-academic-dropdown {
+      position: relative;
+    }
+
+    .teacher-dropdown-toggle {
+      align-items: center;
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      color: #334155;
+      display: flex;
+      font-weight: 700;
+      gap: 8px;
+      justify-content: space-between;
+      min-height: 44px;
+      padding: 8px 11px;
+      text-align: left;
+      width: 100%;
+    }
+
+    .teacher-dropdown-toggle span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .teacher-dropdown-toggle[aria-expanded="true"] {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+    }
+
+    .teacher-dropdown-menu {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+      display: grid;
+      gap: 9px;
+      left: 0;
+      margin-top: 5px;
+      max-height: 320px;
+      overflow: auto;
+      padding: 10px;
+      position: absolute;
+      right: 0;
+      top: 100%;
+      z-index: 30;
+    }
+
+    .teacher-dropdown-menu[hidden] {
+      display: none;
+    }
+
+    .teacher-dropdown-menu > p {
+      color: #64748b;
+      font-size: 12px;
+      margin: 0;
+    }
+
+    .teacher-dropdown-options {
+      display: grid;
+      gap: 6px;
+    }
+
+    .teacher-dropdown-option {
+      align-items: center;
+      border-radius: 7px;
+      cursor: pointer;
+      display: flex;
+      font-weight: 700;
+      gap: 8px;
+      padding: 8px;
+    }
+
+    .teacher-dropdown-option:hover,
+    .teacher-dropdown-option:has(input:checked) {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
     .teacher-fixed-topic {
       align-items: center;
       background: #ecfdf3;
@@ -1090,6 +1283,14 @@
     .teacher-subtopic-list {
       display: grid;
       gap: 7px;
+    }
+
+    .teacher-subtopic-group-title {
+      color: #475569;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      margin-top: 4px;
+      text-transform: uppercase;
     }
 
     .teacher-subtopic-option {

@@ -451,11 +451,11 @@ class PartnerRoleViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             [obj.pk for obj in response.context["object_list"]],
-            [estudiante_sin_aula.pk, self.estudiante.pk],
+            [self.estudiante.pk],
         )
         first_row_values = {
             attr: cell["value"]
-            for (_, attr), cell in zip(response.context["columns"], response.context["object_rows"][1]["values"])
+            for (_, attr), cell in zip(response.context["columns"], response.context["object_rows"][0]["values"])
         }
         self.assertEqual(first_row_values["apellidos_nombres"], "Zamora Alumno Uno")
         self.assertEqual(first_row_values["grupos_asignados"], "Grupo Norte")
@@ -495,7 +495,7 @@ class PartnerRoleViewTests(TestCase):
 
         response = self.client.get(
             reverse("core:estudiante_list"),
-            {"moodle": "sin_usuario"},
+            {"estado": "todos", "moodle": "sin_usuario"},
             HTTP_HOST="localhost",
         )
         self.assertEqual([obj.pk for obj in response.context["object_list"]], [estudiante_sin_aula.pk])

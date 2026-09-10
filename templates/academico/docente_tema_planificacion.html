@@ -77,16 +77,16 @@
       </div>
       <div class="topic-section-actions">
         <strong>{{ assigned_count }} clase(s)</strong>
-        {% if subtemas and pending_subtema_count == 0 %}
-          <span class="topic-complete-label">
-            <i class="ri-checkbox-circle-line"></i>
-            Tema completo
-          </span>
-        {% elif can_add_class %}
+        {% if can_add_class %}
           <button class="btn btn-primary-600" type="button" data-scroll-to-available>
             <i class="ri-add-line"></i>
             Agregar clase a la planificacion
           </button>
+        {% elif subtemas and pending_subtema_count == 0 %}
+          <span class="topic-complete-label">
+            <i class="ri-checkbox-circle-line"></i>
+            Tema completo
+          </span>
         {% elif assignment_blocker %}
           <button class="btn btn-outline-secondary" type="button" disabled>
             <i class="ri-lock-2-line"></i>
@@ -261,7 +261,7 @@
       <header class="topic-section-header">
         <div>
           <span>Otras planificaciones</span>
-          <h2>Clases ocupadas por otros temas</h2>
+          <h2>Clases con otros temas</h2>
         </div>
         <strong>{{ occupied_count }} clase(s)</strong>
       </header>
@@ -269,7 +269,7 @@
         {% for item in occupied_classes %}
           <div>
             <span>{{ item.clase.fecha|date:"d M Y" }} · {{ item.horario.hora_inicio|time:"H:i" }} - {{ item.horario.hora_fin|time:"H:i" }}</span>
-            <strong>{{ item.tema }}</strong>
+            <strong>{{ item.temas_label }}</strong>
             {% if item.subtemas %}
               <em>
                 {% for subtema in item.subtemas %}

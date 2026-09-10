@@ -459,7 +459,7 @@ class GrupoEstudianteBulkForm(BootstrapFormMixin, forms.Form):
         self.fields["grupo"].queryset = Curso.objects.filter(activo=True).order_by("nombre")
         self.fields["fichas"].queryset = (
             FichaInscripcion.objects.select_related("estudiante")
-            .filter(estudiante__es_estudiante=True, activo=True)
+            .filter(estudiante__es_estudiante=True, estudiante__activo=True, activo=True)
             .exclude(estado="anulada")
             .filter(asignacion_grupo__isnull=True)
             .order_by("estudiante__apellido", "estudiante__nombre", "numero")
@@ -486,7 +486,10 @@ class ClaseEstudianteMovimientoForm(BootstrapFormMixin, forms.Form):
     def __init__(self, *args, **kwargs):
         self.grupo = kwargs.pop("grupo", None)
         super().__init__(*args, **kwargs)
-        asignaciones = GrupoEstudiante.objects.select_related("estudiante", "grupo").filter(estado="activo")
+        asignaciones = GrupoEstudiante.objects.select_related("estudiante", "grupo").filter(
+            estado="activo",
+            estudiante__activo=True,
+        )
         materias_origen = MateriaCurso.objects.select_related("materia", "grupo").filter(
             clases__isnull=False,
         )
@@ -655,6 +658,12 @@ CoordinacionTemaFormSet = formset_factory(
 
 
 class DocenteClasePlanificacionForm(BootstrapFormMixin, forms.ModelForm):
+    temas_seleccionados = forms.ModelMultipleChoiceField(
+        label="Temas",
+        queryset=Tema.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple(attrs={"data-topic-check": ""}),
+    )
     subtemas_seleccionados = forms.ModelMultipleChoiceField(
         label="Subtemas",
         queryset=Subtema.objects.none(),
@@ -666,18 +675,20 @@ class DocenteClasePlanificacionForm(BootstrapFormMixin, forms.ModelForm):
         model = Clase
         fields = [
             "tema",
+            "temas_seleccionados",
             "subtema",
             "subtemas_seleccionados",
             "descripcion",
         ]
         widgets = {
+            "tema": forms.HiddenInput(),
             "subtema": forms.HiddenInput(),
             "descripcion": forms.HiddenInput(),
         }
 
     def __init__(self, *args, **kwargs):
         clase = kwargs.pop("clase", None)
-        self.unavailable_subtema_ids = set(kwargs.pop("unavailable_subtema_ids", set()))
+        kwargs.pop("unavailable_subtema_ids", None)
         super().__init__(*args, **kwargs)
         clase = clase or self.instance
         temas = Tema.objects.none()
@@ -686,40 +697,49 @@ class DocenteClasePlanificacionForm(BootstrapFormMixin, forms.ModelForm):
             temas = Tema.objects.filter(planificacion__materia_curso=clase.materia_curso).order_by("orden", "nombre")
             subtemas = Subtema.objects.filter(tema__planificacion__materia_curso=clase.materia_curso).order_by("tema__orden", "orden", "nombre")
         self.fields["tema"].queryset = temas
+        self.fields["temas_seleccionados"].queryset = temas
         self.fields["subtema"].queryset = subtemas
         self.fields["subtemas_seleccionados"].queryset = subtemas
         self.fields["tema"].required = False
         self.fields["subtema"].required = False
         if not self.is_bound and clase and clase.pk:
+            self.fields["temas_seleccionados"].initial = [
+                tema.pk for tema in clase.get_temas_planificados()
+            ]
             selected_subtema_ids = [subtema.pk for subtema in clase.get_subtemas_planificados()]
             self.fields["subtemas_seleccionados"].initial = selected_subtema_ids
 
     def clean(self):
         cleaned_data = super().clean()
         tema = cleaned_data.get("tema")
+        temas = list(cleaned_data.get("temas_seleccionados") or [])
+        if tema and tema not in temas:
+            temas.insert(0, tema)
+        if temas:
+            tema = temas[0]
+            cleaned_data["tema"] = tema
+        cleaned_data["temas_seleccionados"] = temas
         subtema = cleaned_data.get("subtema")
         subtemas = cleaned_data.get("subtemas_seleccionados") or []
-        selected_subtema_ids = {item.pk for item in subtemas}
         if subtema:
-            selected_subtema_ids.add(subtema.pk)
-        if subtema and not tema:
-            self.add_error("tema", "Selecciona el tema de la clase.")
-        if subtema and tema and subtema.tema_id != tema.pk:
-            self.add_error("subtema", "El subtema no pertenece al tema seleccionado.")
-        if subtemas and not tema:
-            self.add_error("tema", "Selecciona el tema de la clase.")
+            if subtema not in subtemas:
+                subtemas = list(subtemas)
+                subtemas.insert(0, subtema)
+                cleaned_data["subtemas_seleccionados"] = subtemas
+        selected_tema_ids = {item.pk for item in temas}
+        if subtemas and not temas:
+            self.add_error("temas_seleccionados", "Selecciona al menos un tema de la clase.")
         for item in subtemas:
-            if tema and item.tema_id != tema.pk:
-                self.add_error("subtemas_seleccionados", "Todos los subtemas deben pertenecer al tema seleccionado.")
+            if item.tema_id not in selected_tema_ids:
+                self.add_error("subtemas_seleccionados", "Cada subtema debe pertenecer a uno de los temas seleccionados.")
                 break
-        if selected_subtema_ids & self.unavailable_subtema_ids:
-            self.add_error("subtemas_seleccionados", "Uno o mas subtemas ya estan asignados a otra clase del tema.")
         return cleaned_data
 
     def save(self, commit=True):
         clase = super().save(commit=commit)
         if not commit:
             return clase
+        clase.sync_temas_planificados(self.cleaned_data.get("temas_seleccionados") or [])
         selected_subtemas = list(self.cleaned_data.get("subtemas_seleccionados") or [])
         legacy_subtema = self.cleaned_data.get("subtema")
         if legacy_subtema and legacy_subtema not in selected_subtemas:

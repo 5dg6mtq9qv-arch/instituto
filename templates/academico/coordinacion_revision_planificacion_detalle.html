@@ -100,7 +100,7 @@
             <div class="review-content-grid">
               <div>
                 <span>Tema</span>
-                <strong>{{ clase.tema|default:"No seleccionado" }}</strong>
+                <strong>{{ clase.get_temas_label|default:"No seleccionado" }}</strong>
               </div>
               <div>
                 <span>Subtemas</span>

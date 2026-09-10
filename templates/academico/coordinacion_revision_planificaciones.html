@@ -199,9 +199,9 @@
               </div>
             {% endif %}
 
-            {% if card.tema or card.subtemas %}
+            {% if card.temas or card.subtemas %}
               <div class="coordination-card-topic">
-                {% if card.tema %}<strong>{{ card.tema }}</strong>{% endif %}
+                {% if card.temas %}<strong>{{ card.temas_label }}</strong>{% endif %}
                 {% if card.subtemas %}
                   <span>
                     {% for subtema in card.subtemas %}
