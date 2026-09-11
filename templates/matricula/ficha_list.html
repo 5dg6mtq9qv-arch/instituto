@@ -1,0 +1,60 @@
+{% extends "web/object_list.html" %}
+
+{% block list_filters %}
+  <select class="form-select enrollment-list-filter" name="estado" aria-label="Filtrar por estado">
+    <option value="">Todos los estados</option>
+    {% for value, label in estado_choices %}
+      <option value="{{ value }}"{% if request.GET.estado == value %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <select class="form-select enrollment-list-filter" name="periodo" aria-label="Filtrar por período académico">
+    <option value="">Todos los períodos</option>
+    {% for periodo in periodos %}
+      <option value="{{ periodo.pk }}"{% if request.GET.periodo == periodo.pk|stringformat:"s" %} selected{% endif %}>{{ periodo }}</option>
+    {% endfor %}
+  </select>
+  <select class="form-select enrollment-list-filter" name="curso" aria-label="Filtrar por curso">
+    <option value="">Todos los cursos</option>
+    {% for curso in cursos %}
+      <option value="{{ curso.pk }}"{% if request.GET.curso == curso.pk|stringformat:"s" %} selected{% endif %}>{{ curso }}</option>
+    {% endfor %}
+  </select>
+  <select class="form-select enrollment-list-filter" name="aula" aria-label="Filtrar por aula">
+    <option value="">Todas las aulas</option>
+    {% for aula in aulas %}
+      <option value="{{ aula.pk }}"{% if request.GET.aula == aula.pk|stringformat:"s" %} selected{% endif %}>{{ aula.periodo_academico }} · {{ aula }}</option>
+    {% endfor %}
+  </select>
+  {% if request.GET %}
+    <a class="btn btn-outline-secondary enrollment-list-clear" href="{% url 'matricula:ficha_list' %}">Limpiar</a>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .list-toolbar {
+      flex-wrap: wrap;
+    }
+
+    .enrollment-list-filter {
+      flex: 1 1 155px;
+      max-width: 220px;
+      min-height: 44px;
+    }
+
+    .enrollment-list-clear {
+      min-height: 44px;
+    }
+
+    @media (max-width: 767px) {
+      .list-search,
+      .enrollment-list-filter,
+      .enrollment-list-clear,
+      .list-search-btn {
+        flex-basis: 100%;
+        max-width: none;
+        width: 100%;
+      }
+    }
+  </style>
+{% endblock %}

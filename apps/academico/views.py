@@ -5108,20 +5108,39 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
                 if movimiento.fecha_inicio <= clase.fecha
             ]
             attendance_by_student = roster_data["attendance_by_class"].get(clase.pk, {})
+
+        def assignment_belongs_to_class_date(asignacion):
+            if asignacion.estudiante_id in attendance_by_student:
+                return True
+            if asignacion.fecha_asignacion != clase.fecha:
+                return asignacion.fecha_asignacion < clase.fecha
+            if clase.asistencia_cerrada and clase.fecha_cierre_asistencia:
+                return asignacion.created_at <= clase.fecha_cierre_asistencia
+            return True
+
         moved_out_by_assignment = {
             movimiento.asignacion_id: movimiento
             for movimiento in movimientos
-            if movimiento.clase_origen.materia_curso_id == clase.materia_curso_id
+            if (
+                movimiento.clase_origen.materia_curso_id == clase.materia_curso_id
+                and assignment_belongs_to_class_date(movimiento.asignacion)
+            )
         }
         incoming_by_assignment = {
             movimiento.asignacion_id: movimiento
             for movimiento in movimientos
-            if movimiento.clase_destino.materia_curso_id == clase.materia_curso_id
+            if (
+                movimiento.clase_destino.materia_curso_id == clase.materia_curso_id
+                and assignment_belongs_to_class_date(movimiento.asignacion)
+            )
         }
         visible_assignments_by_id = {
             asignacion.pk: asignacion
             for asignacion in base_asignaciones
-            if asignacion.pk not in moved_out_by_assignment
+            if (
+                asignacion.pk not in moved_out_by_assignment
+                and assignment_belongs_to_class_date(asignacion)
+            )
         }
         visible_assignments_by_id.update(
             {

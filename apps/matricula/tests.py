@@ -664,6 +664,68 @@ class MatriculaProcesoTests(TestCase):
         self.assertContains(response, reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}))
         self.assertContains(response, reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk}))
 
+    def test_ficha_list_filters_by_status_period_course_and_classroom(self):
+        estudiante = self.create_partner("1002003024", "Alumno Filtrado", es_estudiante=True)
+        representante = self.create_partner(
+            "1002003025",
+            "Representante Filtrado",
+            es_cliente=True,
+            es_representante=True,
+        )
+        matching = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000779",
+            fecha=date(2026, 9, 1),
+            periodo_academico=self.otro_periodo,
+            curso=self.curso,
+            aula=self.aula_otro_periodo,
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            estado="retirada",
+            activo=True,
+        )
+        other_student = self.create_partner("1002003026", "Alumno No Filtrado", es_estudiante=True)
+        other_representative = self.create_partner(
+            "1002003027",
+            "Representante No Filtrado",
+            es_cliente=True,
+            es_representante=True,
+        )
+        excluded = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000780",
+            fecha=date(2026, 9, 1),
+            periodo_academico=self.periodo,
+            curso=self.curso,
+            aula=self.aula,
+            cliente=other_representative,
+            estudiante=other_student,
+            representante=other_representative,
+            estado="activa",
+            activo=True,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("matricula:ficha_list"),
+            {
+                "estado": "retirada",
+                "periodo": self.otro_periodo.pk,
+                "curso": self.curso.pk,
+                "aula": self.aula_otro_periodo.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context["object_list"]), [matching])
+        self.assertNotIn(excluded, response.context["object_list"])
+        self.assertContains(response, "Todos los estados")
+        self.assertContains(response, "Todos los períodos")
+        self.assertContains(response, "Todos los cursos")
+        self.assertContains(response, "Todas las aulas")
+
     def test_ficha_documents_edit_button_requires_change_permission(self):
         estudiante = self.create_partner("1002003022", "Alumno Permiso", es_estudiante=True)
         representante = self.create_partner("1002003023", "Representante Permiso", es_cliente=True, es_representante=True)

@@ -638,6 +638,85 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual([row["estudiante"] for row in second_response.context["rows"]], [estudiante])
         self.assertFalse(ClaseAsistencia.objects.filter(estudiante=estudiante).exists())
 
+    def test_students_assigned_after_class_date_do_not_create_pending_attendance(self):
+        today = timezone.localdate()
+        past_date = today - timedelta(days=7)
+        past_class = self.create_class_for_date(
+            past_date,
+            time(10, 0),
+            time(11, 0),
+            "Aula asistencia historica",
+        )
+        previous_student, previous_ficha = self.create_student_ficha(
+            nombre="Alumno Anterior",
+            identificacion="EST-HISTORY-1",
+            numero="F-HISTORY-1",
+        )
+        new_student, new_ficha = self.create_student_ficha(
+            nombre="Alumno Nuevo",
+            identificacion="EST-HISTORY-2",
+            numero="F-HISTORY-2",
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=previous_ficha,
+            estudiante=previous_student,
+            grupo=self.curso,
+            fecha_asignacion=past_date,
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=new_ficha,
+            estudiante=new_student,
+            grupo=self.curso,
+            fecha_asignacion=today,
+        )
+        ClaseAsistencia.objects.create(
+            clase=past_class,
+            estudiante=previous_student,
+            estado="presente",
+            registrado_por=self.docente,
+        )
+
+        view = CoordinacionRevisionAsistenciaView()
+        roster_data = view.get_roster_data([past_class])
+        card = view.build_attendance_card(past_class, roster_data=roster_data)
+
+        self.assertEqual(card["total_estudiantes"], 1)
+        self.assertEqual(card["saved_count"], 1)
+        self.assertEqual(card["pending_count"], 0)
+        self.assertEqual([row["estudiante"] for row in card["fichas"]], [previous_student])
+
+    def test_student_assigned_after_same_day_closure_does_not_create_pending_attendance(self):
+        today = timezone.localdate()
+        clase = self.create_class_for_date(
+            today,
+            time(10, 0),
+            time(11, 0),
+            "Aula cierre antes de matricula",
+        )
+        clase.asistencia_cerrada = True
+        clase.fecha_cierre_asistencia = timezone.now()
+        clase.save(update_fields=["asistencia_cerrada", "fecha_cierre_asistencia"])
+        estudiante, ficha = self.create_student_ficha(
+            nombre="Alumno Posterior Al Cierre",
+            identificacion="EST-AFTER-CLOSE",
+            numero="F-AFTER-CLOSE",
+        )
+        asignacion = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+            fecha_asignacion=today,
+        )
+        self.assertGreater(asignacion.created_at, clase.fecha_cierre_asistencia)
+
+        view = CoordinacionRevisionAsistenciaView()
+        roster_data = view.get_roster_data([clase])
+        card = view.build_attendance_card(clase, roster_data=roster_data)
+
+        self.assertEqual(card["total_estudiantes"], 0)
+        self.assertEqual(card["saved_count"], 0)
+        self.assertEqual(card["pending_count"], 0)
+
     def test_inactive_student_is_hidden_from_group_and_class_operational_lists(self):
         self.make_superuser()
         estudiante, ficha = self.create_student_ficha(activo=False)
@@ -3396,7 +3475,12 @@ class DocenteHorariosPanelTests(TestCase):
         director = get_user_model().objects.create_user(username="director-asistencia", password="ClaveActual987!")
         director.groups.add(Group.objects.get_or_create(name="Director")[0])
         estudiante, ficha = self.create_student_ficha()
-        GrupoEstudiante.objects.create(ficha_inscripcion=ficha, estudiante=estudiante, grupo=self.curso)
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+            fecha_asignacion=self.atrasada.fecha,
+        )
         self.client.force_login(director)
 
         response = self.client.get(

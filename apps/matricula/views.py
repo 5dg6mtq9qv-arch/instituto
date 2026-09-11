@@ -122,6 +122,7 @@ class AulaUpdateView(InstitutoUpdateView):
 
 class FichaInscripcionListView(InstitutoListView):
     model = FichaInscripcion
+    template_name = "matricula/ficha_list.html"
     title = "Fichas de inscripcion"
     create_url_name = "matricula:matricula_proceso"
     create_label = "Matricular"
@@ -139,6 +140,20 @@ class FichaInscripcionListView(InstitutoListView):
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related("estudiante", "representante", "curso", "aula", "periodo_academico")
+        estado = self.request.GET.get("estado", "")
+        if estado in dict(FichaInscripcion.ESTADO_CHOICES):
+            queryset = queryset.filter(estado=estado)
+
+        related_filters = {
+            "periodo": "periodo_academico_id",
+            "curso": "curso_id",
+            "aula": "aula_id",
+        }
+        for parameter, field in related_filters.items():
+            value = self.request.GET.get(parameter, "")
+            if value.isdigit():
+                queryset = queryset.filter(**{field: value})
+
         fields = (
             "estudiante__nombre", "estudiante__apellido", "estudiante__identificacion",
             "estudiante__email", "estudiante__telefono", "estudiante__telefono_celular",
@@ -154,6 +169,21 @@ class FichaInscripcionListView(InstitutoListView):
                 matches |= Q(**{f"{field}__icontains": term})
             queryset = queryset.filter(matches)
         return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                "estado_choices": FichaInscripcion.ESTADO_CHOICES,
+                "periodos": PeriodoAcademico.objects.order_by("-fecha_inicio", "nombre"),
+                "cursos": Curso.objects.order_by("nombre"),
+                "aulas": Aula.objects.select_related("periodo_academico").order_by(
+                    "periodo_academico__nombre", "nombre", "seccion"
+                ),
+                "search_placeholder": "Buscar por estudiante, representante, ficha, curso o aula",
+            }
+        )
+        return context
 
     def get_primary_url(self, obj):
         return reverse("matricula:ficha_documentos", kwargs={"pk": obj.pk})
