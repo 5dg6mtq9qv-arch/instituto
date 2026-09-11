@@ -757,7 +757,7 @@ class ClaseHoraDocenteForm(BootstrapFormMixin, forms.ModelForm):
         }
         labels = {
             "docente": "Docente que dio clase",
-            "horas": "Horas pagables",
+            "horas": "Horas impartidas",
         }
 
     def __init__(self, *args, **kwargs):

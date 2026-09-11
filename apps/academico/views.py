@@ -4664,9 +4664,9 @@ class DireccionHorasDocenteView(DireccionRequiredMixin, View):
         initial = {}
         if not registro:
             initial = {
-                "estado": "asistio",
+                "estado": "pendiente",
                 "docente": original_docente,
-                "horas": self.horas_programadas(clase),
+                "horas": Decimal("0.00"),
             }
         return ClaseHoraDocenteForm(
             instance=registro,

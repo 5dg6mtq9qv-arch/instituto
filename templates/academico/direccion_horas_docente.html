@@ -48,6 +48,11 @@
     </form>
   </section>
 
+  <div class="alert alert-info teacher-hours-notice" role="status">
+    <i class="ri-information-line"></i>
+    <span>Las horas no se cargan automáticamente. Al finalizar cada clase, selecciona el estado e ingresa únicamente las horas realmente impartidas.</span>
+  </div>
+
   <section class="teacher-hours-stats">
     <div>
       <span>Clases</span>
@@ -84,7 +89,7 @@
           </div>
           <div class="teacher-hour-meta">
             <span><i class="ri-time-line"></i>{{ row.horario.hora_inicio|time:"H:i" }} - {{ row.horario.hora_fin|time:"H:i" }}</span>
-            <span><i class="ri-timer-line"></i>{{ row.horas_programadas|floatformat:2 }} h</span>
+            <span><i class="ri-timer-line"></i>Programadas: {{ row.horas_programadas|floatformat:2 }} h</span>
             <span class="teacher-hour-status">{{ row.estado_label }}</span>
           </div>
           <div class="teacher-hour-teachers">
@@ -170,6 +175,13 @@
       display: grid;
       gap: 12px;
       grid-template-columns: repeat(5, minmax(0, 1fr));
+      margin-bottom: 16px;
+    }
+
+    .teacher-hours-notice {
+      align-items: center;
+      display: flex;
+      gap: 8px;
       margin-bottom: 16px;
     }
 

@@ -3521,6 +3521,31 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(registro.horas, Decimal("1.50"))
         self.assertEqual(registro.registrado_por, director)
 
+    def test_unregistered_teacher_hours_start_pending_and_zero(self):
+        director = self.create_director()
+        clase = self.create_class_for_date(
+            timezone.localdate(),
+            time(10, 0),
+            time(13, 0),
+            aula_nombre="Aula horas manuales",
+        )
+        self.client.force_login(director)
+
+        response = self.client.get(
+            reverse("academico:direccion_horas_docente"),
+            {"fecha": clase.fecha.isoformat()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.context["rows"] if item["clase"] == clase)
+        self.assertIsNone(row["registro"])
+        self.assertEqual(row["form"]["estado"].value(), "pendiente")
+        self.assertEqual(row["form"]["horas"].value(), Decimal("0.00"))
+        self.assertEqual(row["horas_programadas"], Decimal("3.00"))
+        self.assertContains(response, "Las horas no se cargan automáticamente")
+        self.assertFalse(ClaseHoraDocente.objects.filter(clase=clase).exists())
+
     def test_teacher_hours_asistio_ignores_posted_replacement_teacher(self):
         director = self.create_director()
         reemplazo, _ = self.create_docente()
