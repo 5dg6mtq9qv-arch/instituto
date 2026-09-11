@@ -39,6 +39,7 @@ DIRECTOR_PERMISSIONS = (
     ("academico", "tema", "add"),
     ("academico", "tema", "change"),
     ("academico", "tema", "view"),
+    ("academico", "clasehoradocente", "access"),
     ("academico", "clasehoradocente", "change"),
     ("academico", "clasehoradocente", "report"),
 )
@@ -47,6 +48,7 @@ DIRECCION_SPECIAL_PERMISSIONS = (
     ("academico", "moodlecuenta", "exportar"),
     ("academico", "tema", "change"),
     ("academico", "planificacionclase", "review"),
+    ("academico", "clasehoradocente", "access"),
     ("academico", "clasehoradocente", "change"),
     ("academico", "clasehoradocente", "report"),
 )

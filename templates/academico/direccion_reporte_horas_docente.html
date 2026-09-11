@@ -56,7 +56,7 @@
     </div>
     <div>
       <span>Horas</span>
-      <strong>{{ stats.horas|floatformat:2 }}</strong>
+      <strong>{{ stats.horas_label }}</strong>
     </div>
     <div>
       <span>Docentes</span>
@@ -93,7 +93,7 @@
               <td>{{ row.materia.nombre }}</td>
               <td>{% if row.docente %}{{ row.docente.nombre_completo }}{% else %}-{% endif %}</td>
               <td><span class="teacher-report-badge state-{{ row.registro.estado }}">{{ row.estado }}</span></td>
-              <td class="text-end"><strong>{{ row.horas|floatformat:2 }}</strong></td>
+              <td class="text-end"><strong>{{ row.horas_label }}</strong></td>
               <td>{% if row.docente_reemplazado %}{{ row.docente_reemplazado.nombre_completo }}{% else %}-{% endif %}</td>
               <td>{{ row.observacion|default:"-" }}</td>
             </tr>

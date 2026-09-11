@@ -5,6 +5,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
+from .durations import duration_to_minutes
+
 
 class Asignatura(models.Model):
     empresa = models.ForeignKey(
@@ -1428,12 +1430,19 @@ class ClaseHoraDocente(models.Model):
     class Meta:
         db_table = '"academico"."clase_hora_docente"'
         ordering = ["clase"]
-        permissions = (("report_clasehoradocente", "Puede ver reporte de horas docente"),)
+        permissions = (
+            ("access_clasehoradocente", "Puede acceder a horas docente"),
+            ("report_clasehoradocente", "Puede ver reporte de horas docente"),
+        )
 
     def clean(self):
         super().clean()
         if self.horas is not None and self.horas < Decimal("0"):
             raise ValidationError({"horas": "Las horas no pueden ser negativas."})
+        try:
+            duration_to_minutes(self.horas)
+        except ValueError as exc:
+            raise ValidationError({"horas": str(exc)}) from None
         if self.estado in {"asistio", "reemplazo"} and not self.docente_id:
             raise ValidationError({"docente": "Selecciona el docente que dio la clase."})
         if (

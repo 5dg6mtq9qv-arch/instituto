@@ -120,7 +120,7 @@ MENU_GROUPS = [
             {
                 "label": "Horas docente",
                 "url_name": "academico:direccion_horas_docente",
-                "perm": "academico.change_clasehoradocente",
+                "perm": "academico.access_clasehoradocente",
             },
             {
                 "label": "Reporte horas",

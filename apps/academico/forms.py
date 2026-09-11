@@ -10,6 +10,7 @@ from apps.core.models import Partner
 
 from apps.matricula.models import Aula as MatriculaAula, FichaInscripcion, PeriodoAcademico
 
+from .durations import minutes_to_duration, split_duration
 from .models import (
     Asignatura,
     Aula,
@@ -749,16 +750,33 @@ class DocenteClasePlanificacionForm(BootstrapFormMixin, forms.ModelForm):
 
 
 class ClaseHoraDocenteForm(BootstrapFormMixin, forms.ModelForm):
+    horas = forms.IntegerField(
+        label="Horas",
+        min_value=0,
+        initial=0,
+        widget=forms.NumberInput(attrs={"step": "1", "min": "0", "inputmode": "numeric"}),
+    )
+    minutos = forms.IntegerField(
+        label="Minutos",
+        min_value=0,
+        max_value=59,
+        initial=0,
+        required=False,
+        widget=forms.NumberInput(attrs={"step": "1", "min": "0", "max": "59", "inputmode": "numeric"}),
+        error_messages={
+            "min_value": "Los minutos deben estar entre 00 y 59.",
+            "max_value": "Los minutos deben estar entre 00 y 59.",
+            "invalid": "Ingresa los minutos como un número entre 00 y 59.",
+        },
+    )
+
     class Meta:
         model = ClaseHoraDocente
-        fields = ["estado", "docente", "horas", "observacion"]
+        fields = ["estado", "docente", "horas", "minutos", "observacion"]
         widgets = {
             "observacion": forms.Textarea(attrs={"rows": 2}),
         }
-        labels = {
-            "docente": "Docente que dio clase",
-            "horas": "Horas impartidas",
-        }
+        labels = {"docente": "Docente que dio clase"}
 
     def __init__(self, *args, **kwargs):
         self.clase = kwargs.pop("clase", None)
@@ -768,12 +786,16 @@ class ClaseHoraDocenteForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["docente"].queryset = docentes
         self.fields["docente"].required = False
         self.fields["docente"].empty_label = "Sin docente"
-        self.fields["horas"].widget.attrs.update({"step": "0.25", "min": "0"})
         self.fields["estado"].widget.attrs["data-teacher-hour-state"] = ""
         self.fields["docente"].widget.attrs["data-teacher-hour-teacher"] = ""
         estado_value = self.current_estado_value()
         if estado_value != "reemplazo":
             self.fields["docente"].disabled = True
+        if not self.is_bound:
+            duration = self.initial.get("horas", getattr(self.instance, "horas", Decimal("0.00")))
+            hours, minutes = split_duration(duration)
+            self.initial["horas"] = hours
+            self.initial["minutos"] = minutes
 
     def current_estado_value(self):
         if self.is_bound:
@@ -784,7 +806,10 @@ class ClaseHoraDocenteForm(BootstrapFormMixin, forms.ModelForm):
         cleaned_data = super().clean()
         estado = cleaned_data.get("estado")
         docente = cleaned_data.get("docente")
-        horas = cleaned_data.get("horas") or Decimal("0")
+        hours = cleaned_data.get("horas") or 0
+        minutes = cleaned_data.get("minutos") or 0
+        horas = minutes_to_duration(hours * 60 + minutes)
+        cleaned_data["horas"] = horas
         if estado == "asistio":
             cleaned_data["docente"] = self.docente_programado
             if not self.docente_programado:

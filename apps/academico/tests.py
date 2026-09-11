@@ -3507,7 +3507,8 @@ class DocenteHorariosPanelTests(TestCase):
                 "clase": clase.pk,
                 f"hora_{clase.pk}-estado": "reemplazo",
                 f"hora_{clase.pk}-docente": reemplazo.pk,
-                f"hora_{clase.pk}-horas": "1.50",
+                f"hora_{clase.pk}-horas": "1",
+                f"hora_{clase.pk}-minutos": "50",
                 f"hora_{clase.pk}-observacion": "Reemplazo autorizado.",
             },
             HTTP_HOST="localhost",
@@ -3541,9 +3542,114 @@ class DocenteHorariosPanelTests(TestCase):
         row = next(item for item in response.context["rows"] if item["clase"] == clase)
         self.assertIsNone(row["registro"])
         self.assertEqual(row["form"]["estado"].value(), "pendiente")
-        self.assertEqual(row["form"]["horas"].value(), Decimal("0.00"))
+        self.assertEqual(row["form"]["horas"].value(), 0)
+        self.assertEqual(row["form"]["minutos"].value(), 0)
         self.assertEqual(row["horas_programadas"], Decimal("3.00"))
         self.assertContains(response, "Las horas no se cargan automáticamente")
+        self.assertFalse(ClaseHoraDocente.objects.filter(clase=clase).exists())
+
+    def test_teacher_hours_use_hours_and_minutes_and_normalize_totals(self):
+        director = self.create_director()
+        first_class = self.create_class_for_date(
+            timezone.localdate(),
+            time(10, 0),
+            time(13, 0),
+            aula_nombre="Aula duracion uno",
+        )
+        second_class = self.create_class_for_date(
+            timezone.localdate(),
+            time(14, 0),
+            time(15, 0),
+            aula_nombre="Aula duracion dos",
+        )
+        self.client.force_login(director)
+
+        for clase, hours, minutes in ((first_class, "1", "50"), (second_class, "0", "20")):
+            response = self.client.post(
+                reverse("academico:direccion_horas_docente"),
+                {
+                    "fecha": clase.fecha.isoformat(),
+                    "clase": clase.pk,
+                    f"hora_{clase.pk}-estado": "asistio",
+                    f"hora_{clase.pk}-horas": hours,
+                    f"hora_{clase.pk}-minutos": minutes,
+                },
+                HTTP_HOST="localhost",
+            )
+            self.assertEqual(response.status_code, 302)
+
+        self.assertEqual(ClaseHoraDocente.objects.get(clase=first_class).horas, Decimal("1.50"))
+        self.assertEqual(ClaseHoraDocente.objects.get(clase=second_class).horas, Decimal("0.20"))
+
+        report_response = self.client.get(
+            reverse("academico:direccion_horas_docente_reporte"),
+            {
+                "desde": first_class.fecha.isoformat(),
+                "hasta": first_class.fecha.isoformat(),
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(report_response.status_code, 200)
+        self.assertEqual(report_response.context["stats"]["horas"], Decimal("2.10"))
+        self.assertEqual(report_response.context["stats"]["horas_label"], "2:10")
+        self.assertContains(report_response, "1:50")
+        self.assertContains(report_response, "0:20")
+
+    def test_existing_teacher_hours_are_split_into_hours_and_minutes_fields(self):
+        director = self.create_director()
+        clase = self.create_class_for_date(
+            timezone.localdate(),
+            time(10, 0),
+            time(12, 0),
+            aula_nombre="Aula horas existentes",
+        )
+        ClaseHoraDocente.objects.create(
+            clase=clase,
+            docente=self.docente,
+            estado="asistio",
+            horas=Decimal("1.50"),
+            registrado_por=director,
+            fecha_registro=timezone.now(),
+            usuario_updated=director,
+        )
+        self.client.force_login(director)
+
+        response = self.client.get(
+            reverse("academico:direccion_horas_docente"),
+            {"fecha": clase.fecha.isoformat()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        row = next(item for item in response.context["rows"] if item["clase"] == clase)
+        self.assertEqual(row["form"]["horas"].value(), 1)
+        self.assertEqual(row["form"]["minutos"].value(), 50)
+
+    def test_teacher_hours_reject_minutes_greater_than_fifty_nine(self):
+        director = self.create_director()
+        clase = self.create_class_for_date(
+            timezone.localdate(),
+            time(10, 0),
+            time(13, 0),
+            aula_nombre="Aula duracion invalida",
+        )
+        self.client.force_login(director)
+
+        response = self.client.post(
+            reverse("academico:direccion_horas_docente"),
+            {
+                "fecha": clase.fecha.isoformat(),
+                "clase": clase.pk,
+                f"hora_{clase.pk}-estado": "asistio",
+                f"hora_{clase.pk}-horas": "1",
+                f"hora_{clase.pk}-minutos": "75",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Los minutos deben estar entre 00 y 59")
         self.assertFalse(ClaseHoraDocente.objects.filter(clase=clase).exists())
 
     def test_teacher_hours_asistio_ignores_posted_replacement_teacher(self):
@@ -3559,7 +3665,8 @@ class DocenteHorariosPanelTests(TestCase):
                 "clase": clase.pk,
                 f"hora_{clase.pk}-estado": "asistio",
                 f"hora_{clase.pk}-docente": reemplazo.pk,
-                f"hora_{clase.pk}-horas": "2.00",
+                f"hora_{clase.pk}-horas": "2",
+                f"hora_{clase.pk}-minutos": "0",
             },
             HTTP_HOST="localhost",
         )
@@ -3589,6 +3696,45 @@ class DocenteHorariosPanelTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+    def test_teacher_hours_access_permission_can_be_assigned_read_only_to_group(self):
+        user = get_user_model().objects.create_user(username="consulta-horas", password="ClaveActual987!")
+        group = Group.objects.create(name="Consulta horas docente")
+        group.permissions.add(Permission.objects.get(codename="access_clasehoradocente"))
+        user.groups.add(group)
+        clase = self.create_class_for_date(
+            timezone.localdate(),
+            time(10, 0),
+            time(11, 0),
+            aula_nombre="Aula consulta horas",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("academico:direccion_horas_docente"),
+            {"fecha": clase.fecha.isoformat()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Consulta de solo lectura")
+        self.assertNotContains(response, '<form class="teacher-hour-form"')
+        self.assertNotContains(response, ">Reporte<", html=True)
+
+        post_response = self.client.post(
+            reverse("academico:direccion_horas_docente"),
+            {
+                "fecha": clase.fecha.isoformat(),
+                "clase": clase.pk,
+                f"hora_{clase.pk}-estado": "asistio",
+                f"hora_{clase.pk}-horas": "1",
+                f"hora_{clase.pk}-minutos": "0",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(post_response.status_code, 403)
+        self.assertFalse(ClaseHoraDocente.objects.filter(clase=clase).exists())
 
     def test_teacher_hours_report_renders_and_exports_excel(self):
         director = self.create_director()

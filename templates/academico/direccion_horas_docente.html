@@ -8,10 +8,12 @@
       <p class="eyebrow">Direccion</p>
       <h1>{{ title }}</h1>
     </div>
-    <a class="btn btn-outline-primary" href="{{ report_url }}">
-      <i class="ri-file-chart-line"></i>
-      Reporte
-    </a>
+    {% if can_view_teacher_hours_report %}
+      <a class="btn btn-outline-primary" href="{{ report_url }}">
+        <i class="ri-file-chart-line"></i>
+        Reporte
+      </a>
+    {% endif %}
   </header>
 
   <section class="panel teacher-hours-filter">
@@ -50,7 +52,7 @@
 
   <div class="alert alert-info teacher-hours-notice" role="status">
     <i class="ri-information-line"></i>
-    <span>Las horas no se cargan automáticamente. Al finalizar cada clase, selecciona el estado e ingresa únicamente las horas realmente impartidas.</span>
+    <span>Las horas no se cargan automáticamente. Al finalizar cada clase, ingresa por separado las horas y los minutos realmente impartidos.</span>
   </div>
 
   <section class="teacher-hours-stats">
@@ -72,7 +74,7 @@
     </div>
     <div>
       <span>Horas</span>
-      <strong>{{ stats.horas|floatformat:2 }}</strong>
+      <strong>{{ stats.horas_label }}</strong>
     </div>
   </section>
 
@@ -89,7 +91,7 @@
           </div>
           <div class="teacher-hour-meta">
             <span><i class="ri-time-line"></i>{{ row.horario.hora_inicio|time:"H:i" }} - {{ row.horario.hora_fin|time:"H:i" }}</span>
-            <span><i class="ri-timer-line"></i>Programadas: {{ row.horas_programadas|floatformat:2 }} h</span>
+            <span><i class="ri-timer-line"></i>Programadas: {{ row.horas_programadas_label }} h</span>
             <span class="teacher-hour-status">{{ row.estado_label }}</span>
           </div>
           <div class="teacher-hour-teachers">
@@ -106,7 +108,8 @@
           </div>
         </div>
 
-        <form class="teacher-hour-form" method="post">
+        {% if can_change_teacher_hours %}
+          <form class="teacher-hour-form" method="post">
           {% csrf_token %}
           <input type="hidden" name="clase" value="{{ row.clase.pk }}">
           <input type="hidden" name="fecha" value="{{ fecha_value }}">
@@ -128,16 +131,27 @@
             {{ row.form.horas }}
             {{ row.form.horas.errors }}
           </div>
+          <div>
+            <label class="form-label" for="{{ row.form.minutos.id_for_label }}">{{ row.form.minutos.label }}</label>
+            {{ row.form.minutos }}
+            {{ row.form.minutos.errors }}
+          </div>
           <div class="teacher-hour-observation">
             <label class="form-label" for="{{ row.form.observacion.id_for_label }}">{{ row.form.observacion.label }}</label>
             {{ row.form.observacion }}
             {{ row.form.observacion.errors }}
           </div>
-          <button class="btn btn-primary-600" type="submit">
-            <i class="ri-save-3-line"></i>
-            Guardar
-          </button>
-        </form>
+            <button class="btn btn-primary-600" type="submit">
+              <i class="ri-save-3-line"></i>
+              Guardar
+            </button>
+          </form>
+        {% else %}
+          <div class="teacher-hour-readonly">
+            <i class="ri-eye-line"></i>
+            <span>Consulta de solo lectura.</span>
+          </div>
+        {% endif %}
       </article>
     {% empty %}
       <section class="panel academic-empty-state">
@@ -309,7 +323,21 @@
       align-items: end;
       display: grid;
       gap: 10px;
-      grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) minmax(100px, 0.5fr) auto;
+      grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.2fr) minmax(80px, 0.4fr) minmax(80px, 0.4fr) auto;
+    }
+
+    .teacher-hour-readonly {
+      align-items: center;
+      align-self: center;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      color: #475467;
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      min-height: 64px;
+      padding: 14px;
     }
 
     .teacher-hour-observation {

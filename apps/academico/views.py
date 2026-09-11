@@ -29,6 +29,7 @@ from apps.core.models import Empresa, Partner
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 from apps.matricula.models import FichaInscripcion
 
+from .durations import duration_to_minutes, format_duration, minutes_to_duration
 from .forms import (
     AsignaturaForm,
     AulaForm,
@@ -593,7 +594,12 @@ class CoordinacionRequiredMixin(LoginRequiredMixin):
     permission_required = None
 
     def dispatch(self, request, *args, **kwargs):
-        if not self.permission_required or not request.user.has_perm(self.permission_required):
+        permissions = self.permission_required
+        if isinstance(permissions, str):
+            has_permission = request.user.has_perm(permissions)
+        else:
+            has_permission = bool(permissions) and request.user.has_perms(permissions)
+        if not has_permission:
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
 
@@ -4567,13 +4573,15 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
 
 
 class DireccionHorasDocenteView(DireccionRequiredMixin, View):
-    permission_required = "academico.change_clasehoradocente"
+    permission_required = "academico.access_clasehoradocente"
     template_name = "academico/direccion_horas_docente.html"
 
     def get(self, request):
         return render(request, self.template_name, self.get_context())
 
     def post(self, request):
+        if not request.user.has_perm("academico.change_clasehoradocente"):
+            return self.handle_no_permission()
         clase = get_object_or_404(self.get_clases_queryset(), pk=request.POST.get("clase"))
         registro = self.get_hora_docente(clase)
         original_docente = self.get_docente_programado(clase)
@@ -4617,6 +4625,8 @@ class DireccionHorasDocenteView(DireccionRequiredMixin, View):
             "rows": rows,
             "stats": self.get_stats(rows),
             "report_url": reverse_lazy("academico:direccion_horas_docente_reporte"),
+            "can_change_teacher_hours": self.request.user.has_perm("academico.change_clasehoradocente"),
+            "can_view_teacher_hours_report": self.request.user.has_perm("academico.report_clasehoradocente"),
         }
 
     def get_clases_queryset(self):
@@ -4654,6 +4664,7 @@ class DireccionHorasDocenteView(DireccionRequiredMixin, View):
             "docente_editable": estado_value == "reemplazo",
             "horario": horario,
             "horas_programadas": self.horas_programadas(clase),
+            "horas_programadas_label": format_duration(self.horas_programadas(clase)),
             "docentes_programados": original_docentes,
             "estado_key": registro.estado if registro else "pendiente",
             "estado_label": registro.get_estado_display() if registro else "Pendiente",
@@ -4666,7 +4677,6 @@ class DireccionHorasDocenteView(DireccionRequiredMixin, View):
             initial = {
                 "estado": "pendiente",
                 "docente": original_docente,
-                "horas": Decimal("0.00"),
             }
         return ClaseHoraDocenteForm(
             instance=registro,
@@ -4717,15 +4727,17 @@ class DireccionHorasDocenteView(DireccionRequiredMixin, View):
         horario = clase.horario_aula_curso.horario_dia.horario
         inicio = horario.hora_inicio.hour * 60 + horario.hora_inicio.minute
         fin = horario.hora_fin.hour * 60 + horario.hora_fin.minute
-        return (Decimal(fin - inicio) / Decimal("60")).quantize(Decimal("0.01"))
+        return minutes_to_duration(fin - inicio)
 
     def get_stats(self, rows):
+        total_minutes = 0
         stats = {
             "clases": len(rows),
             "registradas": 0,
             "pendientes": 0,
             "reemplazos": 0,
             "horas": Decimal("0.00"),
+            "horas_label": "0:00",
         }
         for row in rows:
             registro = row["registro"]
@@ -4736,7 +4748,9 @@ class DireccionHorasDocenteView(DireccionRequiredMixin, View):
             if registro.estado == "reemplazo":
                 stats["reemplazos"] += 1
             if registro.estado in {"asistio", "reemplazo"}:
-                stats["horas"] += registro.horas
+                total_minutes += duration_to_minutes(registro.horas)
+        stats["horas"] = minutes_to_duration(total_minutes)
+        stats["horas_label"] = format_duration(stats["horas"])
         return stats
 
     def get_date_value(self, key, default):
@@ -4778,7 +4792,10 @@ class DireccionHorasDocenteView(DireccionRequiredMixin, View):
 
 
 class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
-    permission_required = "academico.report_clasehoradocente"
+    permission_required = (
+        "academico.access_clasehoradocente",
+        "academico.report_clasehoradocente",
+    )
     template_name = "academico/direccion_reporte_horas_docente.html"
 
     def get(self, request):
@@ -4847,15 +4864,16 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
             "docente_reemplazado": registro.docente_reemplazado,
             "estado": registro.get_estado_display(),
             "horas": registro.horas,
+            "horas_label": format_duration(registro.horas),
             "observacion": registro.observacion or "",
         }
 
     def get_stats(self, rows):
         docentes = {}
-        total_horas = Decimal("0.00")
+        total_minutes = 0
         reemplazos = 0
         for row in rows:
-            total_horas += row["horas"]
+            total_minutes += duration_to_minutes(row["horas"])
             if row["registro"].estado == "reemplazo":
                 reemplazos += 1
             if row["docente"]:
@@ -4863,7 +4881,8 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
                 docentes[row["docente"].pk] += row["horas"]
         return {
             "registros": len(rows),
-            "horas": total_horas,
+            "horas": minutes_to_duration(total_minutes),
+            "horas_label": format_duration(minutes_to_duration(total_minutes)),
             "docentes": len(docentes),
             "reemplazos": reemplazos,
         }
@@ -4872,7 +4891,7 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = safe_sheet_title("Horas docente")
-        headers = ["Fecha", "Horario", "Grupo", "Aula", "Materia", "Docente", "Estado", "Horas", "Reemplaza a", "Observacion"]
+        headers = ["Fecha", "Horario", "Grupo", "Aula", "Materia", "Docente", "Estado", "Horas (H.MM)", "Reemplaza a", "Observacion"]
         for col, header in enumerate(headers, start=1):
             cell = sheet.cell(row=1, column=col, value=header)
             cell.font = Font(bold=True, color="FFFFFF")
@@ -4895,10 +4914,13 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
             ]
             for col, value in enumerate(values, start=1):
                 sheet.cell(row=current_row, column=col, value=value)
+            sheet.cell(row=current_row, column=8).number_format = "0.00"
             current_row += 1
 
         sheet.cell(row=current_row + 1, column=7, value="Total horas").font = Font(bold=True)
-        sheet.cell(row=current_row + 1, column=8, value=float(context["stats"]["horas"])).font = Font(bold=True)
+        total_cell = sheet.cell(row=current_row + 1, column=8, value=float(context["stats"]["horas"]))
+        total_cell.font = Font(bold=True)
+        total_cell.number_format = "0.00"
         widths = [14, 18, 24, 18, 24, 28, 14, 10, 28, 36]
         for col, width in enumerate(widths, start=1):
             sheet.column_dimensions[get_column_letter(col)].width = width
