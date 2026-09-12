@@ -101,8 +101,10 @@
               <span class="student-payment-avatar"><i class="ri-graduation-cap-line"></i></span>
               <div>
                 <h3>{{ card.ficha.estudiante }}</h3>
-                <p>Ficha {{ card.ficha.numero }} · {{ card.ficha.aula|default:"Sin aula" }}</p>
-                <small>{{ card.representante|default:"Sin representante" }}</small>
+                <p>Ficha {{ card.ficha.numero }} · {{ card.classroom_label }}</p>
+                <small>
+                  {% if card.academic_group_label %}{{ card.academic_group_label }} · {% endif %}{{ card.representante|default:"Sin representante" }}
+                </small>
               </div>
             </div>
 
