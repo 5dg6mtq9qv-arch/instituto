@@ -149,6 +149,12 @@ MENU_GROUPS = [
                 "url_name": "cartera:pago_list",
                 "perms": ("cartera.view_pago", "cartera.view_resumen_financiero"),
             },
+            {
+                "label": "Auditoría de pagos",
+                "url_name": "auditoria:pago_list",
+                "perm": None,
+                "groups": ["Administrador"],
+            },
             {"label": "Planes de pago", "url_name": "cartera:plan_pago_list", "perm": "cartera.view_planpago"},
             {"label": "Formas de pago", "url_name": "cartera:forma_pago_list", "perm": "cartera.view_formapago"},
         ],

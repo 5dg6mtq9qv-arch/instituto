@@ -1,0 +1,62 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Administración</p>
+      <h1>{{ title }}</h1>
+    </div>
+    <div class="topbar-actions">
+      {% if payment_url %}
+        <a class="btn btn-outline-primary" href="{{ payment_url }}">Ver pago</a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{% url 'auditoria:pago_list' %}">Volver</a>
+    </div>
+  </header>
+
+  <section class="panel p-4 mb-3">
+    <div class="row g-3">
+      <div class="col-md-3"><small class="text-muted d-block">Evento</small><strong>#{{ auditoria.pk }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Fecha</small><strong>{{ auditoria.created|date:"d/m/Y H:i:s" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Acción</small><strong>{{ auditoria.get_accion_display }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Usuario</small><strong>#{{ auditoria.usuario_accion_id|default:"-" }} {{ auditoria.usuario_accion_username|default:"Sistema" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Pago ID</small><strong>#{{ auditoria.pago_id }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Empresa ID</small><strong>#{{ auditoria.empresa_id|default:"-" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Cuota ID</small><strong>#{{ auditoria.cuota_id|default:"-" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Plan de pago ID</small><strong>#{{ auditoria.plan_pago_id|default:"-" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Ficha ID</small><strong>#{{ auditoria.ficha_inscripcion_id|default:"-" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Estudiante ID</small><strong>#{{ auditoria.estudiante_id|default:"-" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Forma de pago ID</small><strong>#{{ auditoria.forma_pago_id|default:"-" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Usuario original ID</small><strong>#{{ auditoria.usuario_pago_id|default:"-" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">IP</small><strong>{{ auditoria.ip_address|default:"-" }}</strong></div>
+      <div class="col-md-9"><small class="text-muted d-block">Solicitud</small><strong>{{ auditoria.metodo_http|default:"Sistema" }} {{ auditoria.ruta }}</strong></div>
+    </div>
+  </section>
+
+  <section class="panel list-panel">
+    <div class="p-4 border-bottom">
+      <p class="eyebrow mb-1">Trazabilidad</p>
+      <h2 class="h5 mb-0">Valores registrados o modificados</h2>
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle app-table mb-0">
+        <thead>
+          <tr><th>Campo</th><th>Antes</th><th>Después</th></tr>
+        </thead>
+        <tbody>
+          {% for change in changes %}
+            <tr>
+              <td><strong>{{ change.label }}</strong><small class="text-muted d-block">{{ change.field }}</small></td>
+              <td>{{ change.before|default:"-" }}</td>
+              <td>{{ change.after|default:"-" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" class="text-center text-muted py-4">No cambiaron valores auditables.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

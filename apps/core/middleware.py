@@ -7,4 +7,7 @@ class CurrentRequestMiddleware:
 
     def __call__(self, request):
         set_current_request(request)
-        return self.get_response(request)
+        try:
+            return self.get_response(request)
+        finally:
+            set_current_request(None)

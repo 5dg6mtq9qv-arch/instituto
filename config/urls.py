@@ -34,6 +34,7 @@ urlpatterns = [
     path('matricula/', include('apps.matricula.urls')),
     path('cartera/', include('apps.cartera.urls')),
     path('academico/', include('apps.academico.urls')),
+    path('auditoria/', include('apps.auditoria.urls')),
     path('admin/', admin.site.urls),
 ]
 
