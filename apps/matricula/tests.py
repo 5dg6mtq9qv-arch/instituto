@@ -16,6 +16,10 @@ from django.utils import timezone
 from apps.cartera.models import Cuota, FormaPago, Pago, PlanPago
 from apps.core.current_user import set_current_request
 from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacion
+from apps.academico.models import Aula as AcademicAula
+from apps.academico.models import AulaCurso as AcademicAulaCurso
+from apps.academico.models import Curso as AcademicCurso
+from apps.academico.models import CursoPeriodo, GrupoEstudiante, Periodo
 
 from .forms import (
     FichaInscripcionForm,
@@ -876,6 +880,53 @@ class MatriculaProcesoTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}))
         self.assertContains(response, reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk}))
+
+    def test_ficha_list_uses_academic_group_and_classroom_assignment(self):
+        estudiante = self.create_partner("1002003090", "Alumno Academico", es_estudiante=True)
+        representante = self.create_partner(
+            "1002003091",
+            "Representante Academico",
+            es_cliente=True,
+            es_representante=True,
+        )
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000790",
+            fecha=date(2026, 9, 1),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            estado="activa",
+            activo=True,
+        )
+        period = Periodo.objects.create(
+            nombre="Nivelacion academica",
+            fecha_inicio=date(2026, 9, 1),
+            fecha_fin=date(2026, 11, 30),
+        )
+        group = AcademicCurso.objects.create(nombre="Terceros - Sabado - A1")
+        classroom = AcademicAula.objects.create(nombre="Aula academica 1")
+        CursoPeriodo.objects.create(curso=group, periodo=period)
+        AcademicAulaCurso.objects.create(aula=classroom, curso=group)
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=group,
+            periodo=period,
+            fecha_asignacion=date(2026, 9, 1),
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("matricula:ficha_list"), HTTP_HOST="localhost")
+        ficha_row = next(row for row in response.context["object_rows"] if row["object"] == ficha)
+        values = [cell["value"] for cell in ficha_row["values"]]
+
+        self.assertIsNone(ficha.aula_id)
+        self.assertIsNone(ficha.curso_id)
+        self.assertIn(group.nombre, values)
+        self.assertIn(classroom.nombre, values)
+        self.assertContains(response, group.nombre)
+        self.assertContains(response, classroom.nombre)
 
     def test_ficha_list_filters_by_status_period_course_and_classroom(self):
         estudiante = self.create_partner("1002003024", "Alumno Filtrado", es_estudiante=True)

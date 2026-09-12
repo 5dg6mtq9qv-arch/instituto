@@ -6,7 +6,7 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.http import HttpResponse
 from django.http import JsonResponse
 from django.http import QueryDict
@@ -18,6 +18,8 @@ from django.views import View
 from apps.cartera.models import Cuota, FormaPago, Pago, PlanPago
 from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacion
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
+from apps.academico.models import AulaCurso as AcademicAulaCurso
+from apps.academico.models import GrupoEstudiante
 
 from .forms import (
     AulaForm,
@@ -132,14 +134,63 @@ class FichaInscripcionListView(InstitutoListView):
         ("Fecha", "fecha"),
         ("Estudiante", "estudiante"),
         ("Representante", "representante"),
-        ("Curso", "curso"),
-        ("Aula", "aula"),
+        ("Curso", "academic_group_label"),
+        ("Aula", "academic_classroom_label"),
         ("Restante", "saldo"),
         ("Estado", "estado"),
     )
 
+    @staticmethod
+    def get_academic_assignments_queryset():
+        return (
+            GrupoEstudiante.objects.filter(estado__in=("activo", "finalizado"))
+            .select_related("grupo", "periodo")
+            .prefetch_related(
+                Prefetch(
+                    "grupo__aula_cursos",
+                    queryset=AcademicAulaCurso.objects.select_related("aula")
+                    .prefetch_related("horario_aula_cursos")
+                    .order_by("aula__nombre", "pk"),
+                    to_attr="matricula_aulas",
+                )
+            )
+            .order_by("estado", "-fecha_asignacion", "-pk")
+        )
+
+    @staticmethod
+    def get_academic_location(ficha):
+        assignments = getattr(ficha, "matricula_asignaciones", ())
+        assignment = assignments[0] if assignments else None
+        group_label = assignment.grupo.nombre if assignment else str(ficha.curso or "")
+        classroom_names = []
+        if assignment:
+            classroom_links = list(getattr(assignment.grupo, "matricula_aulas", ()))
+            scheduled_classrooms = [
+                aula_curso
+                for aula_curso in classroom_links
+                if aula_curso.horario_aula_cursos.all()
+            ]
+            classroom_links = scheduled_classrooms or classroom_links
+            classroom_names = list(
+                dict.fromkeys(aula_curso.aula.nombre for aula_curso in classroom_links)
+            )
+        if not classroom_names and ficha.aula:
+            classroom_names = [str(ficha.aula)]
+        return group_label, " / ".join(classroom_names)
+
     def get_queryset(self):
-        queryset = super().get_queryset().select_related("estudiante", "representante", "curso", "aula", "periodo_academico")
+        queryset = (
+            super()
+            .get_queryset()
+            .select_related("estudiante", "representante", "curso", "aula", "periodo_academico")
+            .prefetch_related(
+                Prefetch(
+                    "asignaciones_grupo",
+                    queryset=self.get_academic_assignments_queryset(),
+                    to_attr="matricula_asignaciones",
+                )
+            )
+        )
         estado = self.request.GET.get("estado", "")
         if estado in dict(FichaInscripcion.ESTADO_CHOICES):
             queryset = queryset.filter(estado=estado)
@@ -169,6 +220,14 @@ class FichaInscripcionListView(InstitutoListView):
                 matches |= Q(**{f"{field}__icontains": term})
             queryset = queryset.filter(matches)
         return queryset
+
+    def get_column_value(self, obj, attr):
+        group_label, classroom_label = self.get_academic_location(obj)
+        if attr == "academic_group_label":
+            return group_label
+        if attr == "academic_classroom_label":
+            return classroom_label
+        return super().get_column_value(obj, attr)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
