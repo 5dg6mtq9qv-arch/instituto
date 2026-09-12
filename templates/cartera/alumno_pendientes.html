@@ -41,17 +41,7 @@
             <div>
               <span>Ficha {{ ficha.numero }}</span>
               <h2>{{ ficha.estudiante }}</h2>
-              <p>
-                {% if academic_assignment %}
-                  Grupo: {{ academic_assignment.group }}
-                  {% if academic_assignment.classrooms_label %} · Aula(s): {{ academic_assignment.classrooms_label }}{% endif %}
-                {% elif ficha.aula %}
-                  {{ ficha.aula }}
-                {% else %}
-                  Sin asignación académica
-                {% endif %}
-                · {{ ficha.fecha|date:"d M Y" }}
-              </p>
+              <p>{{ ficha.aula|default:"Sin aula asignada" }} · {{ ficha.fecha|date:"d M Y" }}</p>
             </div>
           </div>
           <div class="payment-plan-state">

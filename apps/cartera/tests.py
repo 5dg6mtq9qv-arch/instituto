@@ -9,8 +9,6 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.academico.models import Aula as AulaAcademica
-from apps.academico.models import AulaCurso, Curso as Grupo, GrupoEstudiante
 from apps.core.current_user import set_current_request
 from apps.core.models import Empresa, Partner, TipoIdentificacion
 from apps.matricula.models import FichaInscripcion
@@ -294,41 +292,6 @@ class FormaPagoFormTests(TestCase):
         self.assertContains(response, "Ver pagos")
         self.assertContains(response, reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}))
         self.assertContains(response, reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}))
-
-    def test_student_wallet_uses_academic_group_assignment_and_classrooms(self):
-        self.client.force_login(self.user)
-        ficha, _, _, _, _ = self.create_payment_flow_data()
-        grupo = Grupo.objects.create(nombre="Terceros - Sábado en la mañana - A1")
-        aula_uno = AulaAcademica.objects.create(nombre="Aula 1")
-        aula_cuatro = AulaAcademica.objects.create(nombre="Aula 4")
-        AulaCurso.objects.create(aula=aula_uno, curso=grupo)
-        AulaCurso.objects.create(aula=aula_cuatro, curso=grupo)
-        GrupoEstudiante.objects.create(
-            ficha_inscripcion=ficha,
-            estudiante=ficha.estudiante,
-            grupo=grupo,
-            estado="activo",
-        )
-
-        list_response = self.client.get(reverse("cartera:alumno_cartera_list"), HTTP_HOST="localhost")
-        detail_response = self.client.get(
-            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
-            HTTP_HOST="localhost",
-        )
-
-        for response in [list_response, detail_response]:
-            self.assertEqual(response.status_code, 200)
-            self.assertContains(response, "Grupo: Terceros - Sábado en la mañana - A1")
-            self.assertContains(response, "Aula 1")
-            self.assertContains(response, "Aula 4")
-            self.assertNotContains(response, "Sin aula")
-
-        search_response = self.client.get(
-            reverse("cartera:alumno_cartera_list"),
-            {"q": "Aula 4"},
-            HTTP_HOST="localhost",
-        )
-        self.assertContains(search_response, ficha.estudiante.nombre)
 
     def test_student_wallet_list_hides_financial_summary_without_specific_permission(self):
         self.create_payment_flow_data()

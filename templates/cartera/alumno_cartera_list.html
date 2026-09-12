@@ -101,19 +101,7 @@
               <span class="student-payment-avatar"><i class="ri-graduation-cap-line"></i></span>
               <div>
                 <h3>{{ card.ficha.estudiante }}</h3>
-                <p>
-                  Ficha {{ card.ficha.numero }} ·
-                  {% if card.academic_assignment %}
-                    Grupo: {{ card.academic_assignment.group }}
-                  {% elif card.ficha.aula %}
-                    {{ card.ficha.aula }}
-                  {% else %}
-                    Sin asignación académica
-                  {% endif %}
-                </p>
-                {% if card.academic_assignment.classrooms_label %}
-                  <small>Aula(s): {{ card.academic_assignment.classrooms_label }}</small>
-                {% endif %}
+                <p>Ficha {{ card.ficha.numero }} · {{ card.ficha.aula|default:"Sin aula" }}</p>
                 <small>{{ card.representante|default:"Sin representante" }}</small>
               </div>
             </div>
