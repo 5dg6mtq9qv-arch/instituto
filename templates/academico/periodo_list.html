@@ -2,6 +2,35 @@
 
 {% block title %}Periodos | Instituto{% endblock %}
 
+{% block extra_head %}
+  <style>
+    .period-list-panel .app-table {
+      min-width: 760px;
+      table-layout: auto;
+    }
+    .period-list-panel .app-table th.text-end:last-child,
+    .period-list-panel .app-table td.text-end:last-child {
+      min-width: 180px;
+      overflow-wrap: normal;
+      white-space: nowrap;
+      width: 180px;
+    }
+    .period-list-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .period-list-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      overflow-wrap: normal;
+      white-space: nowrap;
+      width: auto;
+      word-break: normal;
+    }
+  </style>
+{% endblock %}
+
 {% block content %}
   <header class="page-header">
     <div>
@@ -16,7 +45,7 @@
     {% endif %}
   </header>
 
-  <section class="panel list-panel">
+  <section class="panel list-panel period-list-panel">
     <form class="list-toolbar" method="get">
       <div class="list-search">
         <i class="ri-search-line"></i>
@@ -53,7 +82,7 @@
               </td>
               <td class="text-end">
                 {% if periodo.estado == "activo" and perms.academico.change_periodo %}
-                  <form class="d-inline" method="post" action="{% url 'academico:periodo_cerrar' periodo.pk %}" onsubmit="return confirm('¿Cerrar este periodo? Las asignaciones activas quedaran finalizadas y se conservara su historial.');">
+                  <form class="period-list-actions" method="post" action="{% url 'academico:periodo_cerrar' periodo.pk %}" onsubmit="return confirm('¿Cerrar este periodo? Las asignaciones activas quedaran finalizadas y se conservara su historial.');">
                     {% csrf_token %}
                     <button class="btn btn-outline-danger btn-sm" type="submit">
                       <i class="ri-lock-line"></i>
