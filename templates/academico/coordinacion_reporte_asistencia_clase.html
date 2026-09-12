@@ -70,7 +70,7 @@
         <strong>{{ card.moved_out_rows|length }} estudiante(s)</strong>
       </header>
       {% for row in card.moved_out_rows %}
-        <p>{{ row.estudiante.nombre }} fue movido a {{ row.destino_label }}.</p>
+        <p>{{ row.estudiante_apellidos_nombres }} fue movido a {{ row.destino_label }}.</p>
       {% endfor %}
     </section>
   {% endif %}
@@ -102,7 +102,7 @@
               <tr>
                 <td>{{ forloop.counter|stringformat:"02d" }}</td>
                 <td><strong>{{ ficha.ficha.numero }}</strong></td>
-                <td>{{ ficha.estudiante.nombre }}</td>
+                <td>{{ ficha.estudiante_apellidos_nombres }}</td>
                 <td><span class="attendance-state-pill state-{{ ficha.estado }}">{{ ficha.estado_label }}</span></td>
                 <td>{{ ficha.observacion|default:"Sin observacion" }}</td>
                 <td>

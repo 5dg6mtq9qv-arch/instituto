@@ -239,6 +239,19 @@ def get_clase_docentes(clase):
     ]
 
 
+def apellidos_nombres(partner):
+    return " ".join(
+        part.strip()
+        for part in [partner.apellido or "", partner.nombre or ""]
+        if part and part.strip()
+    )
+
+
+def texto_orden(value):
+    normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return "".join(character for character in normalized if not unicodedata.combining(character))
+
+
 def clase_tiene_docente(clase):
     if clase.docente_override:
         return bool(clase.docente_id)
@@ -5086,7 +5099,7 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
                     estado="activo",
                     estudiante__activo=True,
                 )
-                .order_by("estudiante__nombre", "ficha_inscripcion__numero")
+                .order_by("estudiante__apellido", "estudiante__nombre", "ficha_inscripcion__numero")
             )
             movimientos = list(
                 ClaseEstudianteMovimiento.objects.select_related(
@@ -5173,7 +5186,8 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
         visible_assignments = sorted(
             visible_assignments_by_id.values(),
             key=lambda asignacion: (
-                asignacion.estudiante.nombre or "",
+                texto_orden(asignacion.estudiante.apellido),
+                texto_orden(asignacion.estudiante.nombre),
                 asignacion.ficha_inscripcion.numero or "",
             ),
         )
@@ -5200,7 +5214,13 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
             }
             for movimiento in moved_out_by_assignment.values()
         ]
-        return rows, sorted(moved_out_rows, key=lambda row: row["estudiante"].nombre)
+        return rows, sorted(
+            moved_out_rows,
+            key=lambda row: (
+                texto_orden(row["estudiante"].apellido),
+                texto_orden(row["estudiante"].nombre),
+            ),
+        )
 
     @staticmethod
     def clase_label(clase):
@@ -5323,7 +5343,7 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
                 estado="activo",
                 estudiante__activo=True,
             )
-            .order_by("estudiante__nombre", "ficha_inscripcion__numero")
+            .order_by("estudiante__apellido", "estudiante__nombre", "ficha_inscripcion__numero")
         )
         for assignment in assignments:
             assignments_by_group[assignment.grupo_id].append(assignment)
@@ -5385,6 +5405,7 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
             ficha_row = {
                 "ficha": row["ficha"],
                 "estudiante": row["estudiante"],
+                "estudiante_apellidos_nombres": apellidos_nombres(row["estudiante"]),
                 "estado": estado,
                 "estado_label": self.attendance_state_labels.get(estado, estado),
                 "observacion": observacion,
@@ -5393,6 +5414,9 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
             fichas.append(ficha_row)
             if observacion:
                 observation_rows.append(ficha_row)
+
+        for row in moved_out_rows:
+            row["estudiante_apellidos_nombres"] = apellidos_nombres(row["estudiante"])
 
         pending_count = counts.get("pendiente", 0)
         saved_count = len(rows) - pending_count

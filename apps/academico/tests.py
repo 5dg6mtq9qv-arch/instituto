@@ -3344,6 +3344,45 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(report_response, "No asistio.")
         self.assertEqual(report_response.context["card"]["counts"]["ausente"], 1)
 
+    def test_coordinacion_class_attendance_report_shows_last_names_before_names(self):
+        coordinator = self.create_coordinator()
+        estudiante_zambrano, ficha_zambrano = self.create_student_ficha(
+            nombre="María Fernanda",
+            apellido="Zambrano López",
+            identificacion="AST-NAME-001",
+            numero="AST-NAME-001",
+        )
+        estudiante_alvarez, ficha_alvarez = self.create_student_ficha(
+            nombre="Carlos Andrés",
+            apellido="Álvarez Pérez",
+            identificacion="AST-NAME-002",
+            numero="AST-NAME-002",
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha_zambrano,
+            estudiante=estudiante_zambrano,
+            grupo=self.curso,
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha_alvarez,
+            estudiante=estudiante_alvarez,
+            grupo=self.curso,
+        )
+        self.client.force_login(coordinator)
+
+        response = self.client.get(
+            reverse("academico:coordinacion_reporte_asistencia_clase", args=[self.revision.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Álvarez Pérez Carlos Andrés")
+        self.assertContains(response, "Zambrano López María Fernanda")
+        self.assertEqual(
+            [row["estudiante_apellidos_nombres"] for row in response.context["card"]["fichas"]],
+            ["Álvarez Pérez Carlos Andrés", "Zambrano López María Fernanda"],
+        )
+
     def test_closed_attendance_with_all_students_registered_is_complete(self):
         coordinator = self.create_coordinator()
         estudiante, ficha = self.create_student_ficha(
