@@ -32,6 +32,11 @@
       <div>
         <span>Grupo activo</span>
         <h2>{{ selected_group }}</h2>
+        {% if selected_period %}
+          <small>{{ selected_period.nombre }} · {{ selected_period.get_estado_display }}</small>
+        {% else %}
+          <small>Grupo sin periodo academico asociado</small>
+        {% endif %}
       </div>
       <p>{{ stats.asignados }} estudiante(s) asignado(s)</p>
     {% else %}
@@ -42,6 +47,12 @@
       <p>Crea o activa un grupo academico.</p>
     {% endif %}
   </section>
+
+  {% if selected_period.estado == "cerrado" %}
+    <div class="alert alert-info">
+      Este periodo esta cerrado. La lista se conserva como historial. Para continuar con los alumnos, crea un grupo en el nuevo periodo y asigna alli las mismas fichas.
+    </div>
+  {% endif %}
 
   <section class="teacher-board-summary">
     <div class="teacher-stat">
@@ -62,7 +73,7 @@
     </div>
   </section>
 
-  {% if can_manage %}
+  {% if can_manage_selected_group %}
     <section class="panel student-transfer-panel">
       <header class="section-header">
         <div>
@@ -205,7 +216,7 @@
         {% endfor %}
       </div>
       <div class="form-actions compact">
-        <button class="btn btn-outline-primary" type="submit"{% if not selected_group or not can_manage %} disabled{% endif %}>
+        <button class="btn btn-outline-primary" type="submit"{% if not selected_group or not can_manage_selected_group %} disabled{% endif %}>
           <i class="ri-arrow-left-right-line"></i>
           Guardar cambio
         </button>
@@ -236,7 +247,7 @@
             <div class="movement-actions">
               {% if movimiento.activo %}
                 <span class="status-badge status-activo">Activo</span>
-                {% if can_manage %}
+                {% if can_manage_selected_group %}
                   <form method="post">
                     {% csrf_token %}
                     <input type="hidden" name="assignment_action" value="cancel_move">

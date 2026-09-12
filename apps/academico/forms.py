@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django import forms
+from django.db.models import Exists, OuterRef, Q
 from django.forms import BaseFormSet, formset_factory
 from django.utils import timezone
 
@@ -239,19 +240,23 @@ class CursoForm(BootstrapFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        today = timezone.localdate()
-        self.fields["periodo"].queryset = Periodo.objects.filter(
-            fecha_fin__gte=today,
-        ).order_by("-fecha_inicio", "nombre")
+        self.fields["periodo"].queryset = Periodo.objects.filter(estado="activo").order_by(
+            "-fecha_inicio", "nombre"
+        )
         if self.instance.pk:
             curso_periodo = self.instance.curso_periodos.select_related("periodo").order_by("-periodo__fecha_inicio").first()
             if curso_periodo:
                 self.fields["periodo"].initial = curso_periodo.periodo
+                self.fields["periodo"].queryset = Periodo.objects.filter(pk=curso_periodo.periodo_id)
+                self.fields["periodo"].disabled = True
+                self.fields["periodo"].help_text = (
+                    "El periodo de un grupo existente no se cambia para proteger su historial. "
+                    "Crea un grupo nuevo para el siguiente periodo."
+                )
 
     def save(self, commit=True):
         curso = super().save(commit=commit)
         if commit:
-            CursoPeriodo.objects.filter(curso=curso).exclude(periodo=self.cleaned_data["periodo"]).delete()
             CursoPeriodo.objects.get_or_create(curso=curso, periodo=self.cleaned_data["periodo"])
         return curso
 
@@ -457,19 +462,78 @@ class GrupoEstudianteBulkForm(BootstrapFormMixin, forms.Form):
     def __init__(self, *args, **kwargs):
         selected_group = kwargs.pop("selected_group", None)
         super().__init__(*args, **kwargs)
-        self.fields["grupo"].queryset = Curso.objects.filter(activo=True).order_by("nombre")
-        self.fields["fichas"].queryset = (
+        self.selected_period = self.get_group_period(selected_group)
+        self.fields["grupo"].queryset = (
+            Curso.objects.filter(activo=True)
+            .filter(Q(curso_periodos__periodo__estado="activo") | Q(curso_periodos__isnull=True))
+            .distinct()
+            .order_by("nombre")
+        )
+        if selected_group and not self.fields["grupo"].queryset.filter(pk=selected_group.pk).exists():
+            self.fields["grupo"].queryset = Curso.objects.filter(
+                Q(pk=selected_group.pk) | Q(curso_periodos__periodo__estado="activo") | Q(curso_periodos__isnull=True),
+                activo=True,
+            ).distinct().order_by("nombre")
+
+        fichas = (
             FichaInscripcion.objects.select_related("estudiante")
             .filter(estudiante__es_estudiante=True, estudiante__activo=True, activo=True)
             .exclude(estado="anulada")
-            .filter(asignacion_grupo__isnull=True)
-            .order_by("estudiante__apellido", "estudiante__nombre", "numero")
+        )
+        if self.selected_period:
+            occupied_in_period = GrupoEstudiante.objects.filter(
+                ficha_inscripcion_id=OuterRef("pk"),
+                periodo=self.selected_period,
+                estado__in=("activo", "finalizado"),
+            )
+            fichas = fichas.annotate(occupied_in_period=Exists(occupied_in_period)).filter(
+                occupied_in_period=False
+            )
+            if self.selected_period.estado == "cerrado":
+                fichas = fichas.none()
+            elif not self.is_bound:
+                self.fields["fecha_asignacion"].initial = max(
+                    timezone.localdate(), self.selected_period.fecha_inicio
+                )
+        else:
+            occupied = GrupoEstudiante.objects.filter(
+                ficha_inscripcion_id=OuterRef("pk"),
+                estado="activo",
+            )
+            fichas = fichas.annotate(occupied=Exists(occupied)).filter(occupied=False)
+        self.fields["fichas"].queryset = fichas.order_by(
+            "estudiante__apellido", "estudiante__nombre", "numero"
         )
         self.fields["fichas"].label_from_instance = (
             lambda ficha: f"{' '.join(filter(None, [ficha.estudiante.apellido, ficha.estudiante.nombre]))} - ficha {ficha.numero}"
         )
         if selected_group:
             self.fields["grupo"].initial = selected_group
+
+    @staticmethod
+    def get_group_period(group):
+        if not group:
+            return None
+        link = group.curso_periodos.select_related("periodo").order_by(
+            "-periodo__fecha_inicio", "-pk"
+        ).first()
+        return link.periodo if link else None
+
+    def clean(self):
+        cleaned_data = super().clean()
+        group = cleaned_data.get("grupo")
+        period = self.get_group_period(group)
+        self.selected_period = period
+        if period and period.estado != "activo":
+            self.add_error("grupo", "El periodo de este grupo ya esta cerrado.")
+        assignment_date = cleaned_data.get("fecha_asignacion")
+        if period and assignment_date:
+            if assignment_date < period.fecha_inicio or assignment_date > period.fecha_fin:
+                self.add_error(
+                    "fecha_asignacion",
+                    "La fecha de asignacion debe estar dentro del periodo del grupo.",
+                )
+        return cleaned_data
 
 
 class ClaseEstudianteMovimientoForm(BootstrapFormMixin, forms.Form):

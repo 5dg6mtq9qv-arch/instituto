@@ -846,6 +846,41 @@ class PeriodoUpdateView(InstitutoUpdateView):
     success_url = reverse_lazy("academico:periodo_list")
     cancel_url = reverse_lazy("academico:periodo_list")
 
+    def post(self, request, *args, **kwargs):
+        if self.get_object().estado == "cerrado":
+            messages.error(request, "Un periodo cerrado no se puede modificar.")
+            return redirect("academico:periodo_list")
+        return super().post(request, *args, **kwargs)
+
+
+class PeriodoCloseView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.change_periodo"
+
+    def post(self, request, pk):
+        with transaction.atomic():
+            periodo = get_object_or_404(Periodo.objects.select_for_update(), pk=pk)
+            if periodo.estado == "cerrado":
+                messages.info(request, "El periodo ya estaba cerrado.")
+                return redirect("academico:periodo_list")
+
+            periodo.estado = "cerrado"
+            periodo.save(update_fields=["estado"])
+            finalizadas = GrupoEstudiante.objects.filter(
+                periodo=periodo,
+                estado="activo",
+            ).update(
+                estado="finalizado",
+                fecha_fin=periodo.fecha_fin,
+                usuario_updated=request.user,
+                updated_at=timezone.now(),
+            )
+
+        messages.success(
+            request,
+            f"Periodo cerrado. Se finalizaron {finalizadas} asignacion(es) y se conservo su historial.",
+        )
+        return redirect("academico:periodo_list")
+
 
 class HorarioDistribucionListView(LoginRequiredMixin, PermissionRequiredMixin, View):
     permission_required = "academico.view_horarioaulacurso"
@@ -2361,6 +2396,10 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             return self.handle_no_permission()
 
         selected_group = self.get_selected_group()
+        selected_period = self.get_group_period(selected_group)
+        if selected_period and selected_period.estado == "cerrado":
+            messages.error(request, "El periodo de este grupo esta cerrado y su historial no se puede modificar.")
+            return self.redirect_to_group(selected_group)
         action = request.POST.get("assignment_action") or "assign_students"
         if action == "sync_students":
             return self.handle_sync_students(request, selected_group)
@@ -2436,7 +2475,23 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
                 return Curso.objects.filter(pk=grupo_id, activo=True).first()
             except (TypeError, ValueError):
                 return None
-        return Curso.objects.filter(activo=True).order_by("nombre").first()
+        return (
+            Curso.objects.filter(activo=True)
+            .annotate(
+                has_active_period=Exists(
+                    CursoPeriodo.objects.filter(
+                        curso_id=OuterRef("pk"),
+                        periodo__estado="activo",
+                    )
+                )
+            )
+            .order_by("-has_active_period", "nombre")
+            .first()
+        )
+
+    @staticmethod
+    def get_group_period(group):
+        return GrupoEstudianteBulkForm.get_group_period(group)
 
     def redirect_to_group(self, group=None):
         url = reverse_lazy("academico:grupo_estudiantes")
@@ -2448,17 +2503,24 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         form = GrupoEstudianteBulkForm(request.POST, selected_group=selected_group)
         if form.is_valid():
             grupo = form.cleaned_data["grupo"]
+            periodo = form.selected_period
             saved = 0
             with transaction.atomic():
                 for ficha in form.cleaned_data["fichas"]:
-                    asignacion = GrupoEstudiante(
-                        ficha_inscripcion=ficha,
-                        estudiante=ficha.estudiante,
-                        grupo=grupo,
-                        fecha_asignacion=form.cleaned_data["fecha_asignacion"],
-                        estado="activo",
-                        usuario_updated=request.user,
-                    )
+                    lookup = {"ficha_inscripcion": ficha, "periodo": periodo}
+                    if periodo is None:
+                        asignacion = GrupoEstudiante.objects.filter(
+                            ficha_inscripcion=ficha,
+                            periodo__isnull=True,
+                        ).order_by("-pk").first() or GrupoEstudiante(**lookup)
+                    else:
+                        asignacion = GrupoEstudiante.objects.filter(**lookup).first() or GrupoEstudiante(**lookup)
+                    asignacion.estudiante = ficha.estudiante
+                    asignacion.grupo = grupo
+                    asignacion.fecha_asignacion = form.cleaned_data["fecha_asignacion"]
+                    asignacion.fecha_fin = None
+                    asignacion.estado = "activo"
+                    asignacion.usuario_updated = request.user
                     asignacion.full_clean()
                     asignacion.save()
                     saved += 1
@@ -2473,25 +2535,40 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         form = GrupoEstudianteBulkForm(request.POST, selected_group=selected_group)
         if form.is_valid():
             grupo = form.cleaned_data["grupo"]
+            periodo = form.selected_period
             assignments_to_remove = GrupoEstudiante.objects.filter(
                 pk__in=request.POST.getlist("asignaciones_remover"),
                 grupo=grupo,
+                estado="activo",
             )
+            if periodo:
+                assignments_to_remove = assignments_to_remove.filter(periodo=periodo)
+            else:
+                assignments_to_remove = assignments_to_remove.filter(periodo__isnull=True)
             removed = assignments_to_remove.count()
             saved = 0
             with transaction.atomic():
-                assignments_to_remove.delete()
+                assignments_to_remove.update(
+                    estado="retirado",
+                    fecha_fin=timezone.localdate(),
+                    usuario_updated=request.user,
+                    updated_at=timezone.now(),
+                )
                 for ficha in form.cleaned_data["fichas"]:
-                    if GrupoEstudiante.objects.filter(ficha_inscripcion=ficha).exists():
-                        continue
-                    asignacion = GrupoEstudiante(
-                        ficha_inscripcion=ficha,
-                        estudiante=ficha.estudiante,
-                        grupo=grupo,
-                        fecha_asignacion=form.cleaned_data["fecha_asignacion"],
-                        estado="activo",
-                        usuario_updated=request.user,
-                    )
+                    lookup = {"ficha_inscripcion": ficha, "periodo": periodo}
+                    if periodo is None:
+                        asignacion = GrupoEstudiante.objects.filter(
+                            ficha_inscripcion=ficha,
+                            periodo__isnull=True,
+                        ).order_by("-pk").first() or GrupoEstudiante(**lookup)
+                    else:
+                        asignacion = GrupoEstudiante.objects.filter(**lookup).first() or GrupoEstudiante(**lookup)
+                    asignacion.estudiante = ficha.estudiante
+                    asignacion.grupo = grupo
+                    asignacion.fecha_asignacion = form.cleaned_data["fecha_asignacion"]
+                    asignacion.fecha_fin = None
+                    asignacion.estado = "activo"
+                    asignacion.usuario_updated = request.user
                     asignacion.full_clean()
                     asignacion.save()
                     saved += 1
@@ -2561,7 +2638,7 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             .annotate(total_estudiantes=Count(
                 "estudiantes_asignados",
                 filter=Q(
-                    estudiantes_asignados__estado="activo",
+                    estudiantes_asignados__estado__in=("activo", "finalizado"),
                     estudiantes_asignados__estudiante__activo=True,
                 ),
                 distinct=True,
@@ -2571,6 +2648,7 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         if selected_group is None and cursos:
             selected_group = cursos[0]
         selected_group_id = selected_group.pk if selected_group else None
+        selected_period = self.get_group_period(selected_group)
         q = ""
         asignaciones = GrupoEstudiante.objects.select_related(
             "ficha_inscripcion",
@@ -2578,8 +2656,11 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             "grupo",
         ).filter(
             grupo=selected_group,
+            estado="finalizado" if selected_period and selected_period.estado == "cerrado" else "activo",
             estudiante__activo=True,
         ) if selected_group else GrupoEstudiante.objects.none()
+        if selected_period:
+            asignaciones = asignaciones.filter(periodo=selected_period)
         asignaciones = list(asignaciones.select_related(
             "ficha_inscripcion__curso",
             "ficha_inscripcion__aula",
@@ -2605,6 +2686,7 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             "group_tabs": self.get_group_tabs(cursos, selected_group, q),
             "selected_group": selected_group,
             "selected_group_id": selected_group_id,
+            "selected_period": selected_period,
             "asignaciones": asignaciones,
             "available_fichas": available_fichas,
             "available_students": available_students,
@@ -2616,8 +2698,11 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             "movement_form": movement_form or ClaseEstudianteMovimientoForm(grupo=selected_group),
             "movement_materia_map_json": json.dumps(self.get_movement_materia_map(movement_materia_cursos)),
             "can_manage": self.can_manage(self.request.user),
+            "can_manage_selected_group": self.can_manage(self.request.user) and not (
+                selected_period and selected_period.estado == "cerrado"
+            ),
             "q": q,
-            "stats": self.get_stats(selected_group),
+            "stats": self.get_stats(selected_group, selected_period, len(available_fichas)),
         }
 
     def get_group_tabs(self, cursos, selected_group, q=""):
@@ -2696,26 +2781,19 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             .order_by("-fecha_inicio", "-created_at")[:20]
         )
 
-    def get_stats(self, selected_group):
+    def get_stats(self, selected_group, selected_period=None, available_count=0):
         if not selected_group:
             return {"asignados": 0, "sin_grupo": 0, "clases": 0, "movimientos": 0}
-        sin_grupo = (
-            FichaInscripcion.objects.filter(
-                estudiante__es_estudiante=True,
-                estudiante__activo=True,
-                activo=True,
-            )
-            .exclude(estado="anulada")
-            .filter(asignacion_grupo__isnull=True)
-            .count()
+        assignment_filter = Q(
+            grupo=selected_group,
+            estado="finalizado" if selected_period and selected_period.estado == "cerrado" else "activo",
+            estudiante__activo=True,
         )
+        if selected_period:
+            assignment_filter &= Q(periodo=selected_period)
         return {
-            "asignados": GrupoEstudiante.objects.filter(
-                grupo=selected_group,
-                estado="activo",
-                estudiante__activo=True,
-            ).count(),
-            "sin_grupo": sin_grupo,
+            "asignados": GrupoEstudiante.objects.filter(assignment_filter).count(),
+            "sin_grupo": available_count,
             "clases": Clase.objects.filter(materia_curso__grupo=selected_group).count(),
             "movimientos": ClaseEstudianteMovimiento.objects.filter(
                 clase_origen__materia_curso__grupo=selected_group,
@@ -5096,7 +5174,6 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
                 GrupoEstudiante.objects.select_related("estudiante", "ficha_inscripcion", "grupo")
                 .filter(
                     grupo=clase.materia_curso.grupo,
-                    estado="activo",
                     estudiante__activo=True,
                 )
                 .order_by("estudiante__apellido", "estudiante__nombre", "ficha_inscripcion__numero")
@@ -5147,6 +5224,8 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
         def assignment_belongs_to_class_date(asignacion):
             if asignacion.estudiante_id in attendance_by_student:
                 return True
+            if asignacion.fecha_fin and clase.fecha > asignacion.fecha_fin:
+                return False
             if asignacion.fecha_asignacion != clase.fecha:
                 return asignacion.fecha_asignacion < clase.fecha
             if clase.asistencia_cerrada and clase.fecha_cierre_asistencia:
@@ -5340,7 +5419,6 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
             GrupoEstudiante.objects.select_related("estudiante", "ficha_inscripcion", "grupo")
             .filter(
                 grupo_id__in=group_ids,
-                estado="activo",
                 estudiante__activo=True,
             )
             .order_by("estudiante__apellido", "estudiante__nombre", "ficha_inscripcion__numero")
@@ -5632,14 +5710,14 @@ class CoordinacionReporteAsistenciaAlumnoView(CoordinacionRequiredMixin, View):
             return None
         queryset = Partner.objects.filter(pk=estudiante_id, es_estudiante=True, activo=True)
         if selected_grupo:
-            queryset = queryset.filter(grupo_asignaciones__grupo=selected_grupo, grupo_asignaciones__estado="activo")
+            queryset = queryset.filter(grupo_asignaciones__grupo=selected_grupo)
         return queryset.distinct().first()
 
     def get_students_queryset(self, selected_grupo=None):
         queryset = Partner.objects.filter(
             es_estudiante=True,
             activo=True,
-            grupo_asignaciones__estado="activo",
+            grupo_asignaciones__isnull=False,
         )
         if selected_grupo:
             queryset = queryset.filter(grupo_asignaciones__grupo=selected_grupo)
@@ -5657,7 +5735,7 @@ class CoordinacionReporteAsistenciaAlumnoView(CoordinacionRequiredMixin, View):
     def get_attendance_rows(self, estudiante, selected_grupo=None, fecha_desde=None, fecha_hasta=None):
         assignments = list(
             GrupoEstudiante.objects.select_related("grupo", "ficha_inscripcion", "estudiante")
-            .filter(estudiante=estudiante, estado="activo")
+            .filter(estudiante=estudiante)
             .order_by("fecha_asignacion", "grupo__nombre")
         )
         if selected_grupo:

@@ -32,13 +32,15 @@
             <th>Nombre</th>
             <th>Inicio</th>
             <th>Fin</th>
+            <th>Estado</th>
+            <th class="text-end">Acciones</th>
           </tr>
         </thead>
         <tbody>
           {% for periodo in object_list %}
             <tr>
               <td>
-                {% if update_url_name and perms.academico.change_periodo %}
+                {% if periodo.estado == "activo" and update_url_name and perms.academico.change_periodo %}
                   <a class="table-primary-link" href="{% url update_url_name periodo.pk %}">{{ periodo.nombre }}</a>
                 {% else %}
                   {{ periodo.nombre }}
@@ -46,10 +48,26 @@
               </td>
               <td>{{ periodo.fecha_inicio|date:"d/m/Y" }}</td>
               <td>{{ periodo.fecha_fin|date:"d/m/Y" }}</td>
+              <td>
+                <span class="status-badge status-{{ periodo.estado }}">{{ periodo.get_estado_display }}</span>
+              </td>
+              <td class="text-end">
+                {% if periodo.estado == "activo" and perms.academico.change_periodo %}
+                  <form class="d-inline" method="post" action="{% url 'academico:periodo_cerrar' periodo.pk %}" onsubmit="return confirm('¿Cerrar este periodo? Las asignaciones activas quedaran finalizadas y se conservara su historial.');">
+                    {% csrf_token %}
+                    <button class="btn btn-outline-danger btn-sm" type="submit">
+                      <i class="ri-lock-line"></i>
+                      Cerrar periodo
+                    </button>
+                  </form>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="3" class="text-center text-muted py-4">Sin periodos registrados.</td>
+              <td colspan="5" class="text-center text-muted py-4">Sin periodos registrados.</td>
             </tr>
           {% endfor %}
         </tbody>

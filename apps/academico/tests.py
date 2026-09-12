@@ -609,7 +609,88 @@ class DocenteHorariosPanelTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertFalse(GrupoEstudiante.objects.filter(pk=asignacion.pk).exists())
+        asignacion.refresh_from_db()
+        self.assertEqual(asignacion.estado, "retirado")
+        self.assertEqual(asignacion.fecha_fin, timezone.localdate())
+
+    def test_period_close_preserves_history_and_allows_same_ficha_in_next_period(self):
+        self.make_superuser()
+        today = timezone.localdate()
+        current_period = Periodo.objects.create(
+            nombre="Nivelacion",
+            fecha_inicio=today - timedelta(days=30),
+            fecha_fin=today,
+        )
+        CursoPeriodo.objects.create(curso=self.curso, periodo=current_period)
+        estudiante, ficha = self.create_student_ficha(
+            nombre="Maria",
+            apellido="Especializacion",
+            identificacion="EST-PROMOTION",
+            numero="F-PROMOTION",
+        )
+        previous_assignment = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+            periodo=current_period,
+            fecha_asignacion=current_period.fecha_inicio,
+        )
+        historical_class = self.create_class_for_date(
+            today,
+            time(13, 0),
+            time(14, 0),
+            "Aula nivelacion",
+        )
+        self.client.force_login(self.user)
+
+        close_response = self.client.post(
+            reverse("academico:periodo_cerrar", args=[current_period.pk]),
+            HTTP_HOST="localhost",
+        )
+        current_period.refresh_from_db()
+        previous_assignment.refresh_from_db()
+
+        self.assertEqual(close_response.status_code, 302)
+        self.assertEqual(current_period.estado, "cerrado")
+        self.assertEqual(previous_assignment.estado, "finalizado")
+        self.assertEqual(previous_assignment.fecha_fin, current_period.fecha_fin)
+        historical_rows, _ = DocenteClaseAsistenciaView().get_roster_rows(historical_class)
+        self.assertEqual([row["estudiante"] for row in historical_rows], [estudiante])
+
+        next_period = Periodo.objects.create(
+            nombre="Especializacion",
+            fecha_inicio=today + timedelta(days=1),
+            fecha_fin=today + timedelta(days=120),
+        )
+        specialization_group = Curso.objects.create(nombre="Contabilidad A", activo=True)
+        CursoPeriodo.objects.create(curso=specialization_group, periodo=next_period)
+
+        page_response = self.client.get(
+            reverse("academico:grupo_estudiantes"),
+            {"grupo": specialization_group.pk},
+            HTTP_HOST="localhost",
+        )
+        self.assertIn(ficha, page_response.context["available_fichas"])
+
+        assign_response = self.client.post(
+            reverse("academico:grupo_estudiantes"),
+            {
+                "assignment_action": "sync_students",
+                "grupo": specialization_group.pk,
+                "fecha_asignacion": next_period.fecha_inicio.isoformat(),
+                "fichas": [ficha.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(assign_response.status_code, 302)
+        assignments = GrupoEstudiante.objects.filter(ficha_inscripcion=ficha).order_by("periodo__fecha_inicio")
+        self.assertEqual(assignments.count(), 2)
+        self.assertEqual(assignments[0].pk, previous_assignment.pk)
+        self.assertEqual(assignments[0].estado, "finalizado")
+        self.assertEqual(assignments[1].periodo, next_period)
+        self.assertEqual(assignments[1].grupo, specialization_group)
+        self.assertEqual(assignments[1].estado, "activo")
 
     def test_group_assignment_is_default_roster_for_all_group_classes(self):
         today = timezone.localdate()

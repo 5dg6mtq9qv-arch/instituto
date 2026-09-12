@@ -18,6 +18,7 @@ urlpatterns = [
     path("periodos/", views.PeriodoListView.as_view(), name="periodo_list"),
     path("periodos/nuevo/", views.PeriodoCreateView.as_view(), name="periodo_nuevo"),
     path("periodos/<int:pk>/editar/", views.PeriodoUpdateView.as_view(), name="periodo_editar"),
+    path("periodos/<int:pk>/cerrar/", views.PeriodoCloseView.as_view(), name="periodo_cerrar"),
     path("horario-distribucion/", views.HorarioDistribucionListView.as_view(), name="horario_distribucion"),
     path("horario-distribucion/nuevo/", views.HorarioDistribucionCreateView.as_view(), name="horario_distribucion_nuevo"),
     path("horario-distribucion/<int:curso_pk>/detalle/", views.HorarioDistribucionDetalleView.as_view(), name="horario_distribucion_detalle"),

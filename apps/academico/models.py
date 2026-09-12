@@ -846,10 +846,16 @@ class MateriaHorario(models.Model):
 
 
 class Periodo(models.Model):
+    ESTADO_CHOICES = (
+        ("activo", "Activo"),
+        ("cerrado", "Cerrado"),
+    )
+
     id = models.BigAutoField(primary_key=True)
     nombre = models.CharField(max_length=150)
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField()
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="activo")
 
     class Meta:
         db_table = '"academico"."periodo"'
@@ -1202,15 +1208,16 @@ class ProfesorMateriaCurso(models.Model):
 class GrupoEstudiante(models.Model):
     ESTADO_CHOICES = (
         ("activo", "Activo"),
+        ("finalizado", "Finalizado"),
         ("retirado", "Retirado"),
     )
 
     id = models.BigAutoField(primary_key=True)
-    ficha_inscripcion = models.OneToOneField(
+    ficha_inscripcion = models.ForeignKey(
         "matricula.FichaInscripcion",
         db_column="id_ficha_inscripcion",
         on_delete=models.CASCADE,
-        related_name="asignacion_grupo",
+        related_name="asignaciones_grupo",
     )
     estudiante = models.ForeignKey(
         "core.Partner",
@@ -1224,7 +1231,16 @@ class GrupoEstudiante(models.Model):
         on_delete=models.CASCADE,
         related_name="estudiantes_asignados",
     )
+    periodo = models.ForeignKey(
+        Periodo,
+        db_column="id_periodo",
+        on_delete=models.RESTRICT,
+        related_name="asignaciones_estudiantes",
+        blank=True,
+        null=True,
+    )
     fecha_asignacion = models.DateField(default=timezone.localdate)
+    fecha_fin = models.DateField(blank=True, null=True)
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default="activo")
     observacion = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1240,7 +1256,14 @@ class GrupoEstudiante(models.Model):
 
     class Meta:
         db_table = '"academico"."grupo_estudiante"'
-        ordering = ["grupo", "estudiante__nombre"]
+        ordering = ["periodo", "grupo", "estudiante__apellido", "estudiante__nombre"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["ficha_inscripcion", "periodo"],
+                condition=models.Q(periodo__isnull=False),
+                name="uq_grupo_estudiante_ficha_periodo",
+            ),
+        ]
 
     def clean(self):
         super().clean()
@@ -1252,10 +1275,28 @@ class GrupoEstudiante(models.Model):
             and self.ficha_inscripcion.estudiante_id != self.estudiante_id
         ):
             raise ValidationError({"estudiante": "El estudiante debe coincidir con la ficha seleccionada."})
+        if self.grupo_id and self.periodo_id and not CursoPeriodo.objects.filter(
+            curso_id=self.grupo_id,
+            periodo_id=self.periodo_id,
+        ).exists():
+            raise ValidationError({"periodo": "El periodo no corresponde al grupo seleccionado."})
+        if self.periodo_id and self.estado == "activo" and self.periodo.estado == "cerrado":
+            raise ValidationError({"periodo": "No se puede activar una asignación en un periodo cerrado."})
+        if self.fecha_fin and self.fecha_asignacion and self.fecha_fin < self.fecha_asignacion:
+            raise ValidationError({"fecha_fin": "La fecha final no puede ser anterior a la asignación."})
 
     def save(self, *args, **kwargs):
         if self.ficha_inscripcion_id and not self.estudiante_id:
             self.estudiante = self.ficha_inscripcion.estudiante
+        if self.grupo_id and not self.periodo_id:
+            curso_periodo = (
+                CursoPeriodo.objects.filter(curso_id=self.grupo_id)
+                .select_related("periodo")
+                .order_by("-periodo__fecha_inicio", "-pk")
+                .first()
+            )
+            if curso_periodo:
+                self.periodo = curso_periodo.periodo
         super().save(*args, **kwargs)
 
     def __str__(self):
