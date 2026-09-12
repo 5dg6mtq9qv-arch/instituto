@@ -854,7 +854,7 @@ class PeriodoUpdateView(InstitutoUpdateView):
 
 
 class PeriodoCloseView(LoginRequiredMixin, PermissionRequiredMixin, View):
-    permission_required = "academico.change_periodo"
+    permission_required = "academico.close_periodo"
 
     def post(self, request, pk):
         with transaction.atomic():

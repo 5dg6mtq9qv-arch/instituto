@@ -860,6 +860,9 @@ class Periodo(models.Model):
     class Meta:
         db_table = '"academico"."periodo"'
         ordering = ["-fecha_inicio", "nombre"]
+        permissions = [
+            ("close_periodo", "Puede cerrar periodos academicos"),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=models.Q(fecha_fin__gte=models.F("fecha_inicio")),

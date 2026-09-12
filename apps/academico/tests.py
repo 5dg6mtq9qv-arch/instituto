@@ -643,6 +643,11 @@ class DocenteHorariosPanelTests(TestCase):
         )
         self.client.force_login(self.user)
 
+        period_page = self.client.get(reverse("academico:periodo_list"), HTTP_HOST="localhost")
+        self.assertContains(period_page, "sweetalert2@11")
+        self.assertContains(period_page, "data-period-close-form")
+        self.assertNotContains(period_page, "return confirm(")
+
         close_response = self.client.post(
             reverse("academico:periodo_cerrar", args=[current_period.pk]),
             HTTP_HOST="localhost",
@@ -691,6 +696,51 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(assignments[1].periodo, next_period)
         self.assertEqual(assignments[1].grupo, specialization_group)
         self.assertEqual(assignments[1].estado, "activo")
+
+    def test_period_close_requires_dedicated_permission(self):
+        today = timezone.localdate()
+        period = Periodo.objects.create(
+            nombre="Periodo protegido",
+            fecha_inicio=today,
+            fecha_fin=today + timedelta(days=30),
+        )
+        self.user.user_permissions.add(
+            Permission.objects.get(codename="view_periodo", content_type__app_label="academico"),
+            Permission.objects.get(codename="change_periodo", content_type__app_label="academico"),
+        )
+        self.client.force_login(self.user)
+
+        page_without_permission = self.client.get(
+            reverse("academico:periodo_list"),
+            HTTP_HOST="localhost",
+        )
+        close_without_permission = self.client.post(
+            reverse("academico:periodo_cerrar", args=[period.pk]),
+            HTTP_HOST="localhost",
+        )
+        period.refresh_from_db()
+
+        self.assertNotContains(page_without_permission, "data-period-close-form")
+        self.assertEqual(close_without_permission.status_code, 403)
+        self.assertEqual(period.estado, "activo")
+
+        self.user.user_permissions.add(
+            Permission.objects.get(codename="close_periodo", content_type__app_label="academico")
+        )
+        self.client.force_login(self.user)
+        page_with_permission = self.client.get(
+            reverse("academico:periodo_list"),
+            HTTP_HOST="localhost",
+        )
+        close_with_permission = self.client.post(
+            reverse("academico:periodo_cerrar", args=[period.pk]),
+            HTTP_HOST="localhost",
+        )
+        period.refresh_from_db()
+
+        self.assertContains(page_with_permission, "data-period-close-form")
+        self.assertEqual(close_with_permission.status_code, 302)
+        self.assertEqual(period.estado, "cerrado")
 
     def test_group_assignment_is_default_roster_for_all_group_classes(self):
         today = timezone.localdate()

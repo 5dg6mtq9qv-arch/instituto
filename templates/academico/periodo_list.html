@@ -81,8 +81,8 @@
                 <span class="status-badge status-{{ periodo.estado }}">{{ periodo.get_estado_display }}</span>
               </td>
               <td class="text-end">
-                {% if periodo.estado == "activo" and perms.academico.change_periodo %}
-                  <form class="period-list-actions" method="post" action="{% url 'academico:periodo_cerrar' periodo.pk %}" onsubmit="return confirm('¿Cerrar este periodo? Las asignaciones activas quedaran finalizadas y se conservara su historial.');">
+                {% if periodo.estado == "activo" and perms.academico.close_periodo %}
+                  <form class="period-list-actions" method="post" action="{% url 'academico:periodo_cerrar' periodo.pk %}" data-period-close-form>
                     {% csrf_token %}
                     <button class="btn btn-outline-danger btn-sm" type="submit">
                       <i class="ri-lock-line"></i>
@@ -103,4 +103,43 @@
       </table>
     </div>
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  {% if perms.academico.close_periodo %}
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+    <script>
+      (function () {
+        document.querySelectorAll("[data-period-close-form]").forEach(function (form) {
+          form.addEventListener("submit", async function (event) {
+            event.preventDefault();
+            if (form.dataset.submitting === "true" || !window.Swal) return;
+
+            const result = await Swal.fire({
+              title: "¿Cerrar este periodo?",
+              text: "Las asignaciones activas pasarán a finalizadas y todo el historial académico se conservará.",
+              icon: "warning",
+              showCancelButton: true,
+              confirmButtonText: "Sí, cerrar periodo",
+              cancelButtonText: "Cancelar",
+              confirmButtonColor: "#dc3545",
+              cancelButtonColor: "#64748b",
+              focusCancel: true,
+              reverseButtons: true
+            });
+
+            if (!result.isConfirmed) return;
+
+            form.dataset.submitting = "true";
+            const button = form.querySelector('button[type="submit"]');
+            if (button) {
+              button.disabled = true;
+              button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Cerrando...';
+            }
+            HTMLFormElement.prototype.submit.call(form);
+          });
+        });
+      })();
+    </script>
+  {% endif %}
 {% endblock %}
