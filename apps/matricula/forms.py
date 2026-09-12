@@ -149,6 +149,18 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["fecha_proximo_pago"].help_text = (
             "Al guardar, se recalcularán las fechas de todas las cuotas según el convenio."
         )
+        self.fields["valor_proximo_pago"].help_text = (
+            "Al guardar, se actualizará el valor de todas las cuotas pendientes."
+        )
+        self.fields["valor_matricula"].widget.attrs["data-ficha-money"] = "matricula"
+        self.fields["valor_proximo_pago"].widget.attrs["data-ficha-money"] = "cuota"
+        self.fields["abono"].widget.attrs["data-ficha-money"] = "abono"
+        self.fields["numero_cuotas"].widget.attrs["data-ficha-installments"] = "true"
+        self.fields["saldo"].widget.attrs["data-ficha-balance"] = "true"
+        self.fields["saldo"].disabled = True
+        self.fields["saldo"].widget.attrs["readonly"] = "readonly"
+        self.fields["saldo"].widget.attrs["aria-readonly"] = "true"
+        self.fields["saldo"].help_text = "Se calcula automáticamente con los valores del convenio."
         if self.instance.pk and self.instance.estudiante_id:
             self.fields["estudiante_es_de_ibarra"].initial = self.instance.estudiante.es_de_ibarra
         self.payment_fields_locked = self.has_registered_payments()
@@ -176,6 +188,13 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
     def clean_valor_matricula(self):
         value = self.cleaned_data.get("valor_matricula")
         return self.initial.get("valor_matricula", Decimal("0.00")) if value is None else value
+
+    def clean_valor_proximo_pago(self):
+        value = self.cleaned_data.get("valor_proximo_pago")
+        initial = self.initial.get("valor_proximo_pago", Decimal("0.00"))
+        if value != initial and self.current_installment_count and value <= 0:
+            raise forms.ValidationError("El valor de la cuota debe ser mayor que cero.")
+        return value
 
     def clean_numero_cuotas(self):
         value = self.cleaned_data.get("numero_cuotas")
@@ -219,6 +238,15 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
         if data.get("valor_matricula") != self.initial.get("valor_matricula", Decimal("0.00")) and not self.payment_fields_locked:
             if not self.instance.pk or not PlanPago.objects.filter(ficha_inscripcion=self.instance, activo=True).exists():
                 self.add_error("valor_matricula", "La ficha necesita un plan de pago activo para modificar la matrícula.")
+        if (
+            data.get("valor_proximo_pago") != self.initial.get("valor_proximo_pago")
+            and not self.payment_fields_locked
+            and not self.installment_plan
+        ):
+            self.add_error(
+                "valor_proximo_pago",
+                "La ficha necesita un plan de pago activo para modificar el valor de las cuotas.",
+            )
         return data
 
     @transaction.atomic
@@ -227,6 +255,10 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
         cuotas = []
         valor_matricula_inicial = self.initial.get("valor_matricula", Decimal("0.00"))
         matricula_changed = self.cleaned_data["valor_matricula"] != valor_matricula_inicial
+        installment_value_changed = (
+            self.cleaned_data.get("valor_proximo_pago")
+            != self.initial.get("valor_proximo_pago")
+        )
         schedule_changed = (
             self.cleaned_data.get("fecha_proximo_pago") != self.initial.get("fecha_proximo_pago")
             or self.cleaned_data.get("forma_pago_convenio") != self.initial.get("forma_pago_convenio")
@@ -244,11 +276,18 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
                     numero=Cuota.NUMERO_MATRICULA, activo=True,
                 ).exists()
                 update_matricula = matricula_changed or missing
-                if not update_matricula and not schedule_changed and not installments_changed:
+                if (
+                    not update_matricula
+                    and not installment_value_changed
+                    and not schedule_changed
+                    and not installments_changed
+                ):
                     plan = None
             if plan:
                 cuotas = list(plan.cuotas.select_for_update())
-                if (update_matricula or schedule_changed) and plan.cuotas.filter(pagos__isnull=False).exists():
+                if (
+                    update_matricula or installment_value_changed or schedule_changed
+                ) and plan.cuotas.filter(pagos__isnull=False).exists():
                     raise forms.ValidationError("Se registraron pagos mientras editabas. Recarga la ficha antes de guardar.")
         elif commit and self.instance.pk and installments_changed:
             plan = PlanPago.objects.select_for_update().filter(ficha_inscripcion=self.instance, activo=True).first()
@@ -275,8 +314,14 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             plan.save(update_fields=["valor_matricula", "valor_total", "saldo", "estado", "updated"])
             ficha.saldo = plan.saldo
             ficha.save(update_fields=["saldo"])
-        if plan and installments_changed:
-            self.update_installments(plan, ficha, numero_cuotas, cuotas)
+        if plan and (installments_changed or installment_value_changed):
+            self.update_installments(
+                plan,
+                ficha,
+                numero_cuotas or self.current_installment_count,
+                cuotas,
+                update_values=installment_value_changed,
+            )
         if plan and schedule_changed and ficha.fecha_proximo_pago:
             for cuota in plan.cuotas.filter(numero__gt=0, activo=True):
                 if cuota.numero <= 0:
@@ -295,7 +340,14 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             estudiante.save(update_fields=["es_de_ibarra"])
         return ficha
 
-    def update_installments(self, plan, ficha, numero_cuotas, locked_installments):
+    def update_installments(
+        self,
+        plan,
+        ficha,
+        numero_cuotas,
+        locked_installments,
+        update_values=False,
+    ):
         cuotas_por_numero = {
             cuota.numero: cuota
             for cuota in locked_installments
@@ -306,9 +358,13 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             None,
         )
         valor_cuota = (
-            cuota_referencia.valor
-            if cuota_referencia
-            else self.cleaned_data.get("valor_proximo_pago") or Decimal("0.00")
+            ficha.valor_proximo_pago
+            if update_values
+            else (
+                cuota_referencia.valor
+                if cuota_referencia
+                else self.cleaned_data.get("valor_proximo_pago") or Decimal("0.00")
+            )
         )
         fecha_primera_cuota = (
             cuota_referencia.fecha_pago_debito
@@ -321,6 +377,7 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             cuota = cuotas_por_numero.get(numero)
             fecha = fecha_cuota(fecha_primera_cuota, ficha.forma_pago_convenio, numero)
             if cuota:
+                update_fields = []
                 if not cuota.activo or cuota.estado == "anulada":
                     cuota.activo = True
                     cuota.fecha_pago_debito = fecha
@@ -329,16 +386,18 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
                     cuota.estado = "pagada" if cuota.valor_pagado >= cuota.valor else (
                         "parcial" if cuota.valor_pagado > 0 else "pendiente"
                     )
+                    update_fields.extend(["activo", "fecha_pago_debito", "valor", "estado"])
+                if update_values and cuota.valor != valor_cuota:
+                    cuota.valor = valor_cuota
+                    cuota.estado = "pagada" if cuota.valor_pagado >= cuota.valor else (
+                        "parcial" if cuota.valor_pagado > 0 else "pendiente"
+                    )
+                    update_fields.extend(["valor", "estado"])
+                if update_fields:
                     cuota.usuario_updated = usuario
+                    update_fields.extend(["usuario_updated", "updated"])
                     cuota.save(
-                        update_fields=[
-                            "activo",
-                            "fecha_pago_debito",
-                            "valor",
-                            "estado",
-                            "usuario_updated",
-                            "updated",
-                        ]
+                        update_fields=list(dict.fromkeys(update_fields))
                     )
                 continue
             Cuota.objects.create(

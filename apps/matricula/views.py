@@ -125,7 +125,7 @@ class AulaUpdateView(InstitutoUpdateView):
 class FichaInscripcionListView(InstitutoListView):
     model = FichaInscripcion
     template_name = "matricula/ficha_list.html"
-    title = "Fichas de inscripcion"
+    title = "Fichas de inscripción"
     create_url_name = "matricula:matricula_proceso"
     create_label = "Matricular"
     update_url_name = "matricula:ficha_editar"
@@ -182,7 +182,7 @@ class FichaInscripcionListView(InstitutoListView):
         queryset = (
             super()
             .get_queryset()
-            .select_related("estudiante", "representante", "curso", "aula", "periodo_academico")
+            .select_related("estudiante", "cliente", "representante", "curso", "aula", "periodo_academico")
             .prefetch_related(
                 Prefetch(
                     "asignaciones_grupo",
@@ -231,8 +231,34 @@ class FichaInscripcionListView(InstitutoListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        ficha_cards = []
+        for ficha in context["object_list"]:
+            assignments = getattr(ficha, "matricula_asignaciones", ())
+            assignment = assignments[0] if assignments else None
+            group_label, classroom_label = self.get_academic_location(ficha)
+            ficha_cards.append(
+                {
+                    "ficha": ficha,
+                    "representante": ficha.representante or ficha.cliente,
+                    "group_label": group_label or "Sin grupo asignado",
+                    "classroom_label": classroom_label or "Sin aula asignada",
+                    "period_label": (
+                        assignment.periodo.nombre
+                        if assignment and assignment.periodo
+                        else str(ficha.periodo_academico or "Sin periodo")
+                    ),
+                    "career_label": ficha.carrera or ficha.curso_grado or "Sin especialización registrada",
+                    "documents_url": reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}),
+                    "edit_url": (
+                        reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk})
+                        if self.request.user.has_perm("matricula.change_fichainscripcion")
+                        else ""
+                    ),
+                }
+            )
         context.update(
             {
+                "ficha_cards": ficha_cards,
                 "estado_choices": FichaInscripcion.ESTADO_CHOICES,
                 "periodos": PeriodoAcademico.objects.order_by("-fecha_inicio", "nombre"),
                 "cursos": Curso.objects.order_by("nombre"),

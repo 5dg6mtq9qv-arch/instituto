@@ -1,60 +1,544 @@
-{% extends "web/object_list.html" %}
+{% extends "web/base.html" %}
 
-{% block list_filters %}
-  <select class="form-select enrollment-list-filter" name="estado" aria-label="Filtrar por estado">
-    <option value="">Todos los estados</option>
-    {% for value, label in estado_choices %}
-      <option value="{{ value }}"{% if request.GET.estado == value %} selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  <select class="form-select enrollment-list-filter" name="periodo" aria-label="Filtrar por período académico">
-    <option value="">Todos los períodos</option>
-    {% for periodo in periodos %}
-      <option value="{{ periodo.pk }}"{% if request.GET.periodo == periodo.pk|stringformat:"s" %} selected{% endif %}>{{ periodo }}</option>
-    {% endfor %}
-  </select>
-  <select class="form-select enrollment-list-filter" name="curso" aria-label="Filtrar por curso">
-    <option value="">Todos los cursos</option>
-    {% for curso in cursos %}
-      <option value="{{ curso.pk }}"{% if request.GET.curso == curso.pk|stringformat:"s" %} selected{% endif %}>{{ curso }}</option>
-    {% endfor %}
-  </select>
-  <select class="form-select enrollment-list-filter" name="aula" aria-label="Filtrar por aula">
-    <option value="">Todas las aulas</option>
-    {% for aula in aulas %}
-      <option value="{{ aula.pk }}"{% if request.GET.aula == aula.pk|stringformat:"s" %} selected{% endif %}>{{ aula.periodo_academico }} · {{ aula }}</option>
-    {% endfor %}
-  </select>
-  {% if request.GET %}
-    <a class="btn btn-outline-secondary enrollment-list-clear" href="{% url 'matricula:ficha_list' %}">Limpiar</a>
-  {% endif %}
-{% endblock %}
+{% block title %}{{ title }} | Instituto{% endblock %}
 
-{% block extra_scripts %}
+{% block extra_head %}
   <style>
-    .list-toolbar {
-      flex-wrap: wrap;
+    .enrollment-filter-panel {
+      margin-bottom: 18px;
+      padding: 18px;
+    }
+
+    .enrollment-list-toolbar {
+      align-items: center;
+      display: grid;
+      gap: 10px;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .enrollment-list-search {
+      align-items: center;
+      border: 1px solid var(--instituto-line);
+      border-radius: 10px;
+      display: flex;
+      gap: 10px;
+      grid-column: 1;
+      grid-row: 1;
+      min-height: 44px;
+      padding: 0 14px;
+    }
+
+    .enrollment-list-search:focus-within {
+      border-color: var(--primary-500);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .1);
+    }
+
+    .enrollment-list-search i {
+      color: var(--instituto-muted);
+      font-size: 19px;
+    }
+
+    .enrollment-list-search input {
+      background: transparent;
+      border: 0;
+      color: var(--instituto-ink);
+      min-width: 0;
+      outline: 0;
+      width: 100%;
+    }
+
+    .enrollment-list-filter,
+    .enrollment-toolbar-actions .btn {
+      min-height: 44px;
+    }
+
+    .enrollment-filter-grid {
+      display: grid;
+      gap: 10px;
+      grid-column: 1 / -1;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .enrollment-filter-control {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .enrollment-filter-control > span {
+      color: var(--instituto-muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      padding-left: 2px;
+      text-transform: uppercase;
     }
 
     .enrollment-list-filter {
-      flex: 1 1 155px;
-      max-width: 220px;
-      min-height: 44px;
+      min-width: 0;
+      width: 100%;
     }
 
-    .enrollment-list-clear {
-      min-height: 44px;
+    .enrollment-toolbar-actions {
+      display: flex;
+      gap: 8px;
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .enrollment-toolbar-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      padding-left: 16px;
+      padding-right: 16px;
+      white-space: nowrap;
+    }
+
+    .enrollment-result-panel {
+      padding: 0;
+    }
+
+    .enrollment-result-header {
+      align-items: center;
+      border-bottom: 1px solid var(--instituto-line);
+      display: flex;
+      justify-content: space-between;
+      padding: 18px 20px;
+    }
+
+    .enrollment-result-header span {
+      color: var(--primary-600);
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .06em;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+    }
+
+    .enrollment-result-header h2 {
+      color: var(--instituto-ink);
+      font-size: 20px;
+      margin: 0;
+    }
+
+    .enrollment-result-count {
+      background: var(--neutral-100);
+      border-radius: 999px;
+      color: var(--instituto-muted);
+      font-size: 13px;
+      font-weight: 800;
+      padding: 8px 12px;
+    }
+
+    .enrollment-card-list {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+    }
+
+    .enrollment-card {
+      background: #fff;
+      border: 1px solid var(--instituto-line);
+      border-left: 4px solid var(--primary-500);
+      border-radius: 12px;
+      box-shadow: 0 5px 18px rgba(15, 23, 42, .04);
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(240px, 1.15fr) minmax(300px, 1.65fr) auto;
+      padding: 17px;
+      transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+    }
+
+    .enrollment-card:hover {
+      border-color: rgba(37, 99, 235, .32);
+      box-shadow: 0 10px 26px rgba(15, 23, 42, .08);
+      transform: translateY(-1px);
+    }
+
+    .enrollment-card.status-retirada,
+    .enrollment-card.status-anulada {
+      border-left-color: var(--danger-500);
+    }
+
+    .enrollment-card.status-borrador {
+      border-left-color: var(--warning-500);
+    }
+
+    .enrollment-card.status-finalizada {
+      border-left-color: var(--success-500);
+    }
+
+    .enrollment-card-student {
+      align-items: center;
+      display: flex;
+      gap: 13px;
+      min-width: 0;
+    }
+
+    .enrollment-card-avatar {
+      align-items: center;
+      background: var(--primary-50);
+      border-radius: 12px;
+      color: var(--primary-600);
+      display: inline-flex;
+      flex: 0 0 48px;
+      font-size: 24px;
+      height: 48px;
+      justify-content: center;
+    }
+
+    .enrollment-card-identity {
+      min-width: 0;
+    }
+
+    .enrollment-card-identity h3 {
+      color: var(--instituto-ink);
+      font-size: 17px;
+      margin: 0 0 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .enrollment-card-identity p,
+    .enrollment-card-identity small {
+      color: var(--instituto-muted);
+      display: block;
+      margin: 0;
+    }
+
+    .enrollment-card-identity p {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .enrollment-card-identity small {
+      font-size: 12px;
+      margin-top: 3px;
+    }
+
+    .enrollment-card-data {
+      display: grid;
+      gap: 9px;
+      grid-template-columns: minmax(190px, 1.4fr) minmax(120px, .8fr) minmax(115px, .65fr);
+      min-width: 0;
+    }
+
+    .enrollment-card-field {
+      background: #f8fafc;
+      border: 1px solid #e7edf4;
+      border-radius: 9px;
+      min-width: 0;
+      padding: 10px 11px;
+    }
+
+    .enrollment-card-field span {
+      color: var(--instituto-muted);
+      display: block;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      margin-bottom: 3px;
+      text-transform: uppercase;
+    }
+
+    .enrollment-card-field strong {
+      color: var(--instituto-ink);
+      display: block;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .enrollment-card-location {
+      grid-row: span 2;
+    }
+
+    .enrollment-card-location strong {
+      white-space: normal;
+    }
+
+    .enrollment-classroom {
+      color: var(--primary-700) !important;
+      margin-top: 5px;
+    }
+
+    .enrollment-card-actions {
+      align-content: center;
+      display: grid;
+      gap: 8px;
+      min-width: 132px;
+    }
+
+    .enrollment-card-actions .status-badge {
+      justify-self: end;
+      margin-bottom: 2px;
+    }
+
+    .enrollment-card-actions .btn {
+      align-items: center;
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      white-space: nowrap;
+    }
+
+    .enrollment-empty {
+      color: var(--instituto-muted);
+      padding: 50px 20px;
+      text-align: center;
+    }
+
+    .enrollment-empty i {
+      color: var(--primary-300);
+      display: block;
+      font-size: 42px;
+      margin-bottom: 8px;
+    }
+
+    .enrollment-result-panel .list-pagination {
+      border-top: 1px solid var(--instituto-line);
+      margin: 0;
+    }
+
+    [data-theme="dark"] .enrollment-card {
+      background: #1f2937;
+      border-color: #374151;
+    }
+
+    [data-theme="dark"] .enrollment-card-field {
+      background: #111827;
+      border-color: #374151;
+    }
+
+    [data-theme="dark"] .enrollment-card-identity h3,
+    [data-theme="dark"] .enrollment-card-field strong {
+      color: #f9fafb;
+    }
+
+    [data-theme="dark"] .enrollment-list-search,
+    [data-theme="dark"] .enrollment-result-header,
+    [data-theme="dark"] .enrollment-result-panel .list-pagination {
+      border-color: #374151;
+    }
+
+    @media (max-width: 1199px) {
+      .enrollment-card {
+        grid-template-columns: 1fr auto;
+      }
+
+      .enrollment-card-data {
+        grid-column: 1 / -1;
+        grid-row: 2;
+      }
+
+      .enrollment-card-actions {
+        grid-column: 2;
+        grid-row: 1;
+      }
+    }
+
+    @media (max-width: 991px) {
+      .enrollment-filter-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     @media (max-width: 767px) {
-      .list-search,
-      .enrollment-list-filter,
-      .enrollment-list-clear,
-      .list-search-btn {
-        flex-basis: 100%;
-        max-width: none;
-        width: 100%;
+      .enrollment-list-toolbar,
+      .enrollment-card,
+      .enrollment-card-data {
+        grid-template-columns: 1fr;
+      }
+
+      .enrollment-list-search,
+      .enrollment-filter-grid,
+      .enrollment-toolbar-actions,
+      .enrollment-card-data,
+      .enrollment-card-actions {
+        grid-column: 1;
+      }
+
+      .enrollment-list-search,
+      .enrollment-toolbar-actions {
+        grid-row: auto;
+      }
+
+      .enrollment-filter-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .enrollment-toolbar-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .enrollment-card-actions {
+        grid-row: auto;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .enrollment-card-actions .status-badge {
+        grid-column: 1 / -1;
+        justify-self: start;
+      }
+
+      .enrollment-card-location {
+        grid-row: auto;
+      }
+
+      .enrollment-result-header {
+        align-items: flex-start;
+        gap: 10px;
       }
     }
   </style>
+{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Matrícula</p>
+      <h1>{{ title }}</h1>
+    </div>
+    {% if create_url_name %}
+      <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
+        <i class="ri-user-add-line"></i>
+        <span>{{ create_label }}</span>
+      </a>
+    {% endif %}
+  </header>
+
+  <section class="panel enrollment-filter-panel">
+    <form class="enrollment-list-toolbar" method="get">
+      <div class="enrollment-list-search">
+        <i class="ri-search-line"></i>
+        <input type="search" name="q" value="{{ request.GET.q }}" placeholder="{{ search_placeholder }}">
+      </div>
+      <div class="enrollment-toolbar-actions">
+        <button class="btn btn-primary-600" type="submit">
+          <i class="ri-search-line"></i>
+          Buscar
+        </button>
+        {% if request.GET %}
+          <a class="btn btn-outline-secondary" href="{% url 'matricula:ficha_list' %}">Limpiar</a>
+        {% endif %}
+      </div>
+      <div class="enrollment-filter-grid">
+        <label class="enrollment-filter-control">
+          <span>Estado</span>
+          <select class="form-select enrollment-list-filter" name="estado">
+            <option value="">Todos los estados</option>
+            {% for value, label in estado_choices %}
+              <option value="{{ value }}"{% if request.GET.estado == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="enrollment-filter-control">
+          <span>Período académico</span>
+          <select class="form-select enrollment-list-filter" name="periodo">
+            <option value="">Todos los períodos</option>
+            {% for periodo in periodos %}
+              <option value="{{ periodo.pk }}"{% if request.GET.periodo == periodo.pk|stringformat:"s" %} selected{% endif %}>{{ periodo }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="enrollment-filter-control">
+          <span>Curso</span>
+          <select class="form-select enrollment-list-filter" name="curso">
+            <option value="">Todos los cursos</option>
+            {% for curso in cursos %}
+              <option value="{{ curso.pk }}"{% if request.GET.curso == curso.pk|stringformat:"s" %} selected{% endif %}>{{ curso }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="enrollment-filter-control">
+          <span>Aula</span>
+          <select class="form-select enrollment-list-filter" name="aula">
+            <option value="">Todas las aulas</option>
+            {% for aula in aulas %}
+              <option value="{{ aula.pk }}"{% if request.GET.aula == aula.pk|stringformat:"s" %} selected{% endif %}>{{ aula.periodo_academico }} · {{ aula }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel enrollment-result-panel">
+    <header class="enrollment-result-header">
+      <div>
+        <span>Registros</span>
+        <h2>Alumnos matriculados</h2>
+      </div>
+      <strong class="enrollment-result-count">{{ paginator.count }} ficha(s)</strong>
+    </header>
+
+    {% if ficha_cards %}
+      <div class="enrollment-card-list" data-enrollment-card-list>
+        {% for card in ficha_cards %}
+          <article class="enrollment-card status-{{ card.ficha.estado }}" data-enrollment-card>
+            <div class="enrollment-card-student">
+              <span class="enrollment-card-avatar"><i class="ri-graduation-cap-line"></i></span>
+              <div class="enrollment-card-identity">
+                <h3>{{ card.ficha.estudiante }}</h3>
+                <p>Ficha {{ card.ficha.numero }} · {{ card.ficha.fecha|date:"d/m/Y" }}</p>
+                <small>{% if card.ficha.estudiante.identificacion %}C.I. {{ card.ficha.estudiante.identificacion }}{% else %}Sin identificación{% endif %}</small>
+              </div>
+            </div>
+
+            <div class="enrollment-card-data">
+              <div class="enrollment-card-field enrollment-card-location">
+                <span>Ubicación académica</span>
+                <strong>{{ card.group_label }}</strong>
+                <strong class="enrollment-classroom"><i class="ri-map-pin-line"></i> {{ card.classroom_label }}</strong>
+              </div>
+              <div class="enrollment-card-field">
+                <span>Periodo</span>
+                <strong>{{ card.period_label }}</strong>
+              </div>
+              <div class="enrollment-card-field">
+                <span>Saldo</span>
+                <strong>${{ card.ficha.saldo|floatformat:2 }}</strong>
+              </div>
+              <div class="enrollment-card-field">
+                <span>Representante</span>
+                <strong>{{ card.representante|default:"Sin representante" }}</strong>
+              </div>
+              <div class="enrollment-card-field">
+                <span>Carrera / nivel</span>
+                <strong>{{ card.career_label }}</strong>
+              </div>
+            </div>
+
+            <div class="enrollment-card-actions">
+              <span class="status-badge status-{{ card.ficha.estado }}">{{ card.ficha.get_estado_display }}</span>
+              <a class="btn btn-primary-600 btn-sm" href="{{ card.documents_url }}">
+                <i class="ri-file-list-3-line"></i>
+                Documentos
+              </a>
+              {% if card.edit_url %}
+                <a class="btn btn-outline-primary btn-sm" href="{{ card.edit_url }}">
+                  <i class="ri-edit-line"></i>
+                  Editar
+                </a>
+              {% endif %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="enrollment-empty">
+        <i class="ri-file-search-line"></i>
+        <strong>No se encontraron fichas</strong>
+        <p class="mb-0">Prueba con otros filtros o registra una nueva matrícula.</p>
+      </div>
+    {% endif %}
+
+    {% include "web/includes/list_pagination.html" %}
+  </section>
 {% endblock %}

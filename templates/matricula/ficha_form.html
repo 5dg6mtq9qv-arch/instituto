@@ -41,7 +41,7 @@
       </div>
       <div class="ficha-edit-total">
         <span>Restante</span>
-        <strong>${{ object.saldo|default:"0.00" }}</strong>
+        <strong data-ficha-balance-summary>${{ object.saldo|default:"0.00" }}</strong>
       </div>
     </section>
 
@@ -92,7 +92,11 @@
         </div>
       </div>
 
-      <div class="panel ficha-edit-section">
+      <div
+        class="panel ficha-edit-section"
+        data-ficha-payment-section
+        data-ficha-discount="{{ object.descuento|stringformat:'f' }}"
+      >
         <div class="section-heading">
           <h2>Convenio</h2>
         </div>
@@ -169,6 +173,46 @@
             size: "small"
           });
         });
+      }
+
+      const paymentSection = document.querySelector("[data-ficha-payment-section]");
+      if (paymentSection) {
+        const matriculaInput = paymentSection.querySelector("[data-ficha-money='matricula']");
+        const cuotaInput = paymentSection.querySelector("[data-ficha-money='cuota']");
+        const abonoInput = paymentSection.querySelector("[data-ficha-money='abono']");
+        const installmentsInput = paymentSection.querySelector("[data-ficha-installments]");
+        const balanceInput = paymentSection.querySelector("[data-ficha-balance]");
+        const balanceSummary = document.querySelector("[data-ficha-balance-summary]");
+        const discount = moneyValue(paymentSection.dataset.fichaDiscount);
+        const formatter = new Intl.NumberFormat("es-EC", {style: "currency", currency: "USD"});
+
+        function moneyValue(value) {
+          const number = Number(String(value || "0").replace(",", "."));
+          return Number.isFinite(number) ? number : 0;
+        }
+
+        function inputMoneyValue(input) {
+          return input ? moneyValue(input.value) : 0;
+        }
+
+        function syncBalance() {
+          if (!balanceInput) return;
+          const installments = Math.max(parseInt(installmentsInput ? installmentsInput.value : "0", 10) || 0, 0);
+          const balance = Math.max(
+            inputMoneyValue(matriculaInput)
+              + inputMoneyValue(cuotaInput) * installments
+              - inputMoneyValue(abonoInput)
+              - discount,
+            0
+          );
+          balanceInput.value = balance.toFixed(2);
+          if (balanceSummary) balanceSummary.textContent = formatter.format(balance);
+        }
+
+        [matriculaInput, cuotaInput, abonoInput, installmentsInput].forEach(function (input) {
+          if (input) input.addEventListener("input", syncBalance);
+        });
+        syncBalance();
       }
     });
   </script>

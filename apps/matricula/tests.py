@@ -624,6 +624,68 @@ class MatriculaProcesoTests(TestCase):
         fechas = list(plan.cuotas.order_by("numero").values_list("fecha_pago_debito", flat=True))
         self.assertEqual(fechas, [date(2026, 10, 5), date(2026, 10, 20), date(2026, 11, 4)])
 
+    def test_ficha_edit_updates_installment_values_and_financial_totals(self):
+        from django.forms.models import model_to_dict
+
+        estudiante = self.create_partner("1002003093", "Alumno Nuevo Valor", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000193",
+            fecha=date(2026, 8, 28),
+            cliente=estudiante,
+            estudiante=estudiante,
+            forma_pago_convenio="mensual",
+            fecha_proximo_pago=date(2026, 9, 5),
+            valor_proximo_pago=Decimal("80.00"),
+            valor_total_curso=Decimal("480.00"),
+            valor_matricula=Decimal("75.00"),
+            descuento=Decimal("24.00"),
+            saldo=Decimal("531.00"),
+            estado="activa",
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("555.00"),
+            valor_matricula=Decimal("75.00"),
+            descuento=Decimal("24.00"),
+            saldo=Decimal("531.00"),
+        )
+        matricula = Cuota.objects.create(
+            plan_pago=plan,
+            numero=Cuota.NUMERO_MATRICULA,
+            fecha_pago_debito=ficha.fecha,
+            valor=Decimal("75.00"),
+        )
+        for numero in range(1, 7):
+            Cuota.objects.create(
+                plan_pago=plan,
+                numero=numero,
+                fecha_pago_debito=date(2026, 8 + numero, 5) if numero < 5 else date(2027, numero - 4, 5),
+                valor=Decimal("80.00"),
+            )
+
+        data = model_to_dict(ficha)
+        data["valor_proximo_pago"] = "90.00"
+        form = FichaInscripcionForm(data=data, instance=ficha)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        ficha.refresh_from_db()
+        plan.refresh_from_db()
+        self.assertEqual(
+            list(plan.cuotas.filter(numero__gt=0).values_list("valor", flat=True)),
+            [Decimal("90.00")] * 6,
+        )
+        self.assertEqual(ficha.valor_proximo_pago, Decimal("90.00"))
+        self.assertEqual(ficha.valor_total_curso, Decimal("540.00"))
+        self.assertEqual(ficha.saldo, Decimal("591.00"))
+        self.assertEqual(plan.valor_total, Decimal("615.00"))
+        self.assertEqual(plan.saldo, Decimal("591.00"))
+        matricula.refresh_from_db()
+        self.assertEqual(matricula.valor, Decimal("75.00"))
+
     def test_ficha_edit_increases_installments_and_recalculates_totals(self):
         from django.forms.models import model_to_dict
 
@@ -878,6 +940,8 @@ class MatriculaProcesoTests(TestCase):
         response = self.client.get(reverse("matricula:ficha_list"), HTTP_HOST="localhost")
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "data-enrollment-card-list")
+        self.assertContains(response, "Ubicación académica")
         self.assertContains(response, reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}))
         self.assertContains(response, reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk}))
 
