@@ -219,6 +219,7 @@ class FichaInscripcionUpdateView(InstitutoUpdateView):
         except ValidationError as exc:
             form.add_error(None, exc)
             return self.form_invalid(form)
+            return self.form_invalid(form)
 
     def get_success_url(self):
         return reverse("matricula:ficha_documentos", kwargs={"pk": self.object.pk})

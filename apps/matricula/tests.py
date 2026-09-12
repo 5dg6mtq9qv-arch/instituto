@@ -468,6 +468,66 @@ class MatriculaProcesoTests(TestCase):
         for field_name in ["forma_pago_convenio", "fecha_proximo_pago", "valor_proximo_pago", "valor_matricula", "abono", "saldo"]:
             self.assertTrue(form.fields[field_name].disabled)
 
+    def test_ficha_edit_can_add_an_installment_when_previous_payments_exist(self):
+        from django.forms.models import model_to_dict
+
+        estudiante = self.create_partner("1002003016", "Alumno Con Abono", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000103",
+            fecha=date(2026, 8, 28),
+            cliente=estudiante,
+            estudiante=estudiante,
+            forma_pago_convenio="mensual",
+            fecha_proximo_pago=date(2026, 9, 1),
+            valor_proximo_pago=Decimal("80.00"),
+            valor_total_curso=Decimal("100.00"),
+            abono=Decimal("20.00"),
+            saldo=Decimal("80.00"),
+            estado="activa",
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("100.00"),
+            abono=Decimal("20.00"),
+            saldo=Decimal("80.00"),
+        )
+        cuota = Cuota.objects.create(
+            plan_pago=plan,
+            numero=1,
+            fecha_pago_debito=date(2026, 9, 1),
+            valor=Decimal("100.00"),
+            valor_pagado=Decimal("20.00"),
+            estado="parcial",
+        )
+        Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota,
+            forma_pago=self.forma_pago,
+            fecha_registro=timezone.now(),
+            valor=Decimal("20.00"),
+            numero_documento="REC-ADD-CUOTA",
+            usuario=self.user,
+        )
+
+        data = model_to_dict(ficha)
+        data["numero_cuotas"] = "2"
+        form = FichaInscripcionForm(data=data, instance=ficha)
+
+        self.assertFalse(form.fields["numero_cuotas"].disabled)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        ficha.refresh_from_db()
+        plan.refresh_from_db()
+        nueva_cuota = plan.cuotas.get(numero=2)
+        self.assertEqual(nueva_cuota.valor, Decimal("100.00"))
+        self.assertEqual(nueva_cuota.fecha_pago_debito, date(2026, 10, 1))
+        self.assertEqual(plan.valor_total, Decimal("200.00"))
+        self.assertEqual(plan.saldo, Decimal("180.00"))
+        self.assertEqual(ficha.saldo, Decimal("180.00"))
+
     def test_ficha_edit_recalculates_all_installment_dates_from_first_date(self):
         from django.forms.models import model_to_dict
 
@@ -559,6 +619,159 @@ class MatriculaProcesoTests(TestCase):
 
         fechas = list(plan.cuotas.order_by("numero").values_list("fecha_pago_debito", flat=True))
         self.assertEqual(fechas, [date(2026, 10, 5), date(2026, 10, 20), date(2026, 11, 4)])
+
+    def test_ficha_edit_increases_installments_and_recalculates_totals(self):
+        from django.forms.models import model_to_dict
+
+        estudiante = self.create_partner("1002003094", "Alumno Tres Cuotas", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000194",
+            fecha=date(2026, 8, 28),
+            cliente=estudiante,
+            estudiante=estudiante,
+            forma_pago_convenio="mensual",
+            fecha_proximo_pago=date(2026, 9, 1),
+            valor_proximo_pago=Decimal("50.00"),
+            valor_total_curso=Decimal("100.00"),
+            saldo=Decimal("100.00"),
+            estado="activa",
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("100.00"),
+            saldo=Decimal("100.00"),
+        )
+        for numero in range(1, 3):
+            Cuota.objects.create(
+                plan_pago=plan,
+                numero=numero,
+                fecha_pago_debito=date(2026, 8 + numero, 1),
+                valor=Decimal("50.00"),
+            )
+
+        form = FichaInscripcionForm(instance=ficha)
+        self.assertEqual(form.initial["numero_cuotas"], 2)
+
+        data = model_to_dict(ficha)
+        data["numero_cuotas"] = "3"
+        form = FichaInscripcionForm(data=data, instance=ficha)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        ficha.refresh_from_db()
+        plan.refresh_from_db()
+        cuota_tres = plan.cuotas.get(numero=3)
+        self.assertEqual(cuota_tres.fecha_pago_debito, date(2026, 11, 1))
+        self.assertEqual(cuota_tres.valor, Decimal("50.00"))
+        self.assertTrue(cuota_tres.activo)
+        self.assertEqual(plan.valor_total, Decimal("150.00"))
+        self.assertEqual(plan.saldo, Decimal("150.00"))
+        self.assertEqual(ficha.valor_total_curso, Decimal("150.00"))
+        self.assertEqual(ficha.saldo, Decimal("150.00"))
+
+    def test_ficha_edit_reduces_only_unpaid_installments_and_keeps_history(self):
+        from django.forms.models import model_to_dict
+
+        estudiante = self.create_partner("1002003095", "Alumno Dos Cuotas", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000195",
+            fecha=date(2026, 8, 28),
+            cliente=estudiante,
+            estudiante=estudiante,
+            forma_pago_convenio="mensual",
+            fecha_proximo_pago=date(2026, 9, 1),
+            valor_proximo_pago=Decimal("50.00"),
+            valor_total_curso=Decimal("150.00"),
+            saldo=Decimal("150.00"),
+            estado="activa",
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("150.00"),
+            saldo=Decimal("150.00"),
+        )
+        for numero in range(1, 4):
+            Cuota.objects.create(
+                plan_pago=plan,
+                numero=numero,
+                fecha_pago_debito=date(2026, 8 + numero, 1),
+                valor=Decimal("50.00"),
+            )
+
+        data = model_to_dict(ficha)
+        data["numero_cuotas"] = "2"
+        form = FichaInscripcionForm(data=data, instance=ficha)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        ficha.refresh_from_db()
+        plan.refresh_from_db()
+        cuota_tres = plan.cuotas.get(numero=3)
+        self.assertFalse(cuota_tres.activo)
+        self.assertEqual(cuota_tres.estado, "anulada")
+        self.assertEqual(plan.valor_total, Decimal("100.00"))
+        self.assertEqual(plan.saldo, Decimal("100.00"))
+        self.assertEqual(ficha.valor_total_curso, Decimal("100.00"))
+        self.assertEqual(ficha.saldo, Decimal("100.00"))
+
+    def test_ficha_edit_rejects_reducing_an_installment_with_payments(self):
+        from django.forms.models import model_to_dict
+
+        estudiante = self.create_partner("1002003096", "Alumno Cuota Pagada", es_estudiante=True)
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000196",
+            fecha=date(2026, 8, 28),
+            cliente=estudiante,
+            estudiante=estudiante,
+            forma_pago_convenio="mensual",
+            fecha_proximo_pago=date(2026, 9, 1),
+            valor_proximo_pago=Decimal("50.00"),
+            valor_total_curso=Decimal("150.00"),
+            abono=Decimal("20.00"),
+            saldo=Decimal("130.00"),
+            estado="activa",
+        )
+        plan = PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=ficha,
+            valor_total=Decimal("150.00"),
+            abono=Decimal("20.00"),
+            saldo=Decimal("130.00"),
+        )
+        for numero in range(1, 4):
+            cuota = Cuota.objects.create(
+                plan_pago=plan,
+                numero=numero,
+                fecha_pago_debito=date(2026, 8 + numero, 1),
+                valor=Decimal("50.00"),
+                valor_pagado=Decimal("20.00") if numero == 3 else Decimal("0.00"),
+                estado="parcial" if numero == 3 else "pendiente",
+            )
+            if numero == 3:
+                Pago.objects.create(
+                    empresa=self.empresa,
+                    cuota=cuota,
+                    forma_pago=self.forma_pago,
+                    fecha_registro=timezone.now(),
+                    valor=Decimal("20.00"),
+                    numero_documento="REC-CUOTA-3",
+                    usuario=self.user,
+                )
+
+        data = model_to_dict(ficha)
+        data["numero_cuotas"] = "2"
+        form = FichaInscripcionForm(data=data, instance=ficha)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("pagos registrados", form.errors["numero_cuotas"][0])
+        self.assertFalse(form.fields["numero_cuotas"].disabled)
 
     def test_ficha_edit_creates_and_updates_matricula_without_duplicates(self):
         from django.forms.models import model_to_dict
