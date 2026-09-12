@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Prefetch, Q, Sum
 from django.contrib import messages
@@ -23,6 +24,25 @@ from .forms import (
     prepare_pago_comprobante_file,
 )
 from .models import Cuota, FormaPago, Pago, PlanPago
+
+
+def get_academic_assignment(ficha):
+    try:
+        assignment = ficha.asignacion_grupo
+    except ObjectDoesNotExist:
+        return None
+    if assignment.estado != "activo":
+        return None
+    classroom_names = []
+    for classroom_assignment in assignment.grupo.aula_cursos.all():
+        classroom_name = str(classroom_assignment.aula)
+        if classroom_name not in classroom_names:
+            classroom_names.append(classroom_name)
+    return {
+        "group": assignment.grupo,
+        "classrooms": classroom_names,
+        "classrooms_label": ", ".join(classroom_names),
+    }
 
 
 class AlumnoCarteraListView(InstitutoListView):
@@ -63,8 +83,18 @@ class AlumnoCarteraListView(InstitutoListView):
         if self.can_view_financial_summary():
             cuotas = cuotas.prefetch_related("pagos")
         return (
-            FichaInscripcion.objects.select_related("estudiante", "cliente", "representante", "aula", "plan_pago")
-            .prefetch_related(Prefetch("plan_pago__cuotas", queryset=cuotas))
+            FichaInscripcion.objects.select_related(
+                "estudiante",
+                "cliente",
+                "representante",
+                "aula",
+                "plan_pago",
+                "asignacion_grupo__grupo",
+            )
+            .prefetch_related(
+                Prefetch("plan_pago__cuotas", queryset=cuotas),
+                "asignacion_grupo__grupo__aula_cursos__aula",
+            )
             .filter(plan_pago__isnull=False, activo=True)
             .order_by("estudiante__nombre")
         )
@@ -74,7 +104,9 @@ class AlumnoCarteraListView(InstitutoListView):
             "estudiante__nombre", "estudiante__apellido", "estudiante__identificacion",
             "estudiante__email", "estudiante__telefono", "estudiante__telefono_celular",
             "estudiante__direccion", "estudiante__ocupacion", "estudiante__comentario",
-            "numero", "aula__nombre", "correo_estudiante", "colegio", "curso_grado",
+            "numero", "aula__nombre", "asignacion_grupo__grupo__nombre",
+            "asignacion_grupo__grupo__aula_cursos__aula__nombre",
+            "correo_estudiante", "colegio", "curso_grado",
             "carrera", "universidad", "horario",
             "cliente__nombre", "cliente__apellido", "cliente__identificacion",
             "representante__nombre", "representante__apellido", "representante__identificacion",
@@ -84,7 +116,7 @@ class AlumnoCarteraListView(InstitutoListView):
             for field in fields:
                 matches |= Q(**{f"{field}__icontains": term})
             queryset = queryset.filter(matches)
-        return queryset
+        return queryset.distinct()
 
     def get_selected_estado(self):
         selected = self.request.GET.get("estado", "todos")
@@ -189,6 +221,7 @@ class AlumnoCarteraListView(InstitutoListView):
                 status_label = "Pendiente"
             card = {
                 "ficha": ficha,
+                "academic_assignment": get_academic_assignment(ficha),
                 "status_key": status_key,
                 "status_label": status_label,
                 "representante": ficha.representante or ficha.cliente,
@@ -260,7 +293,13 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
 
     def get_ficha(self, pk):
         return get_object_or_404(
-            FichaInscripcion.objects.select_related("estudiante", "aula", "plan_pago", "empresa"),
+            FichaInscripcion.objects.select_related(
+                "estudiante",
+                "aula",
+                "plan_pago",
+                "empresa",
+                "asignacion_grupo__grupo",
+            ).prefetch_related("asignacion_grupo__grupo__aula_cursos__aula"),
             pk=pk,
             plan_pago__isnull=False,
         )
@@ -307,6 +346,7 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         return {
             "title": "Pagos pendientes",
             "ficha": ficha,
+            "academic_assignment": get_academic_assignment(ficha),
             "cuotas": cuotas,
             "cuota_items": cuota_items,
             "form": form,
