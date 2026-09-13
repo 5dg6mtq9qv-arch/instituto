@@ -1,14 +1,18 @@
 import json
+import os
 import shutil
 import tempfile
+from importlib import import_module
 from datetime import timedelta, time
 from decimal import Decimal
 from io import BytesIO
 
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -21,6 +25,7 @@ from apps.academico.models import (
     ClaseAsistencia,
     ClaseEstudianteMovimiento,
     ClaseHoraDocente,
+    ClaseRecurso,
     Competencia,
     Curso,
     CursoPeriodo,
@@ -56,7 +61,10 @@ class DocenteHorariosPanelTests(TestCase):
     def setUp(self):
         set_current_request(None)
         self.media_root = tempfile.mkdtemp()
-        self.media_override = override_settings(MEDIA_ROOT=self.media_root)
+        self.media_override = override_settings(
+            MEDIA_ROOT=self.media_root,
+            PRIVATE_MEDIA_ROOT=os.path.join(self.media_root, "private"),
+        )
         self.media_override.enable()
         self.user = get_user_model().objects.create_user(username="docente", password="ClaveActual987!")
         self.empresa = Empresa.objects.create(ruc="0999999999001", razon_social="Instituto Prueba")
@@ -3332,6 +3340,8 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(self.pendiente.estado_planificacion, "revision")
         self.assertIn(recurso, self.pendiente.recursos.all())
         self.assertTrue(clase_recurso.archivo.name.endswith(".pdf"))
+        self.assertIn(f"bolsa_recursos/materia_{self.materia.pk}/", clase_recurso.archivo.name)
+        self.assertTrue(clase_recurso.archivo.path.startswith(os.path.join(self.media_root, "private")))
 
         response = self.client.get(
             reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
@@ -3341,6 +3351,125 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "teacher-file-current")
         self.assertContains(response, "file-kind-pdf")
         self.assertContains(response, "ri-file-pdf-line")
+
+    def test_bolsa_recursos_requires_group_permission(self):
+        archivo = ClaseRecurso.objects.create(
+            clase=self.pendiente,
+            recurso=self.recurso,
+            archivo=SimpleUploadedFile("guia-sumas.pdf", b"sumas", content_type="application/pdf"),
+        )
+        same_subject_user = get_user_model().objects.create_user(username="docente_mate", password="ClaveActual987!")
+        Partner.objects.create(
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion="DOC-002",
+            nombre="Otro docente de matemáticas",
+            usuario=same_subject_user,
+            es_docente=True,
+            activo=True,
+        )
+        permission = Permission.objects.get(
+            codename="access_bolsa_recursos", content_type__app_label="academico"
+        )
+        self.assertFalse(Group.objects.filter(permissions=permission).exists())
+
+        self.client.force_login(same_subject_user)
+        bag_url = reverse("academico:docente_bolsa_recursos")
+        file_url = reverse("academico:docente_bolsa_recurso_archivo", args=[archivo.pk])
+        response = self.client.get(bag_url, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.client.get(file_url, HTTP_HOST="localhost").status_code, 404)
+
+        group = Group.objects.create(name="Acceso a recursos")
+        group.permissions.add(permission)
+        same_subject_user.groups.add(group)
+        self.client.force_login(same_subject_user)
+        response = self.client.get(bag_url, HTTP_HOST="localhost")
+        self.assertContains(response, "Selecciona una materia para ver su bolsa de recursos")
+        self.assertContains(response, bag_url)
+        self.assertNotContains(response, "guia-sumas.pdf")
+        response = self.client.get(
+            bag_url,
+            {"materia": self.materia.pk},
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(response, "guia-sumas.pdf")
+        self.assertContains(response, "Pizarra")
+        download = self.client.get(
+            file_url,
+            {"descargar": "1"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(download.status_code, 200)
+        self.assertIn("attachment", download["Content-Disposition"])
+        self.assertEqual(b"".join(download.streaming_content), b"sumas")
+
+        non_teacher = get_user_model().objects.create_user(username="no_docente")
+        non_teacher.groups.add(group)
+        self.client.force_login(non_teacher)
+        response = self.client.get(
+            bag_url,
+            {"materia": self.materia.pk},
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(response, "guia-sumas.pdf")
+        download = self.client.get(file_url, HTTP_HOST="localhost")
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(b"".join(download.streaming_content), b"sumas")
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(bag_url, HTTP_HOST="localhost").status_code, 403)
+        planning = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+        self.assertNotContains(planning, f'href="{bag_url}?materia=')
+        download = self.client.get(file_url, HTTP_HOST="localhost")
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(b"".join(download.streaming_content), b"sumas")
+
+    def test_bolsa_recursos_can_open_existing_legacy_file(self):
+        legacy_name = "academico/clase_recursos/guia-antigua.pdf"
+        legacy_path = os.path.join(self.media_root, legacy_name)
+        os.makedirs(os.path.dirname(legacy_path), exist_ok=True)
+        with open(legacy_path, "wb") as output:
+            output.write(b"guia antigua")
+        archivo = ClaseRecurso.objects.create(clase=self.pendiente, recurso=self.recurso, archivo=legacy_name)
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("academico:docente_bolsa_recurso_archivo", args=[archivo.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b"".join(response.streaming_content), b"guia antigua")
+
+    def test_bolsa_recursos_migration_moves_legacy_file_to_private_storage(self):
+        legacy_name = "academico/clase_recursos/guia-antigua.pdf"
+        legacy_path = os.path.join(self.media_root, legacy_name)
+        os.makedirs(os.path.dirname(legacy_path), exist_ok=True)
+        with open(legacy_path, "wb") as output:
+            output.write(b"guia antigua")
+        archivo = ClaseRecurso.objects.create(clase=self.pendiente, recurso=self.recurso, archivo=legacy_name)
+        migration = import_module("apps.academico.migrations.0049_alter_claserecurso_archivo")
+        schema_editor = type("SchemaEditor", (), {"connection": connection})()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            migration.move_files_to_private(django_apps, schema_editor)
+
+        archivo.refresh_from_db()
+        self.assertIn(f"bolsa_recursos/materia_{self.materia.pk}/", archivo.archivo.name)
+        private_path = archivo.archivo.path
+        self.assertTrue(os.path.isfile(private_path))
+        self.assertFalse(os.path.exists(legacy_path))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            migration.move_files_to_public(django_apps, schema_editor)
+
+        archivo.refresh_from_db()
+        self.assertTrue(archivo.archivo.name.startswith("academico/clase_recursos/"))
+        self.assertTrue(os.path.isfile(archivo.archivo.path))
+        self.assertFalse(os.path.exists(private_path))
 
     def test_docente_class_planning_approved_planification_is_locked(self):
         self.revision.estado_planificacion = "aprobada"

@@ -4,5 +4,6 @@ __pycache__/
 .env
 db.sqlite3
 media/
+private_media/
 staticfiles/
 legacy_generated/

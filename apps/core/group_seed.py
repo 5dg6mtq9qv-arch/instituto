@@ -90,7 +90,9 @@ def permissions_from_specs(specs):
 def seed_default_groups():
     groups = {name: Group.objects.get_or_create(name=name)[0] for name in DEFAULT_GROUPS}
 
-    groups["Administrador"].permissions.add(*Permission.objects.exclude(codename="restrict_to_assigned_materiatema"))
+    groups["Administrador"].permissions.add(
+        *Permission.objects.exclude(codename__in=("restrict_to_assigned_materiatema", "access_bolsa_recursos"))
+    )
     direccion_view_permissions = [
         permission
         for permission in permissions_for(actions=("view",))

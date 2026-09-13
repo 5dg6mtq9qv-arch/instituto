@@ -6,6 +6,7 @@ from django.db import models
 from django.utils import timezone
 
 from .durations import duration_to_minutes
+from .storage import BolsaRecursosStorage
 
 
 class Asignatura(models.Model):
@@ -1158,6 +1159,12 @@ class ClaseTema(models.Model):
         return f"{self.clase} - {self.tema}"
 
 
+def clase_recurso_upload_path(instance, filename):
+    nombre = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    materia_id = instance.clase.materia_curso.materia_id
+    return f"academico/bolsa_recursos/materia_{materia_id}/{uuid.uuid4().hex}_{nombre}"
+
+
 class ClaseRecurso(models.Model):
     id = models.BigAutoField(primary_key=True)
     clase = models.ForeignKey(
@@ -1172,7 +1179,7 @@ class ClaseRecurso(models.Model):
         on_delete=models.CASCADE,
         related_name="clase_recursos",
     )
-    archivo = models.FileField(upload_to="academico/clase_recursos/", blank=True, null=True)
+    archivo = models.FileField(upload_to=clase_recurso_upload_path, storage=BolsaRecursosStorage(), max_length=255, blank=True, null=True)
 
     class Meta:
         db_table = '"academico"."clase_recurso"'
@@ -1769,6 +1776,7 @@ class Recurso(models.Model):
     class Meta:
         db_table = '"academico"."recurso"'
         ordering = ["nombre"]
+        permissions = [("access_bolsa_recursos", "Puede acceder a la bolsa de recursos")]
 
     def __str__(self):
         return self.nombre

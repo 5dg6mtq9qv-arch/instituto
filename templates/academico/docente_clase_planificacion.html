@@ -9,6 +9,12 @@
       <h1>{{ title }}</h1>
     </div>
     <div class="topbar-actions">
+      {% if perms.academico.access_bolsa_recursos %}
+      <a class="btn btn-outline-primary" href="{% url 'academico:docente_bolsa_recursos' %}?materia={{ clase.materia_curso.materia_id }}">
+        <i class="ri-folder-open-line"></i>
+        Bolsa de recursos
+      </a>
+      {% endif %}
       <a class="btn btn-outline-primary" href="{{ attendance_url }}">
         <i class="ri-list-check-3"></i>
         Asistencia
@@ -216,7 +222,7 @@
                       <div class="teacher-selected-main">
                         <span>{{ item.obj.nombre }}</span>
                         {% if group.prefix == "recursos" and item.clase_recurso and item.clase_recurso.archivo %}
-                          <a class="teacher-file-current" href="{{ item.clase_recurso.archivo.url }}" target="_blank">
+                          <a class="teacher-file-current" href="{% url 'academico:docente_bolsa_recurso_archivo' item.clase_recurso.pk %}" target="_blank" rel="noopener">
                             <span class="teacher-file-badge file-kind-{{ item.file_meta.kind }}">
                               <i class="{{ item.file_meta.icon }}"></i>
                               {{ item.file_meta.label }}

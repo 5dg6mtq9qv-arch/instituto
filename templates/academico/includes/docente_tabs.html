@@ -3,6 +3,12 @@
     <i class="ri-task-line"></i>
     Planificaciones
   </a>
+  {% if perms.academico.access_bolsa_recursos %}
+    <a class="{% if active_tab == 'recursos' %}is-active{% endif %}" href="{% url 'academico:docente_bolsa_recursos' %}">
+      <i class="ri-folder-open-line"></i>
+      Bolsa de recursos
+    </a>
+  {% endif %}
   <a class="{% if active_tab == 'asistencias' %}is-active{% endif %}" href="{% url 'academico:docente_asistencias' %}">
     <i class="ri-list-check-3"></i>
     Asistencias

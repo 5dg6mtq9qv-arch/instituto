@@ -1,0 +1,96 @@
+{% extends "web/base.html" %}
+
+{% block title %}Bolsa de recursos | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Recursos académicos</p>
+      <h1>Bolsa de recursos</h1>
+      <p class="text-muted mb-0">Elige una materia para consultar sus recursos y archivos.</p>
+    </div>
+  </header>
+
+  {% include "academico/includes/docente_tabs.html" with active_tab="recursos" %}
+
+    <section class="panel mb-3">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label" for="bolsa-materia">Materia</label>
+          <select class="form-select" id="bolsa-materia" name="materia">
+            <option value="">Selecciona una materia</option>
+            {% for materia in materias %}
+              <option value="{{ materia.pk }}"{% if selected_materia_id == materia.pk|stringformat:"s" %} selected{% endif %}>{{ materia.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="bolsa-buscar">Buscar recurso o archivo</label>
+          <input class="form-control" id="bolsa-buscar" type="search" name="q" value="{{ search }}" placeholder="Nombre del recurso o archivo">
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary-600 w-100" type="submit">Buscar</button>
+        </div>
+      </form>
+    </section>
+
+    {% if selected_materia %}
+    <section class="panel mb-3">
+      <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
+        <div>
+          <h2 class="h5 mb-1">Recursos de {{ selected_materia.nombre }}</h2>
+          <p class="text-muted mb-0">Los enlaces y recursos escritos en las planificaciones se comparten aquí.</p>
+        </div>
+        <span class="badge bg-light text-dark border">{{ catalogo|length }} recurso{{ catalogo|length|pluralize }}</span>
+      </div>
+      <div class="row row-cols-1 row-cols-lg-2 g-2">
+        {% for recurso in catalogo %}
+          <div class="col">
+            <article class="border rounded-3 p-3 h-100 d-flex flex-column align-items-start gap-2">
+              <strong class="text-break">{{ recurso.nombre }}</strong>
+              {% if recurso.external_url %}
+                <a class="btn btn-outline-primary btn-sm mt-auto" href="{{ recurso.external_url }}" target="_blank" rel="noopener">
+                  <i class="ri-external-link-line"></i> Abrir enlace
+                </a>
+              {% endif %}
+            </article>
+          </div>
+        {% empty %}
+          <div class="col"><p class="text-muted mb-0">No hay recursos del catálogo para este filtro.</p></div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
+        <div>
+          <h2 class="h5 mb-1">Archivos disponibles</h2>
+          <p class="text-muted mb-0">Los usuarios con acceso a la bolsa pueden consultar y descargar los archivos de esta materia.</p>
+        </div>
+        <span class="badge bg-light text-dark border">{{ paginator.count }} archivo{{ paginator.count|pluralize }}</span>
+      </div>
+
+      {% for item in page_obj %}
+        <article class="border rounded-3 p-3 mb-2 d-flex align-items-center justify-content-between gap-3 flex-wrap">
+          <div class="d-flex align-items-start gap-3 min-w-0">
+            <span class="rounded-3 p-2 bg-light text-primary"><i class="{{ item.file_meta.icon }}"></i></span>
+            <div class="min-w-0">
+              <span class="badge bg-light text-dark border mb-1">{{ item.clase.materia_curso.materia.nombre }}</span>
+              <strong class="d-block text-break">{{ item.recurso.nombre }}</strong>
+              <small class="text-muted text-break">{{ item.file_meta.filename }} · {{ item.clase.materia_curso.grupo }} · {{ item.clase.fecha|date:"d/m/Y" }}</small>
+            </div>
+          </div>
+          <a class="btn btn-outline-primary btn-sm" href="{% url 'academico:docente_bolsa_recurso_archivo' item.pk %}?descargar=1">
+            <i class="ri-download-line"></i> Descargar archivo
+          </a>
+        </article>
+      {% empty %}
+        <p class="text-muted mb-0">Todavía no hay archivos disponibles para este filtro. Los que se adjunten a una planificación aparecerán aquí.</p>
+      {% endfor %}
+    </section>
+
+    {% include "web/includes/list_pagination.html" %}
+    {% else %}
+      <section class="panel"><p class="mb-0">Selecciona una materia para ver su bolsa de recursos.</p></section>
+    {% endif %}
+{% endblock %}

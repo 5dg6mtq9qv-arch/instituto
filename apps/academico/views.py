@@ -1,5 +1,6 @@
 import calendar as calendar_module
 import json
+import re
 import unicodedata
 from collections import defaultdict
 from io import BytesIO
@@ -8,14 +9,15 @@ from decimal import Decimal
 from urllib.parse import urlencode
 
 from django.conf import settings
-from django.http import HttpResponse, JsonResponse
+from django.core.paginator import Paginator
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.urls import reverse_lazy
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Prefetch
 from django.db.models import Count, Exists, Max, Min, OuterRef, Q
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin, UserPassesTestMixin
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -111,6 +113,8 @@ def file_attachment_meta(file_field):
         return None
     name = str(file_field.name or "")
     filename = name.rsplit("/", 1)[-1]
+    if name.startswith("academico/bolsa_recursos/"):
+        filename = re.sub(r"^[0-9a-f]{32}_", "", filename)
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     file_types = {
         "pdf": {
@@ -189,6 +193,11 @@ def docente_responsable_filter(docente):
         materia_curso__profesor_materia_cursos__partner=docente,
         materia_curso__profesor_materia_cursos__auto_generada_por_clases=False,
     )
+
+
+def es_docente_activo(user):
+    docente = getattr(user, "partner", None)
+    return bool(docente and docente.es_docente and docente.activo)
 
 
 def docente_responsable_search_filter(query):
@@ -6520,6 +6529,84 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             "icon": icon,
             "count_label": count_label,
         }
+
+
+class DocenteBolsaRecursosView(LoginRequiredMixin, View):
+    template_name = "academico/docente_bolsa_recursos.html"
+
+    def get(self, request):
+        if not request.user.has_perm("academico.access_bolsa_recursos"):
+            raise PermissionDenied
+        materias = Materia.objects.order_by("nombre")
+        selected_materia_id = request.GET.get("materia", "")
+        selected_materia = materias.filter(pk=selected_materia_id).first() if selected_materia_id.isdigit() else None
+        recursos = (
+            ClaseRecurso.objects.filter(
+                clase__materia_curso__materia=selected_materia,
+                archivo__startswith="academico/bolsa_recursos/",
+            )
+            .select_related("recurso", "clase__materia_curso__materia", "clase__materia_curso__grupo")
+            .order_by("-clase__fecha", "-pk")
+        )
+        catalogo = Recurso.objects.filter(
+            Q(materias=selected_materia)
+            | Q(clases__materia_curso__materia=selected_materia)
+        ) if selected_materia else Recurso.objects.none()
+        search = request.GET.get("q", "").strip()
+        if search:
+            recursos = recursos.filter(Q(recurso__nombre__icontains=search) | Q(archivo__icontains=search))
+            catalogo = catalogo.filter(nombre__icontains=search)
+        catalogo = list(catalogo.distinct().order_by("nombre"))
+        for item in catalogo:
+            item.external_url = item.nombre if item.nombre.lower().startswith(("https://", "http://")) else None
+        page = Paginator(recursos, 24).get_page(request.GET.get("page"))
+        for item in page:
+            item.file_meta = file_attachment_meta(item.archivo)
+        query_params = {"materia": selected_materia_id, "q": search}
+        return render(request, self.template_name, {
+            "title": "Bolsa de recursos",
+            "materias": materias,
+            "catalogo": catalogo,
+            "selected_materia_id": selected_materia_id,
+            "selected_materia": selected_materia,
+            "search": search,
+            "page_obj": page,
+            "paginator": page.paginator,
+            "pagination_query": urlencode({key: value for key, value in query_params.items() if value}),
+        })
+
+
+class DocenteBolsaRecursoArchivoView(LoginRequiredMixin, View):
+    def get(self, request, pk):
+        recurso = get_object_or_404(
+            ClaseRecurso.objects.select_related("clase__materia_curso"),
+            pk=pk,
+            archivo__isnull=False,
+        )
+        can_review = request.user.has_perm("academico.review_planificacionclase")
+        can_access_bag = request.user.has_perm("academico.access_bolsa_recursos")
+        docente = getattr(request.user, "partner", None)
+        can_access_own_class = bool(
+            es_docente_activo(request.user)
+            and Clase.objects.filter(pk=recurso.clase_id).filter(docente_responsable_filter(docente)).exists()
+        )
+        if not (can_review or can_access_bag or can_access_own_class):
+            raise Http404
+        if not recurso.archivo:
+            raise Http404
+        try:
+            archivo = recurso.archivo.open("rb")
+        except FileNotFoundError as exc:
+            raise Http404 from exc
+        response = FileResponse(
+            archivo,
+            as_attachment=request.GET.get("descargar") == "1",
+            filename=file_attachment_meta(recurso.archivo)["filename"],
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Content-Security-Policy"] = "sandbox"
+        response["Cache-Control"] = "private, no-store"
+        return response
 
 
 class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):

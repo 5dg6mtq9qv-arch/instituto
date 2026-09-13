@@ -176,7 +176,7 @@
                   {% endif %}
                   <span>{{ item.recurso }}</span>
                   {% if item.archivo %}
-                    <a href="{{ item.archivo.url }}" target="_blank">{{ item.file_meta.filename|default:"Ver archivo" }}</a>
+                    <a href="{% url 'academico:docente_bolsa_recurso_archivo' item.clase_recurso.pk %}" target="_blank" rel="noopener">{{ item.file_meta.filename|default:"Ver archivo" }}</a>
                   {% endif %}
                 </div>
               {% empty %}
