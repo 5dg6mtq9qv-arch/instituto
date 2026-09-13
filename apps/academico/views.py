@@ -6247,8 +6247,8 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
     def parse_written_names(self, raw_value):
         names = []
         seen = set()
-        for value in (raw_value or "").replace("\r", "\n").replace(",", "\n").splitlines():
-            name = value.strip()
+        for value in (raw_value or "").splitlines():
+            name = " ".join(value.split())
             key = name.lower()
             if name and key not in seen:
                 names.append(name)
@@ -6516,7 +6516,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
             "placeholder": placeholder,
             "revision_note": revision_note,
             "new_entries": self.get_posted_new_tags(prefix) if self.request.method == "POST" else [],
-            "new_text": "\n".join(self.get_new_tag_names(prefix)) if self.request.method == "POST" else "",
+            "new_text": self.request.POST.get(f"{prefix}_nuevos", "") if self.request.method == "POST" else "",
             "icon": icon,
             "count_label": count_label,
         }

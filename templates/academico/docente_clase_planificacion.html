@@ -151,7 +151,7 @@
                   <p class="teacher-empty-text" data-subtopic-empty>Selecciona primero uno o varios temas.</p>
                 </div>
               </div>
-              <textarea class="form-control teacher-written-tags" name="subtemas_nuevos" data-new-subtopics-textarea placeholder="Nuevo subtema por linea (cuando eliges un solo tema)"{% if not can_edit %} disabled{% endif %}>{% if request.method == "POST" %}{{ request.POST.subtemas_nuevos }}{% endif %}</textarea>
+              <textarea class="form-control teacher-written-tags" name="subtemas_nuevos" data-new-subtopics-textarea placeholder="Nuevo subtema (elige un solo tema). Pulsa Enter para añadir otro."{% if not can_edit %} disabled{% endif %}>{% if request.method == "POST" %}{{ request.POST.subtemas_nuevos }}{% endif %}</textarea>
               {% for error in form.subtemas_seleccionados.errors %}
                 <div class="invalid-feedback d-block">{{ error }}</div>
               {% endfor %}
@@ -187,12 +187,17 @@
                   <i class="ri-search-line"></i>
                   <input type="search" placeholder="Buscar en {{ group.title|lower }}" data-chip-search autocomplete="off">
                 </label>
-                <small>{{ group.items|length }} opción(es) de esta materia</small>
+                <small>{{ group.items|length }} en catálogo</small>
               </div>
+
+              {% if group.prefix == "recursos" %}
+                <p class="teacher-resource-hint">Elige los recursos que usarás. Puedes adjuntar un archivo a cada uno si lo necesitas.</p>
+              {% endif %}
+              <strong class="teacher-selection-title">Opciones disponibles</strong>
 
               <div class="teacher-chip-pool" data-chip-pool>
                 {% for item in group.items %}
-                  <button class="teacher-pool-chip{% if item.selected %} is-selected{% endif %}" type="button" draggable="{% if can_edit %}true{% else %}false{% endif %}" data-available-chip data-tag-id="{{ item.obj.pk }}" data-tag-name="{{ item.obj.nombre }}" title="{{ item.obj.nombre }}"{% if not can_edit %} disabled{% endif %}>
+                  <button class="teacher-pool-chip{% if item.selected %} is-selected{% endif %}" type="button" draggable="{% if can_edit %}true{% else %}false{% endif %}" data-available-chip data-tag-id="{{ item.obj.pk }}" data-tag-name="{{ item.obj.nombre }}" title="{{ item.obj.nombre }}"{% if not can_edit %} disabled{% endif %}{% if item.selected %} hidden{% endif %}>
                     <i class="{% if item.selected %}ri-check-line{% else %}ri-add-line{% endif %}"></i>
                     <span>{{ item.obj.nombre }}</span>
                   </button>
@@ -202,6 +207,7 @@
                 <p class="teacher-empty-text" data-chip-search-empty hidden>Sin coincidencias.</p>
               </div>
 
+              <strong class="teacher-selection-title">Selección actual</strong>
               <div class="teacher-selected-list" data-selected-list data-drop-label="{{ group.title }}">
                 {% for item in group.items %}
                   {% if item.selected %}
@@ -222,9 +228,12 @@
                       <button class="btn btn-outline-danger btn-sm" type="button" data-remove-existing aria-label="Quitar"{% if not can_edit %} disabled{% endif %}>
                         <i class="ri-close-line"></i>
                       </button>
-                      {% if group.prefix == "recursos" %}
+                      {% if group.prefix == "recursos" and can_edit %}
                         <div class="teacher-file-field is-inline">
-                          <input class="form-control form-control-sm" type="file" name="recurso_archivo_{{ item.obj.pk }}" data-file-input{% if not can_edit %} disabled{% endif %}>
+                          <label class="teacher-file-picker">
+                            <input class="visually-hidden" type="file" name="recurso_archivo_{{ item.obj.pk }}" data-file-input>
+                            <span><i class="ri-attachment-2"></i> Adjuntar archivo</span>
+                          </label>
                           <span class="teacher-upload-preview" data-file-preview hidden>
                             <i class="ri-file-line"></i>
                             <span>Archivo seleccionado</span>
@@ -237,7 +246,7 @@
                 <p class="teacher-empty-text" data-selected-empty{% if group.selected_count %} hidden{% endif %}>Sin seleccionados.</p>
               </div>
 
-              <textarea class="form-control teacher-written-tags" name="{{ group.prefix }}_nuevos" data-new-tags-textarea placeholder="{{ group.placeholder }} por linea"{% if not can_edit %} disabled{% endif %}>{{ group.new_text }}</textarea>
+              <textarea class="form-control teacher-written-tags" name="{{ group.prefix }}_nuevos" data-new-tags-textarea placeholder="{{ group.placeholder }}. Pulsa Enter para añadir otro elemento."{% if not can_edit %} disabled{% endif %}>{{ group.new_text }}</textarea>
               <input type="hidden" name="{{ group.prefix }}-TOTAL_FORMS" value="0" data-tag-total>
 
               {% if is_observed and group.revision_note %}
@@ -370,9 +379,7 @@
         const field = form.querySelector(selector);
         if (!field) return [];
         const seen = new Set();
-        return String(field.value || "")
-          .replace(/\r/g, "\n")
-          .replace(/,/g, "\n")
+        return String(field.value || "").replace(/\r/g, "\n")
           .split(/\n+/)
           .map(function (value) { return value.trim(); })
           .filter(function (value) {
@@ -516,6 +523,23 @@
         chip.classList.toggle("is-selected", selected);
         const icon = chip.querySelector("i");
         if (icon) icon.className = selected ? "ri-check-line" : "ri-add-line";
+        filterAvailableChips(group);
+      }
+
+      function filterAvailableChips(group) {
+        const query = normalizedSearch(group.querySelector("[data-chip-search]")?.value);
+        let visibleCount = 0;
+        group.querySelectorAll("[data-available-chip]").forEach(function (chip) {
+          const visible = !chip.classList.contains("is-selected")
+            && (!query || normalizedSearch(chip.dataset.tagName).includes(query));
+          chip.hidden = !visible;
+          if (visible) visibleCount += 1;
+        });
+        const empty = group.querySelector("[data-chip-search-empty]");
+        if (empty) {
+          empty.textContent = query ? "Sin coincidencias." : "No hay más opciones disponibles.";
+          empty.hidden = visibleCount > 0 || !group.querySelector("[data-available-chip]");
+        }
       }
 
       function selectExistingTag(group, id, name) {
@@ -540,7 +564,10 @@
       function selectedTagTemplate(prefix, id, name) {
         const fileControls = prefix === "recursos"
           ? `<div class="teacher-file-field is-inline">
-               <input class="form-control form-control-sm" type="file" name="recurso_archivo_${escapeHtml(id)}" data-file-input>
+               <label class="teacher-file-picker">
+                 <input class="visually-hidden" type="file" name="recurso_archivo_${escapeHtml(id)}" data-file-input>
+                 <span><i class="ri-attachment-2"></i> Adjuntar archivo</span>
+               </label>
                <span class="teacher-upload-preview" data-file-preview hidden>
                  <i class="ri-file-line"></i>
                  <span>Archivo seleccionado</span>
@@ -591,7 +618,8 @@
         const meta = fileMeta(file.name);
         preview.className = "teacher-upload-preview file-kind-" + meta.kind;
         preview.querySelector("i").className = meta.icon;
-        preview.querySelector("span").textContent = meta.label + " seleccionado";
+        preview.querySelector("span").textContent = file.name;
+        preview.title = file.name;
         preview.hidden = false;
       }
 
@@ -645,6 +673,7 @@
         if (initialSelectedTemaIds.has(String(input.value))) input.checked = true;
       });
       renderSubtemas(true);
+      form.querySelectorAll("[data-tag-group]").forEach(filterAvailableChips);
       syncPlan();
 
       function setupAcademicDropdown(container, toggle, menu) {
@@ -716,15 +745,7 @@
         const chipSearch = event.target.closest("[data-chip-search]");
         if (chipSearch) {
           const group = chipSearch.closest("[data-tag-group]");
-          const query = normalizedSearch(chipSearch.value);
-          let visibleCount = 0;
-          group.querySelectorAll("[data-available-chip]").forEach(function (chip) {
-            const visible = !query || normalizedSearch(chip.dataset.tagName).includes(query);
-            chip.hidden = !visible;
-            if (visible) visibleCount += 1;
-          });
-          const empty = group.querySelector("[data-chip-search-empty]");
-          if (empty) empty.hidden = visibleCount > 0;
+          filterAvailableChips(group);
           return;
         }
         if (event.target.closest("[data-new-tags-textarea], [data-new-subtopics-textarea]")) {
@@ -1344,10 +1365,7 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      max-height: 210px;
-      overflow-y: auto;
       padding: 10px;
-      scrollbar-gutter: stable;
     }
 
     .teacher-chip-tools {
@@ -1361,6 +1379,17 @@
     .teacher-chip-tools small {
       color: #667085;
       font-weight: 700;
+    }
+
+    .teacher-resource-hint {
+      color: #64748b;
+      font-size: 13px;
+      margin: 0;
+    }
+
+    .teacher-selection-title {
+      color: #334155;
+      font-size: 13px;
     }
 
     .teacher-chip-search {
@@ -1407,9 +1436,12 @@
 
     .teacher-pool-chip span {
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+
+    .teacher-pool-chip[hidden] {
+      display: none;
     }
 
     .teacher-pool-chip:hover,
@@ -1504,7 +1536,7 @@
     }
 
     .teacher-selected-tag {
-      align-items: center;
+      align-items: start;
       background: #ecfdf3;
       border: 1px solid #86efac;
       border-radius: 8px;
@@ -1525,9 +1557,8 @@
       color: #1f2937;
       font-weight: 900;
       min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      overflow-wrap: anywhere;
+      white-space: normal;
     }
 
     .teacher-file-field {
@@ -1536,8 +1567,33 @@
     }
 
     .teacher-file-field.is-inline {
-      display: grid;
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
       grid-column: 1 / -1;
+    }
+
+    .teacher-file-picker {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #a5b4fc;
+      border-radius: 7px;
+      color: #4338ca;
+      cursor: pointer;
+      display: inline-flex;
+      font-size: 12px;
+      font-weight: 800;
+      min-height: 32px;
+      padding: 6px 10px;
+    }
+
+    .teacher-file-picker:focus-within {
+      outline: 2px solid #6366f1;
+      outline-offset: 2px;
+    }
+
+    .teacher-upload-preview[hidden] {
+      display: none;
     }
 
     .teacher-file-current,
@@ -1792,6 +1848,10 @@
 
       .teacher-tag-card .btn {
         width: 100%;
+      }
+
+      .teacher-selected-tag .btn {
+        width: auto;
       }
     }
 

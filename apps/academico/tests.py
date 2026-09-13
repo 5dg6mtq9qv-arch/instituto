@@ -3249,6 +3249,33 @@ class DocenteHorariosPanelTests(TestCase):
             self.pendiente.recursos.get(nombre="Guia impresa").materias.filter(pk=self.materia.pk).exists()
         )
 
+    def test_docente_class_planning_separates_tags_only_on_enter(self):
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            {
+                "plan_action": "send",
+                "tema": self.tema.pk,
+                "subtema": self.subtema.pk,
+                "subtemas_nuevos": "Términos, semejantes",
+                "competencias_nuevos": "Resuelve problemas, usando sumas\ny restas",
+                "estrategias_existentes": [self.estrategia.pk],
+                "recursos_existentes": [self.recurso.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            set(self.pendiente.competencias.values_list("nombre", flat=True)),
+            {"Resuelve problemas, usando sumas", "y restas"},
+        )
+        self.assertIn(
+            "Términos, semejantes",
+            [subtema.nombre for subtema in self.pendiente.get_subtemas_planificados()],
+        )
+
     def test_docente_class_planning_returns_to_topic_after_send(self):
         self.client.force_login(self.user)
 
