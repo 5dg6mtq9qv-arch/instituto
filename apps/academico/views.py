@@ -6541,32 +6541,23 @@ class DocenteBolsaRecursosView(LoginRequiredMixin, View):
         selected_materia_id = request.GET.get("materia", "")
         selected_materia = materias.filter(pk=selected_materia_id).first() if selected_materia_id.isdigit() else None
         recursos = (
-            ClaseRecurso.objects.filter(
-                clase__materia_curso__materia=selected_materia,
-                archivo__startswith="academico/bolsa_recursos/",
-            )
+            ClaseRecurso.objects.filter(clase__materia_curso__materia=selected_materia)
+            .exclude(archivo__isnull=True)
+            .exclude(archivo="")
             .select_related("recurso", "clase__materia_curso__materia", "clase__materia_curso__grupo")
             .order_by("-clase__fecha", "-pk")
         )
-        catalogo = Recurso.objects.filter(
-            Q(materias=selected_materia)
-            | Q(clases__materia_curso__materia=selected_materia)
-        ) if selected_materia else Recurso.objects.none()
         search = request.GET.get("q", "").strip()
         if search:
             recursos = recursos.filter(Q(recurso__nombre__icontains=search) | Q(archivo__icontains=search))
-            catalogo = catalogo.filter(nombre__icontains=search)
-        catalogo = list(catalogo.distinct().order_by("nombre"))
-        for item in catalogo:
-            item.external_url = item.nombre if item.nombre.lower().startswith(("https://", "http://")) else None
-        page = Paginator(recursos, 24).get_page(request.GET.get("page"))
+        descargables = [item for item in recursos if item.archivo.storage.exists(item.archivo.name)]
+        page = Paginator(descargables, 24).get_page(request.GET.get("page"))
         for item in page:
             item.file_meta = file_attachment_meta(item.archivo)
         query_params = {"materia": selected_materia_id, "q": search}
         return render(request, self.template_name, {
             "title": "Bolsa de recursos",
             "materias": materias,
-            "catalogo": catalogo,
             "selected_materia_id": selected_materia_id,
             "selected_materia": selected_materia,
             "search": search,

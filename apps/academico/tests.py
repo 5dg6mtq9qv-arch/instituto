@@ -3427,6 +3427,43 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(download.status_code, 200)
         self.assertEqual(b"".join(download.streaming_content), b"sumas")
 
+    def test_bolsa_recursos_shows_only_files_that_can_be_downloaded(self):
+        permission = Permission.objects.get(
+            codename="access_bolsa_recursos", content_type__app_label="academico"
+        )
+        group = Group.objects.create(name="Bolsa de recursos")
+        group.permissions.add(permission)
+        self.user.groups.add(group)
+        archivo = ClaseRecurso.objects.create(
+            clase=self.pendiente,
+            recurso=self.recurso,
+            archivo=SimpleUploadedFile("guia-sumas.pdf", b"sumas", content_type="application/pdf"),
+        )
+        enlace = Recurso.objects.create(nombre="https://ejemplo.test/sumas")
+        enlace.materias.add(self.materia)
+        sin_archivo = Recurso.objects.create(nombre="Actividad sin archivo")
+        ClaseRecurso.objects.create(clase=self.pendiente, recurso=sin_archivo)
+        faltante = Recurso.objects.create(nombre="Archivo faltante")
+        ClaseRecurso.objects.create(
+            clase=self.pendiente,
+            recurso=faltante,
+            archivo=f"academico/bolsa_recursos/materia_{self.materia.pk}/faltante.pdf",
+        )
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("academico:docente_bolsa_recursos"),
+            {"materia": self.materia.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertContains(response, "guia-sumas.pdf")
+        self.assertContains(response, "1 archivo")
+        self.assertContains(response, reverse("academico:docente_bolsa_recurso_archivo", args=[archivo.pk]))
+        self.assertNotContains(response, "https://ejemplo.test/sumas")
+        self.assertNotContains(response, "Actividad sin archivo")
+        self.assertNotContains(response, "Archivo faltante")
+
     def test_bolsa_recursos_can_open_existing_legacy_file(self):
         legacy_name = "academico/clase_recursos/guia-antigua.pdf"
         legacy_path = os.path.join(self.media_root, legacy_name)

@@ -7,7 +7,7 @@
     <div>
       <p class="eyebrow">Recursos académicos</p>
       <h1>Bolsa de recursos</h1>
-      <p class="text-muted mb-0">Elige una materia para consultar sus recursos y archivos.</p>
+      <p class="text-muted mb-0">Elige una materia para consultar y descargar sus archivos.</p>
     </div>
   </header>
 
@@ -25,7 +25,7 @@
           </select>
         </div>
         <div class="col-md-6">
-          <label class="form-label" for="bolsa-buscar">Buscar recurso o archivo</label>
+          <label class="form-label" for="bolsa-buscar">Buscar archivo</label>
           <input class="form-control" id="bolsa-buscar" type="search" name="q" value="{{ search }}" placeholder="Nombre del recurso o archivo">
         </div>
         <div class="col-md-2">
@@ -35,36 +35,10 @@
     </section>
 
     {% if selected_materia %}
-    <section class="panel mb-3">
-      <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
-        <div>
-          <h2 class="h5 mb-1">Recursos de {{ selected_materia.nombre }}</h2>
-          <p class="text-muted mb-0">Los enlaces y recursos escritos en las planificaciones se comparten aquí.</p>
-        </div>
-        <span class="badge bg-light text-dark border">{{ catalogo|length }} recurso{{ catalogo|length|pluralize }}</span>
-      </div>
-      <div class="row row-cols-1 row-cols-lg-2 g-2">
-        {% for recurso in catalogo %}
-          <div class="col">
-            <article class="border rounded-3 p-3 h-100 d-flex flex-column align-items-start gap-2">
-              <strong class="text-break">{{ recurso.nombre }}</strong>
-              {% if recurso.external_url %}
-                <a class="btn btn-outline-primary btn-sm mt-auto" href="{{ recurso.external_url }}" target="_blank" rel="noopener">
-                  <i class="ri-external-link-line"></i> Abrir enlace
-                </a>
-              {% endif %}
-            </article>
-          </div>
-        {% empty %}
-          <div class="col"><p class="text-muted mb-0">No hay recursos del catálogo para este filtro.</p></div>
-        {% endfor %}
-      </div>
-    </section>
-
     <section class="panel">
       <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap mb-3">
         <div>
-          <h2 class="h5 mb-1">Archivos disponibles</h2>
+          <h2 class="h5 mb-1">Archivos descargables de {{ selected_materia.nombre }}</h2>
           <p class="text-muted mb-0">Los usuarios con acceso a la bolsa pueden consultar y descargar los archivos de esta materia.</p>
         </div>
         <span class="badge bg-light text-dark border">{{ paginator.count }} archivo{{ paginator.count|pluralize }}</span>
