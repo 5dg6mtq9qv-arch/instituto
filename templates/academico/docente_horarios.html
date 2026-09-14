@@ -97,17 +97,16 @@
               {% endif %}
             </div>
           {% elif subject.tema_cards %}
-        <p class="text-muted">Planificaciones por tema</p>
+        <p class="text-muted">Planificaciones por tema y clase</p>
         <div class="docente-planning-grid">
           {% for card in subject.tema_cards %}
-            <article class="docente-planning-card docente-topic-card estado-{{ card.status }}">
+            <article class="docente-planning-card docente-topic-card">
               <div class="docente-card-top">
                 <span class="subject-color" style="background: {{ card.materia.color }}"></span>
                 <div>
                   <h3>{{ card.tema.nombre }}</h3>
                   <p>{{ card.materia }} · {{ card.grupo }}</p>
                 </div>
-                <span class="status-badge status-{{ card.status }}">{{ card.status_label }}</span>
               </div>
 
               {% if card.detalle %}
@@ -115,13 +114,12 @@
               {% endif %}
 
               <div class="docente-card-meta">
-                <span><i class="ri-calendar-check-line"></i>{{ card.assigned_count }} tomada(s)</span>
-                <span><i class="ri-calendar-line"></i>{{ card.available_count }} disponible(s)</span>
-                <span><i class="ri-node-tree"></i>{{ card.covered_subtema_count }}/{{ card.subtemas|length }} subtema(s)</span>
+                <span><i class="ri-calendar-check-line"></i>{{ card.assigned_count }} clase(s) del tema</span>
+                <span><i class="ri-node-tree"></i>{{ card.covered_subtema_count }}/{{ card.subtemas|length }} subtema(s) planificados</span>
               </div>
 
               <div class="docente-topic-compliance">
-                <span>Cumplimiento temario</span>
+                <span>Avance de subtemas</span>
                 <strong>{{ card.temario_progress }}%</strong>
               </div>
 
@@ -148,23 +146,30 @@
                 <span style="width: {{ card.temario_progress }}%"></span>
               </div>
 
-              {% if card.upcoming_classes %}
-                <div class="docente-topic">
-                  <strong>Proximas clases para trabajar</strong>
-                  {% for item in card.upcoming_classes %}
-                    <span>
-                      {{ item.clase.fecha|date:"d M Y" }} · {{ item.horario.hora_inicio|time:"H:i" }} - {{ item.horario.hora_fin|time:"H:i" }} · {{ item.aula }}
-                      {% if item.is_available %}· libre{% endif %}
-                    </span>
-                  {% endfor %}
-                </div>
-              {% endif %}
+              <div class="docente-topic-classes">
+                {% for item in card.visible_classes %}
+                  <article class="docente-topic-class estado-{{ item.estado }}">
+                    <div class="docente-topic-class-heading">
+                      <strong>Clase {{ item.clase.fecha|date:"d M Y" }}</strong>
+                      <span class="status-badge status-{{ item.estado }}">{{ item.estado_label }}</span>
+                    </div>
+                    <p>{{ item.horario.hora_inicio|time:"H:i" }} - {{ item.horario.hora_fin|time:"H:i" }} · {{ item.aula }}</p>
+                    <p>Subtemas: {% for subtema in item.subtemas %}{{ subtema.nombre }}{% if not forloop.last %}, {% endif %}{% empty %}Sin subtemas asignados{% endfor %}</p>
+                    <a href="{{ item.url }}">{{ item.action_label }} <i class="ri-arrow-right-line"></i></a>
+                  </article>
+                {% empty %}
+                  <p class="text-muted mb-0">No hay clases de este tema en este estado.</p>
+                {% endfor %}
+              </div>
 
               <div class="docente-card-actions">
                 <a class="btn btn-primary-600" href="{{ card.url }}">
                   <i class="ri-node-tree"></i>
-                  Abrir planificacion
+                  Abrir planificacion del tema
                 </a>
+                {% if card.needs_more_classes and card.available_count %}
+                  <span class="text-muted">{{ card.available_count }} clase(s) que puedes agregar al tema</span>
+                {% endif %}
               </div>
             </article>
           {% endfor %}
@@ -377,27 +382,11 @@
       padding: 16px;
     }
 
-    .docente-planning-card.estado-pendiente {
-      border-color: #f59e0b;
-    }
-
-    .docente-planning-card.estado-rechazada {
-      border-color: #f04438;
-    }
-
-    .docente-planning-card.estado-revision {
-      border-color: #38bdf8;
-    }
-
-    .docente-planning-card.estado-aprobada {
-      border-color: #22c55e;
-    }
-
     .docente-card-top {
       align-items: flex-start;
       display: grid;
       gap: 10px;
-      grid-template-columns: 12px minmax(0, 1fr) auto;
+      grid-template-columns: 12px minmax(0, 1fr);
     }
 
     .subject-color {
@@ -460,21 +449,50 @@
       line-height: 1;
     }
 
-    .docente-topic {
-      background: #f8fafc;
-      border-left: 3px solid #0f766e;
+    .docente-topic-classes {
       display: grid;
-      gap: 2px;
-      padding: 8px 10px;
+      gap: 8px;
     }
 
-    .docente-topic strong {
-      color: #111827;
+    .docente-topic-class {
+      background: #f8fafc;
+      border: 1px solid #d7dee8;
+      border-left: 4px solid #f59e0b;
+      border-radius: 8px;
+      padding: 10px 12px;
     }
 
-    .docente-topic span {
+    .docente-topic-class.estado-revision {
+      border-left-color: #38bdf8;
+    }
+
+    .docente-topic-class.estado-rechazada {
+      border-left-color: #f04438;
+    }
+
+    .docente-topic-class.estado-aprobada {
+      border-left-color: #22c55e;
+    }
+
+    .docente-topic-class-heading {
+      align-items: center;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: space-between;
+    }
+
+    .docente-topic-class p {
       color: #667085;
       font-size: 13px;
+      margin: 6px 0 0;
+    }
+
+    .docente-topic-class a {
+      display: inline-block;
+      font-size: 13px;
+      font-weight: 700;
+      margin-top: 8px;
     }
 
     .docente-progress-line {
@@ -606,14 +624,6 @@
         flex-direction: column;
       }
 
-      .docente-card-top {
-        grid-template-columns: 10px minmax(0, 1fr);
-      }
-
-      .docente-card-top .status-badge {
-        grid-column: 2;
-        justify-self: start;
-      }
     }
   </style>
 {% endblock %}

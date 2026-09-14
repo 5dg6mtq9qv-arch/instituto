@@ -13,6 +13,7 @@ from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
+from django.template.defaultfilters import date as format_date
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -1292,6 +1293,76 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(len(response.context["tema_cards"]), 1)
         self.assertEqual(response.context["tema_cards"][0]["tema"], self.tema)
         self.assertEqual(response.context["tema_cards"][0]["available_count"], 3)
+
+    def test_docente_dashboard_shows_approved_class_with_partial_topic_coverage(self):
+        Subtema.objects.create(tema=self.tema, nombre="Resta", orden=2)
+        self.revision.tema = self.tema
+        self.revision.subtema = self.subtema
+        self.revision.estado_planificacion = "aprobada"
+        self.revision.save(update_fields=["tema", "subtema", "estado_planificacion"])
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("academico:docente_horarios"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.context["selected_filter"], "todas")
+        card = response.context["tema_cards"][0]
+        self.assertEqual(card["temario_progress"], 50)
+        self.assertEqual(card["available_count"], 3)
+        self.assertEqual(len(card["visible_classes"]), 1)
+        self.assertEqual(card["visible_classes"][0]["clase"], self.revision)
+        self.assertEqual(card["visible_classes"][0]["estado_label"], "Aprobada")
+        self.assertEqual(card["visible_classes"][0]["subtemas"], [self.subtema])
+        self.assertContains(response, f'Clase {format_date(self.revision.fecha, "d M Y")}')
+        self.assertContains(response, reverse("academico:docente_clase_planificar", args=[self.revision.pk]))
+        self.assertContains(response, "Ver clase")
+        self.assertContains(response, "Aprobada")
+
+    def test_docente_dashboard_keeps_completed_topic_out_of_work_filter(self):
+        self.revision.tema = self.tema
+        self.revision.subtema = self.subtema
+        self.revision.estado_planificacion = "aprobada"
+        self.revision.save(update_fields=["tema", "subtema", "estado_planificacion"])
+        self.client.force_login(self.user)
+        url = reverse("academico:docente_horarios")
+
+        all_response = self.client.get(url, HTTP_HOST="localhost")
+        self.assertEqual(all_response.context["tema_cards"][0]["temario_progress"], 100)
+        self.assertEqual(all_response.context["tema_cards"][0]["work_count"], 0)
+        self.assertEqual(all_response.context["tema_cards"][0]["available_count"], 3)
+        self.assertNotContains(all_response, "3 clase(s) que puedes agregar al tema")
+
+        approved_response = self.client.get(url, {"estado": "aprobada"}, HTTP_HOST="localhost")
+        self.assertEqual(
+            [item["clase"] for item in approved_response.context["tema_cards"][0]["visible_classes"]],
+            [self.revision],
+        )
+        work_response = self.client.get(url, {"estado": "trabajo"}, HTTP_HOST="localhost")
+        self.assertEqual(work_response.context["tema_cards"], [])
+
+    def test_docente_dashboard_filters_classes_within_the_same_topic(self):
+        self.revision.tema = self.tema
+        self.revision.estado_planificacion = "aprobada"
+        self.revision.save(update_fields=["tema", "estado_planificacion"])
+        self.pendiente.tema = self.tema
+        self.pendiente.save(update_fields=["tema"])
+        self.client.force_login(self.user)
+        url = reverse("academico:docente_horarios")
+
+        all_response = self.client.get(url, HTTP_HOST="localhost")
+        self.assertEqual(
+            [item["clase"] for item in all_response.context["tema_cards"][0]["visible_classes"]],
+            [self.pendiente, self.revision],
+        )
+        approved_response = self.client.get(url, {"estado": "aprobada"}, HTTP_HOST="localhost")
+        self.assertEqual(
+            [item["clase"] for item in approved_response.context["tema_cards"][0]["visible_classes"]],
+            [self.revision],
+        )
+        work_response = self.client.get(url, {"estado": "trabajo"}, HTTP_HOST="localhost")
+        self.assertEqual(
+            [item["clase"] for item in work_response.context["tema_cards"][0]["visible_classes"]],
+            [self.pendiente],
+        )
 
     def test_docente_dashboard_filters_by_own_group(self):
         grupo = Curso.objects.create(nombre="Grupo B", activo=True)

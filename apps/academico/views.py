@@ -3510,7 +3510,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                     "has_events": False,
                     "planificacion_stats": self.empty_stats(),
                     "status_tabs": [],
-                    "selected_filter": "trabajo",
+                    "selected_filter": "todas",
                     "selected_filter_label": "",
                     "tema_cards": [],
                     "planificacion_cards": [],
@@ -3522,6 +3522,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
                 "materia_curso__materia",
                 "materia_curso__grupo",
                 "docente",
+                "subtema",
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__aula_curso__curso",
                 "horario_aula_curso__horario_dia__horario",
@@ -3556,7 +3557,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
         }
         clases = [clase for clase in clases if clase.materia_curso_id in materias_asignadas]
         stats = self.get_planificacion_stats(clases)
-        selected_filter = self.get_selected_filter(request.GET.get("estado"), stats)
+        selected_filter = self.get_selected_filter(request.GET.get("estado"))
         status_tabs = self.get_status_tabs(selected_filter, stats)
         if selected_grupo:
             for tab in status_tabs:
@@ -3573,6 +3574,8 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             for card in tema_cards
             if self.topic_matches_filter(card, selected_filter)
         ]
+        for card in tema_cards:
+            card["visible_classes"] = self.filter_topic_classes(card["classes"], selected_filter)
         materias_con_temas = set(
             Tema.objects.filter(planificacion__materia_curso_id__in=materias_asignadas)
             .values_list("planificacion__materia_curso_id", flat=True)
@@ -3672,14 +3675,10 @@ class DocenteHorariosView(LoginRequiredMixin, View):
         stats["avance"] = round((stats["aprobada"] / stats["total"]) * 100) if stats["total"] else 0
         return stats
 
-    def get_selected_filter(self, requested_filter, stats):
+    def get_selected_filter(self, requested_filter):
         valid_filters = {item["key"] for item in self.status_filters}
         if requested_filter in valid_filters:
             return requested_filter
-        if stats["por_atender"]:
-            return "trabajo"
-        if stats["revision"]:
-            return "revision"
         return "todas"
 
     def get_filter_label(self, selected_filter):
@@ -3733,6 +3732,12 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             return card["work_count"] > 0
         return card["stats"].get(selected_filter, 0) > 0
 
+    def filter_topic_classes(self, class_cards, selected_filter):
+        if selected_filter == "todas":
+            return class_cards
+        states = {"pendiente", "rechazada"} if selected_filter == "trabajo" else {selected_filter}
+        return [card for card in class_cards if card["estado"] in states]
+
     def build_tema_card(self, planificacion_tema, clases):
         tema = planificacion_tema.tema
         materia_curso = planificacion_tema.profesor_materia_curso.materia_curso
@@ -3740,9 +3745,13 @@ class DocenteHorariosView(LoginRequiredMixin, View):
         topic_classes = [
             clase
             for clase in clases
-            if clase.materia_curso_id == materia_curso.pk and clase.has_tema_planificado(tema)
+            if clase.materia_curso_id == materia_curso.pk and self.class_has_topic(clase, tema)
         ]
-        covered_subtema_ids = clase_subtema_ids(topic_classes, tema)
+        covered_subtema_ids = {
+            subtema.pk
+            for clase in topic_classes
+            for subtema in self.class_topic_subtemas(clase, tema)
+        }
         topic_subtema_ids = {subtema.pk for subtema in subtemas}
         covered_subtema_count = len(covered_subtema_ids & topic_subtema_ids)
         pending_subtema_count = max(len(subtemas) - covered_subtema_count, 0)
@@ -3751,7 +3760,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             for clase in clases
             if (
                 clase.materia_curso_id == materia_curso.pk
-                and not clase.has_tema_planificado(tema)
+                and not self.class_has_topic(clase, tema)
                 and clase.estado_planificacion not in CLASS_ASSIGNMENT_LOCK_STATES
             )
         ]
@@ -3761,12 +3770,10 @@ class DocenteHorariosView(LoginRequiredMixin, View):
         for clase in topic_classes:
             if clase.estado_planificacion in stats:
                 stats[clase.estado_planificacion] += 1
-        work_count = stats["pendiente"] + stats["rechazada"] + len(assignable_classes)
-        status = self.get_topic_status(stats, assignable_classes)
-        upcoming_classes = sorted(
-            assignable_classes + [clase for clase in topic_classes if clase.estado_planificacion in {"pendiente", "rechazada"}],
-            key=lambda item: (item.fecha, item.horario_aula_curso.horario_dia.horario.hora_inicio),
-        )[:3]
+        needs_more_classes = not topic_classes or bool(pending_subtema_count)
+        work_count = stats["pendiente"] + stats["rechazada"]
+        if needs_more_classes:
+            work_count += len(assignable_classes)
         return {
             "tema": tema,
             "planificacion_tema": planificacion_tema,
@@ -3779,19 +3786,12 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             "temario_progress": round((covered_subtema_count / len(subtemas)) * 100) if subtemas else 0,
             "available_count": len(assignable_classes),
             "assigned_count": len(topic_classes),
+            "needs_more_classes": needs_more_classes,
             "work_count": work_count,
             "stats": stats,
-            "status": status,
-            "status_label": self.get_topic_status_label(status),
-            "progress": round((stats["aprobada"] / stats["total"]) * 100) if stats["total"] else 0,
-            "upcoming_classes": [
-                {
-                    "clase": clase,
-                    "horario": clase.horario_aula_curso.horario_dia.horario,
-                    "aula": clase.horario_aula_curso.aula_curso.aula,
-                    "is_available": not clase.has_tema_planificado(tema),
-                }
-                for clase in upcoming_classes
+            "classes": [
+                self.build_topic_class_card(clase, tema, planificacion_tema.pk)
+                for clase in topic_classes
             ],
             "url": reverse_lazy("academico:docente_tema_planificar", kwargs={"pk": planificacion_tema.pk}),
         }
@@ -3805,22 +3805,42 @@ class DocenteHorariosView(LoginRequiredMixin, View):
             "aprobada": 0,
         }
 
-    def get_topic_status(self, stats, available_classes):
-        if stats["rechazada"]:
-            return "rechazada"
-        if stats["revision"]:
-            return "revision"
-        if stats["pendiente"] or available_classes:
-            return "pendiente"
-        if stats["aprobada"]:
-            return "aprobada"
-        return "pendiente"
+    def class_has_topic(self, clase, tema):
+        return clase.tema_id == tema.pk or any(
+            item.tema_id == tema.pk for item in clase.clase_temas.all()
+        )
 
-    def get_topic_status_label(self, status):
-        labels = dict(Clase.ESTADO_PLANIFICACION_CHOICES)
-        if status == "pendiente":
-            return "Por planificar"
-        return labels.get(status, status)
+    def class_topic_subtemas(self, clase, tema):
+        relations = sorted(
+            clase.clase_subtemas.all(),
+            key=lambda item: (item.orden, item.subtema.orden, item.subtema.nombre),
+        )
+        subtemas = [item.subtema for item in relations]
+        if not subtemas and clase.subtema_id:
+            subtemas = [clase.subtema]
+        return [subtema for subtema in subtemas if subtema.tema_id == tema.pk]
+
+    def build_topic_class_card(self, clase, tema, planificacion_tema_id):
+        estado = clase.estado_planificacion
+        action_labels = {
+            "pendiente": "Planificar clase",
+            "revision": "Ver envío",
+            "rechazada": "Corregir clase",
+            "aprobada": "Ver clase",
+        }
+        return {
+            "clase": clase,
+            "horario": clase.horario_aula_curso.horario_dia.horario,
+            "aula": clase.horario_aula_curso.aula_curso.aula,
+            "subtemas": self.class_topic_subtemas(clase, tema),
+            "estado": estado,
+            "estado_label": "Borrador" if estado == "pendiente" else clase.get_estado_planificacion_display(),
+            "action_label": action_labels.get(estado, "Abrir clase"),
+            "url": (
+                f"{reverse_lazy('academico:docente_clase_planificar', kwargs={'pk': clase.pk})}"
+                f"?{urlencode({'from_planificacion_tema': planificacion_tema_id})}"
+            ),
+        }
 
     def build_planificacion_card(self, clase):
         horario = clase.horario_aula_curso.horario_dia.horario
