@@ -8,7 +8,14 @@
       <p class="eyebrow">Coordinacion</p>
       <h1>{{ title }}</h1>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ list_url }}">Volver</a>
+    <div class="topbar-actions">
+      {% if can_edit_closed_attendance %}
+        <a class="btn btn-primary-600" href="{% url 'academico:docente_clase_asistencia' clase.pk %}">
+          <i class="ri-edit-2-line"></i> Editar asistencia
+        </a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ list_url }}">Volver</a>
+    </div>
   </header>
 
   <section class="panel attendance-report-hero">
@@ -49,7 +56,7 @@
     </div>
     <div>
       <span>Cerrada por</span>
-      <strong>{{ clase.asistencia_cerrada_por|default:"Pendiente" }}</strong>
+      <strong>{% if clase.asistencia_cierre_automatico %}Automáticamente{% else %}{{ clase.asistencia_cerrada_por|default:"Pendiente" }}{% endif %}</strong>
     </div>
   </section>
 

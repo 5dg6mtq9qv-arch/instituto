@@ -616,6 +616,7 @@ def clases_sin_docente_alert(curso=None, days=UNASSIGNED_CLASS_ALERT_DAYS, limit
 
 class CoordinacionRequiredMixin(LoginRequiredMixin):
     permission_required = None
+    permission_required_any = ()
 
     def dispatch(self, request, *args, **kwargs):
         permissions = self.permission_required
@@ -623,6 +624,10 @@ class CoordinacionRequiredMixin(LoginRequiredMixin):
             has_permission = request.user.has_perm(permissions)
         else:
             has_permission = bool(permissions) and request.user.has_perms(permissions)
+        if self.permission_required_any:
+            has_permission = has_permission or any(
+                request.user.has_perm(permission) for permission in self.permission_required_any
+            )
         if not has_permission:
             return self.handle_no_permission()
         return super().dispatch(request, *args, **kwargs)
@@ -1643,6 +1648,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         clase.revisado_por = None
         clase.fecha_revision = None
         clase.asistencia_cerrada = False
+        clase.asistencia_cierre_automatico = False
         clase.asistencia_cerrada_por = None
         clase.fecha_cierre_asistencia = None
         clase.revision_tema_ok = False
@@ -1660,6 +1666,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "revisado_por",
             "fecha_revision",
             "asistencia_cerrada",
+            "asistencia_cierre_automatico",
             "asistencia_cerrada_por",
             "fecha_cierre_asistencia",
             "revision_tema_ok",
@@ -5356,6 +5363,7 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
 
 class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
     template_name = "academico/docente_clase_asistencia.html"
+    closed_attendance_permission = "academico.edit_closed_claseasistencia"
 
     def get_docente(self):
         docente = getattr(self.request.user, "partner", None)
@@ -5365,20 +5373,30 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
 
     def get_clase(self):
         docente = self.get_docente()
-        if not docente:
-            return get_object_or_404(Clase.objects.none(), pk=self.kwargs["pk"])
-        return get_object_or_404(
-            Clase.objects.select_related(
-                "materia_curso__materia",
-                "materia_curso__grupo",
-                "docente",
-                "horario_aula_curso__aula_curso__aula",
-                "horario_aula_curso__horario_dia__horario",
-            )
-            .filter(docente_responsable_filter(docente))
-            .distinct(),
-            pk=self.kwargs["pk"],
+        clases = Clase.objects.select_related(
+            "materia_curso__materia",
+            "materia_curso__grupo",
+            "docente",
+            "horario_aula_curso__aula_curso__aula",
+            "horario_aula_curso__horario_dia__horario",
         )
+        if self.request.user.has_perm(self.closed_attendance_permission):
+            if docente:
+                clases = clases.filter(
+                    Q(asistencia_cerrada=True) | docente_responsable_filter(docente)
+                )
+            else:
+                clases = clases.filter(asistencia_cerrada=True)
+        elif docente:
+            clases = clases.filter(docente_responsable_filter(docente))
+        else:
+            clases = clases.none()
+        return get_object_or_404(clases.distinct(), pk=self.kwargs["pk"])
+
+    def can_edit_attendance(self, clase):
+        if clase.asistencia_cerrada:
+            return self.request.user.has_perm(self.closed_attendance_permission)
+        return clase.fecha == timezone.localdate() and bool(self.get_docente())
 
     def get(self, request, pk):
         clase = self.get_clase()
@@ -5386,23 +5404,23 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
 
     def post(self, request, pk):
         clase = self.get_clase()
-        date_response = self.ensure_attendance_date(request, clase)
-        if date_response:
-            return date_response
         action = request.POST.get("attendance_action") or "save"
         if action == "close":
+            date_response = self.ensure_attendance_date(request, clase)
+            if date_response:
+                return date_response
             return self.handle_close(request, clase)
         if action != "save":
             messages.error(request, "Accion no valida.")
             return redirect("academico:docente_clase_asistencia", pk=clase.pk)
-        if clase.asistencia_cerrada:
-            messages.error(request, "La asistencia ya esta cerrada y no se puede modificar.")
+        if not self.can_edit_attendance(clase):
+            messages.error(request, "No tienes permiso para modificar esta asistencia.")
             return redirect("academico:docente_clase_asistencia", pk=clase.pk)
         rows, moved_out_rows = self.get_roster_rows(clase)
         valid_states = {choice[0] for choice in ClaseAsistencia.ESTADO_CHOICES}
         registrado_por = self.get_docente()
         with transaction.atomic():
-            if moved_out_rows:
+            if moved_out_rows and not clase.asistencia_cerrada:
                 ClaseAsistencia.objects.filter(
                     clase=clase,
                     estudiante_id__in=[row["asignacion"].estudiante_id for row in moved_out_rows],
@@ -5413,15 +5431,17 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
                 if estado not in valid_states:
                     estado = "presente"
                 observacion = (request.POST.get(f"observacion_{asignacion.pk}") or "").strip()
+                defaults = {
+                    "estado": estado,
+                    "observacion": observacion,
+                    "usuario_updated": request.user,
+                }
+                if registrado_por and not clase.asistencia_cerrada:
+                    defaults["registrado_por"] = registrado_por
                 ClaseAsistencia.objects.update_or_create(
                     clase=clase,
                     estudiante=asignacion.estudiante,
-                    defaults={
-                        "estado": estado,
-                        "observacion": observacion,
-                        "registrado_por": registrado_por,
-                        "usuario_updated": request.user,
-                    },
+                    defaults=defaults,
                 )
         messages.success(request, f"Asistencia guardada para {len(rows)} estudiante(s).")
         return redirect("academico:docente_clase_asistencia", pk=clase.pk)
@@ -5446,9 +5466,10 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
             messages.error(request, "Guarda la asistencia antes de cerrarla.")
             return redirect("academico:docente_clase_asistencia", pk=clase.pk)
         clase.asistencia_cerrada = True
+        clase.asistencia_cierre_automatico = False
         clase.asistencia_cerrada_por = self.get_docente()
         clase.fecha_cierre_asistencia = timezone.now()
-        clase.save(update_fields=["asistencia_cerrada", "asistencia_cerrada_por", "fecha_cierre_asistencia"])
+        clase.save(update_fields=["asistencia_cerrada", "asistencia_cierre_automatico", "asistencia_cerrada_por", "fecha_cierre_asistencia"])
         messages.success(request, "Asistencia cerrada correctamente.")
         return redirect("academico:docente_clase_asistencia", pk=clase.pk)
 
@@ -5456,7 +5477,11 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
         rows, moved_out_rows = self.get_roster_rows(clase)
         horario = clase.horario_aula_curso.horario_dia.horario
         has_saved_attendance = ClaseAsistencia.objects.filter(clase=clase).exists()
-        can_edit_attendance = clase.fecha == timezone.localdate() and not clase.asistencia_cerrada
+        can_edit_attendance = self.can_edit_attendance(clase)
+        docente = self.get_docente()
+        assigned_docente = bool(
+            docente and Clase.objects.filter(pk=clase.pk).filter(docente_responsable_filter(docente)).exists()
+        )
         return {
             "title": "Asistencia",
             "clase": clase,
@@ -5466,10 +5491,10 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
             "estado_choices": ClaseAsistencia.ESTADO_CHOICES,
             "total_estudiantes": len(rows),
             "can_edit_attendance": can_edit_attendance,
-            "can_close_attendance": can_edit_attendance and bool(rows) and has_saved_attendance,
+            "can_close_attendance": can_edit_attendance and not clase.asistencia_cerrada and bool(rows) and has_saved_attendance,
             "has_saved_attendance": has_saved_attendance,
-            "planificacion_url": reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}),
-            "cancel_url": reverse_lazy("academico:docente_asistencias"),
+            "planificacion_url": reverse_lazy("academico:docente_clase_planificar", kwargs={"pk": clase.pk}) if assigned_docente else None,
+            "cancel_url": reverse_lazy("academico:docente_asistencias") if assigned_docente else reverse_lazy("academico:coordinacion_revision_asistencia"),
         }
 
     def get_roster_rows(self, clase, roster_data=None):
@@ -5617,6 +5642,7 @@ class DocenteClaseAsistenciaView(LoginRequiredMixin, View):
 
 class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
     permission_required = "academico.view_claseasistencia"
+    permission_required_any = ("academico.edit_closed_claseasistencia",)
     template_name = "academico/coordinacion_revision_asistencia.html"
     status_filters = (
         {"key": "todas", "label": "Todas", "icon": "ri-list-check-3"},
@@ -5665,7 +5691,7 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
         )
 
     def get_clases_queryset(self):
-        return (
+        clases = (
             Clase.objects.select_related(
                 "materia_curso__materia",
                 "materia_curso__grupo",
@@ -5684,6 +5710,9 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
             )
             .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio", "materia_curso__grupo__nombre")
         )
+        if not self.request.user.has_perm("academico.view_claseasistencia"):
+            clases = clases.filter(asistencia_cerrada=True)
+        return clases
 
     def get_selected_grupo(self):
         grupo_id = self.request.GET.get("grupo") or ""
@@ -5944,6 +5973,7 @@ class CoordinacionReporteAsistenciaClaseView(CoordinacionRevisionAsistenciaView)
                 "card": card,
                 "clase": clase,
                 "list_url": reverse_lazy("academico:coordinacion_revision_asistencia"),
+                "can_edit_closed_attendance": clase.asistencia_cerrada and request.user.has_perm("academico.edit_closed_claseasistencia"),
             },
         )
 

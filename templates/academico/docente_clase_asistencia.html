@@ -5,14 +5,16 @@
 {% block content %}
   <header class="page-header">
     <div>
-      <p class="eyebrow">Docente</p>
+      <p class="eyebrow">Asistencia</p>
       <h1>{{ title }}</h1>
     </div>
     <div class="topbar-actions">
-      <a class="btn btn-outline-primary" href="{{ planificacion_url }}">
-        <i class="ri-edit-2-line"></i>
-        Planificacion
-      </a>
+      {% if planificacion_url %}
+        <a class="btn btn-outline-primary" href="{{ planificacion_url }}">
+          <i class="ri-edit-2-line"></i>
+          Planificacion
+        </a>
+      {% endif %}
       <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Volver</a>
     </div>
   </header>
@@ -37,7 +39,7 @@
       <i class="ri-lock-2-line"></i>
       <div>
         <strong>Asistencia cerrada</strong>
-        <span>{% if clase.fecha_cierre_asistencia %}{{ clase.fecha_cierre_asistencia|date:"d/m/Y H:i" }}{% else %}Sin fecha de cierre{% endif %}</span>
+        <span>{% if clase.fecha_cierre_asistencia %}{{ clase.fecha_cierre_asistencia|date:"d/m/Y H:i" }}{% else %}Sin fecha de cierre{% endif %}{% if clase.asistencia_cierre_automatico %} · Cierre automático{% endif %}{% if can_edit_attendance %} · Puedes corregir el registro con tu permiso.{% endif %}</span>
       </div>
     </section>
   {% elif has_saved_attendance %}
@@ -108,7 +110,7 @@
         {% if can_edit_attendance %}
           <button class="btn btn-primary-600" type="submit" name="attendance_action" value="save">
             <i class="ri-save-3-line"></i>
-            Guardar asistencia
+            {% if clase.asistencia_cerrada %}Guardar cambios{% else %}Guardar asistencia{% endif %}
           </button>
           {% if can_close_attendance %}
             <button class="btn btn-outline-danger" type="submit" name="attendance_action" value="close" formnovalidate>

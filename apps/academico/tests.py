@@ -5,13 +5,14 @@ import tempfile
 from importlib import import_module
 from datetime import timedelta, time
 from decimal import Decimal
-from io import BytesIO
+from io import BytesIO, StringIO
 
 from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.db import connection
 from django.template.defaultfilters import date as format_date
 from django.test import TestCase, override_settings
@@ -54,7 +55,9 @@ from apps.academico.models import (
     Tema,
 )
 from apps.academico.views import CoordinacionRevisionAsistenciaView, DocenteClaseAsistenciaView
+from apps.academico.attendance_closure import close_overdue_attendances
 from apps.core.current_user import set_current_request
+from apps.core.menu import permitted_menu_groups
 from apps.core.models import Empresa, Partner, TipoIdentificacion
 from apps.matricula.models import FichaInscripcion
 
@@ -1192,6 +1195,146 @@ class DocenteHorariosPanelTests(TestCase):
         )
         self.assertContains(locked_response, "Asistencia cerrada")
         self.assertContains(locked_response, "Registro bloqueado")
+
+    def test_closed_attendance_requires_permission_and_keeps_closure_when_edited(self):
+        clase = self.create_class_for_date(
+            timezone.localdate() - timedelta(days=7), time(10, 0), time(11, 0), "Aula correccion"
+        )
+        estudiante, ficha = self.create_student_ficha()
+        asignacion = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha, estudiante=estudiante, grupo=self.curso
+        )
+        asistencia = ClaseAsistencia.objects.create(
+            clase=clase, estudiante=estudiante, estado="presente", registrado_por=self.docente
+        )
+        clase.asistencia_cerrada = True
+        clase.asistencia_cerrada_por = self.docente
+        clase.fecha_cierre_asistencia = timezone.now()
+        clase.save(update_fields=["asistencia_cerrada", "asistencia_cerrada_por", "fecha_cierre_asistencia"])
+        fecha_cierre = clase.fecha_cierre_asistencia
+        url = reverse("academico:docente_clase_asistencia", args=[clase.pk])
+        data = {
+            "attendance_action": "save",
+            f"estado_{asignacion.pk}": "ausente",
+            f"observacion_{asignacion.pk}": "Corrección autorizada",
+        }
+        self.client.force_login(self.user)
+
+        self.client.post(url, data, HTTP_HOST="localhost")
+        asistencia.refresh_from_db()
+        self.assertEqual(asistencia.estado, "presente")
+
+        permission = Permission.objects.get(codename="edit_closed_claseasistencia")
+        self.user.user_permissions.add(permission)
+        page = self.client.get(url, HTTP_HOST="localhost")
+        self.assertContains(page, "Guardar cambios")
+        self.assertNotContains(page, "Cerrar asistencia")
+        self.client.post(url, data, HTTP_HOST="localhost")
+
+        asistencia.refresh_from_db()
+        clase.refresh_from_db()
+        self.assertEqual(asistencia.estado, "ausente")
+        self.assertEqual(asistencia.observacion, "Corrección autorizada")
+        self.assertEqual(asistencia.usuario_updated, self.user)
+        self.assertEqual(asistencia.registrado_por, self.docente)
+        self.assertTrue(clase.asistencia_cerrada)
+        self.assertEqual(clase.fecha_cierre_asistencia, fecha_cierre)
+
+    def test_overdue_attendance_closes_automatically_without_changing_student_marks(self):
+        today = timezone.localdate()
+        past_class = self.create_class_for_date(
+            today - timedelta(days=1), time(10, 0), time(11, 0), "Aula autocierre"
+        )
+        unmarked_class = self.create_class_for_date(
+            today - timedelta(days=1), time(11, 0), time(12, 0), "Aula sin registro"
+        )
+        today_class = self.create_class_for_date(
+            today, time(10, 0), time(11, 0), "Aula abierta hoy"
+        )
+        estudiante, ficha = self.create_student_ficha()
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha, estudiante=estudiante, grupo=self.curso
+        )
+        asistencia = ClaseAsistencia.objects.create(
+            clase=past_class, estudiante=estudiante, estado="atraso", registrado_por=self.docente
+        )
+
+        overdue_count = Clase.objects.filter(fecha__lt=today, asistencia_cerrada=False).count()
+        output = StringIO()
+        call_command("cerrar_asistencias_vencidas", stdout=output)
+        past_class.refresh_from_db()
+        unmarked_class.refresh_from_db()
+        today_class.refresh_from_db()
+        asistencia.refresh_from_db()
+
+        self.assertIn(f"Asistencias cerradas automáticamente: {overdue_count}", output.getvalue())
+        self.assertTrue(past_class.asistencia_cerrada)
+        self.assertTrue(past_class.asistencia_cierre_automatico)
+        self.assertIsNotNone(past_class.fecha_cierre_asistencia)
+        self.assertIsNone(past_class.asistencia_cerrada_por)
+        self.assertEqual(asistencia.estado, "atraso")
+        self.assertTrue(unmarked_class.asistencia_cerrada)
+        self.assertFalse(ClaseAsistencia.objects.filter(clase=unmarked_class).exists())
+        self.assertFalse(today_class.asistencia_cerrada)
+        self.assertEqual(close_overdue_attendances(), 0)
+
+    def test_permission_holder_can_edit_closed_attendance_from_review(self):
+        clase = self.create_class_for_date(
+            timezone.localdate() - timedelta(days=7), time(10, 0), time(11, 0), "Aula revision"
+        )
+        estudiante, ficha = self.create_student_ficha()
+        asignacion = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha, estudiante=estudiante, grupo=self.curso
+        )
+        asistencia = ClaseAsistencia.objects.create(
+            clase=clase, estudiante=estudiante, estado="presente", registrado_por=self.docente
+        )
+        clase.asistencia_cerrada = True
+        clase.fecha_cierre_asistencia = timezone.now()
+        clase.save(update_fields=["asistencia_cerrada", "fecha_cierre_asistencia"])
+        editor = get_user_model().objects.create_user(username="editor_asistencia", password="ClaveActual987!")
+        editor.user_permissions.add(Permission.objects.get(codename="edit_closed_claseasistencia"))
+        self.client.force_login(editor)
+        self.assertIn(
+            "Revision asistencia",
+            [item["label"] for group in permitted_menu_groups(editor) for item in group["items"]],
+        )
+
+        review = self.client.get(
+            reverse("academico:coordinacion_revision_asistencia"), HTTP_HOST="localhost"
+        )
+        self.assertEqual(review.status_code, 200)
+        self.assertContains(review, "Aula revision")
+        self.assertNotIn(self.pendiente, [card["clase"] for card in review.context["attendance_cards"]])
+        report = self.client.get(
+            reverse("academico:coordinacion_reporte_asistencia_clase", args=[clase.pk]),
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(report, "Editar asistencia")
+        open_report = self.client.get(
+            reverse("academico:coordinacion_reporte_asistencia_clase", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(open_report.status_code, 404)
+        response = self.client.post(
+            reverse("academico:docente_clase_asistencia", args=[clase.pk]),
+            {"attendance_action": "save", f"estado_{asignacion.pk}": "justificado"},
+            HTTP_HOST="localhost",
+        )
+        asistencia.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(asistencia.estado, "justificado")
+        self.assertEqual(asistencia.registrado_por, self.docente)
+
+        administrador = get_user_model().objects.create_superuser(
+            username="admin_asistencia", password="ClaveActual987!"
+        )
+        self.client.force_login(administrador)
+        admin_page = self.client.get(
+            reverse("academico:docente_clase_asistencia", args=[clase.pk]),
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(admin_page, "Guardar cambios")
 
     def test_docente_dashboard_renders_panel_cards(self):
         self.client.force_login(self.user)

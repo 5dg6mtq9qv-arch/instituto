@@ -1003,6 +1003,7 @@ class Clase(models.Model):
     )
     fecha_revision = models.DateTimeField(blank=True, null=True)
     asistencia_cerrada = models.BooleanField(default=False)
+    asistencia_cierre_automatico = models.BooleanField(default=False)
     asistencia_cerrada_por = models.ForeignKey(
         "core.Partner",
         db_column="id_asistencia_cerrada_por",
@@ -1419,6 +1420,7 @@ class ClaseAsistencia(models.Model):
         db_table = '"academico"."clase_asistencia"'
         unique_together = (("clase", "estudiante"),)
         ordering = ["clase", "estudiante__nombre"]
+        permissions = (("edit_closed_claseasistencia", "Puede editar asistencias cerradas"),)
 
     def __str__(self):
         return f"{self.clase} - {self.estudiante} - {self.estado}"

@@ -111,7 +111,7 @@ MENU_GROUPS = [
             {
                 "label": "Revision asistencia",
                 "url_name": "academico:coordinacion_revision_asistencia",
-                "perm": "academico.view_claseasistencia",
+                "any_perms": ("academico.view_claseasistencia", "academico.edit_closed_claseasistencia"),
             },
             {
                 "label": "Asistencia alumno",
@@ -177,6 +177,11 @@ def user_can_see_menu_item(user, item):
         return False
     required_permissions = item.get("perms")
     if required_permissions and not (user.is_superuser or user.has_perms(required_permissions)):
+        return False
+    alternative_permissions = item.get("any_perms")
+    if alternative_permissions and not (
+        user.is_superuser or any(user.has_perm(permission) for permission in alternative_permissions)
+    ):
         return False
     perm = item.get("perm")
     return user.is_superuser or not perm or user.has_perm(perm)
