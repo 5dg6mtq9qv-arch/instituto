@@ -22,6 +22,7 @@ REQUIRED_FUNCTIONS = frozenset({
     "core_enrol_get_enrolled_users",
     "core_courseformat_update_course", "core_courseformat_get_state",
     "core_courseformat_new_module", "core_update_inplace_editable",
+    "gradereport_user_get_grade_items",
 })
 
 
@@ -221,6 +222,10 @@ class MoodleClient:
                     "La cuenta del servicio web no puede asignar el rol configurado. "
                     "Revisa sus permisos y los identificadores de rol."
                 ),
+                "nopermissiontoviewgrades": (
+                    "La cuenta del servicio web no puede consultar las calificaciones. "
+                    "Asigna los permisos gradereport/user:view y moodle/grade:viewall en Moodle."
+                ),
             }
             raise MoodleError(messages.get(result.get("errorcode"), "Moodle rechazó la operación. Revisa su configuración de servicios web."))
         return result
@@ -269,6 +274,24 @@ class MoodleClient:
 
     def enrolled_users(self, course_id):
         return self._records("core_enrol_get_enrolled_users", {"courseid": course_id})
+
+    def user_grade_items(self, course_id, user_id):
+        result = self.call(
+            "gradereport_user_get_grade_items",
+            {"courseid": course_id, "userid": user_id},
+        )
+        if not isinstance(result, dict) or not isinstance(result.get("usergrades"), list):
+            raise MoodleError("Moodle devolvió las calificaciones en un formato inesperado.")
+        user_grades = [
+            item
+            for item in result["usergrades"]
+            if isinstance(item, dict) and item.get("userid") == user_id
+        ]
+        if len(user_grades) != 1 or not isinstance(user_grades[0].get("gradeitems"), list):
+            raise MoodleError("Moodle no devolvió las calificaciones del estudiante solicitado.")
+        if any(not isinstance(item, dict) or not isinstance(item.get("id"), int) for item in user_grades[0]["gradeitems"]):
+            raise MoodleError("Moodle devolvió una actividad calificada incompleta.")
+        return user_grades[0]["gradeitems"]
 
     def course_state(self, course_id):
         result = self.call("core_courseformat_get_state", {"courseid": course_id})

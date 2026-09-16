@@ -73,6 +73,30 @@
       width: 210mm;
     }
 
+    .report-alerts {
+      margin: 0 auto -12px;
+      max-width: 210mm;
+      padding: 16px 12mm 0;
+    }
+
+    .report-alert {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--brand);
+      border-radius: 7px;
+      color: #344054;
+      margin-bottom: 8px;
+      padding: 10px 12px;
+    }
+
+    .report-alert.error {
+      border-left-color: #b42318;
+    }
+
+    .report-alert.warning {
+      border-left-color: #b45309;
+    }
+
     .report-header {
       align-items: center;
       border-bottom: 2px solid var(--brand);
@@ -322,6 +346,97 @@
       text-align: center;
     }
 
+    .grades-section {
+      margin-top: 8mm;
+    }
+
+    .grades-overview {
+      align-items: center;
+      background: var(--brand-soft);
+      border: 1px solid #b9dcd8;
+      border-radius: 2mm;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4mm;
+      padding: 3mm 4mm;
+    }
+
+    .grades-overview strong,
+    .grades-overview span {
+      display: block;
+    }
+
+    .grades-overview strong {
+      color: #155e57;
+      font-size: 10pt;
+    }
+
+    .grades-overview span {
+      color: #486a67;
+      font-size: 7.5pt;
+      margin-top: 0.5mm;
+    }
+
+    .grades-overview-count {
+      color: var(--brand);
+      font-size: 15pt;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .grade-course {
+      margin-top: 4mm;
+    }
+
+    .grade-course-header {
+      align-items: center;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-bottom: 0;
+      display: flex;
+      justify-content: space-between;
+      padding: 2.5mm 3mm;
+    }
+
+    .grade-course-header strong,
+    .grade-course-header span {
+      display: block;
+    }
+
+    .grade-course-header strong {
+      font-size: 9pt;
+    }
+
+    .grade-course-header span {
+      color: var(--muted);
+      font-size: 7.5pt;
+    }
+
+    .course-total {
+      color: var(--brand);
+      font-size: 9pt;
+      font-weight: 900;
+      text-align: right;
+    }
+
+    .grade-table col.activity { width: 34%; }
+    .grade-table col.module { width: 14%; }
+    .grade-table col.grade { width: 15%; }
+    .grade-table col.range { width: 15%; }
+    .grade-table col.percentage { width: 12%; }
+    .grade-table col.graded-at { width: 10%; }
+
+    .grade-table td:nth-child(3),
+    .grade-table td:nth-child(4),
+    .grade-table td:nth-child(5) {
+      text-align: center;
+    }
+
+    .grade-value {
+      color: var(--brand);
+      font-weight: 900;
+    }
+
     .signatures {
       break-inside: avoid;
       display: grid;
@@ -363,7 +478,8 @@
         -webkit-print-color-adjust: exact;
       }
 
-      .print-toolbar {
+      .print-toolbar,
+      .report-alerts {
         display: none !important;
       }
 
@@ -383,6 +499,14 @@
     <button type="button" onclick="window.print()">Imprimir / Guardar PDF</button>
   </nav>
 
+  {% if messages %}
+    <div class="report-alerts" aria-live="polite">
+      {% for message in messages %}
+        <div class="report-alert {{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
   <main class="report-sheet">
     <header class="report-header">
       <div class="brand">
@@ -400,7 +524,7 @@
 
     <section class="title-block">
       <p>Informe individual para representante</p>
-      <h1>Reporte de asistencia</h1>
+      <h1>Reporte académico</h1>
     </section>
 
     <section class="student-card" aria-label="Datos del estudiante">
@@ -425,7 +549,7 @@
         <strong>{{ report_date|date:"d/m/Y" }}</strong>
       </div>
       <div>
-        <span>Registros completados</span>
+        <span>Asistencias registradas</span>
         <strong>{{ stats.registradas }} de {{ stats.total }}</strong>
       </div>
     </section>
@@ -510,8 +634,96 @@
       </table>
     </section>
 
+    <section class="grades-section" aria-label="Calificaciones Moodle">
+      <div class="section-heading">
+        <h2>Calificaciones y actividades</h2>
+        {% if grades_synced_at %}
+          <span>Actualizado: {{ grades_synced_at|date:"d/m/Y H:i" }}</span>
+        {% endif %}
+      </div>
+
+      {% if has_moodle_enrollments %}
+        <div class="grades-overview">
+          <div>
+            <strong>Resumen de actividades evaluadas en Moodle</strong>
+            <span>Las actividades ocultas por Moodle no se muestran en este documento.</span>
+          </div>
+          <div class="grades-overview-count">{{ graded_activity_count }}/{{ grade_activity_count }}</div>
+        </div>
+
+        {% for course in grade_courses %}
+          <article class="grade-course">
+            <header class="grade-course-header">
+              <div>
+                <strong>{{ course.materia.nombre }}</strong>
+                <span>{{ course.grupo.nombre }}</span>
+              </div>
+              <div class="course-total">
+                {% if course.course_total %}
+                  Total: {{ course.course_total.nota_formateada|default:"Sin calificar" }}
+                  {% if course.course_total.porcentaje_formateado %}
+                    · {{ course.course_total.porcentaje_formateado }}
+                  {% endif %}
+                {% else %}
+                  Total no disponible
+                {% endif %}
+              </div>
+            </header>
+            <table class="grade-table">
+              <colgroup>
+                <col class="activity">
+                <col class="module">
+                <col class="grade">
+                <col class="range">
+                <col class="percentage">
+                <col class="graded-at">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Actividad</th>
+                  <th>Tipo</th>
+                  <th>Nota</th>
+                  <th>Rango</th>
+                  <th>Porcentaje</th>
+                  <th>Fecha</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for grade in course.activities %}
+                  <tr>
+                    <td>
+                      <strong>{{ grade.nombre }}</strong>
+                      {% if grade.retroalimentacion %}<span>{{ grade.retroalimentacion }}</span>{% endif %}
+                    </td>
+                    <td>{{ grade.modulo|default:"Actividad"|upper }}</td>
+                    <td class="grade-value">{{ grade.nota_formateada|default:"Pendiente" }}</td>
+                    <td>{{ grade.rango_display|default:"—" }}</td>
+                    <td>{{ grade.porcentaje_formateado|default:"—" }}</td>
+                    <td>{% if grade.fecha_calificacion %}{{ grade.fecha_calificacion|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+                  </tr>
+                {% empty %}
+                  <tr>
+                    <td class="empty-row" colspan="6">Este curso todavía no tiene actividades calificadas sincronizadas.</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </article>
+        {% endfor %}
+      {% else %}
+        <table>
+          <tbody>
+            <tr>
+              <td class="empty-row">El estudiante todavía no tiene una matrícula Moodle vinculada.</td>
+            </tr>
+          </tbody>
+        </table>
+      {% endif %}
+    </section>
+
     <p class="report-note">
       Este reporte incluye únicamente clases realizadas hasta el {{ report_date|date:"d/m/Y" }}; no considera fechas futuras.
+      Las calificaciones corresponden a la última sincronización disponible desde Moodle.
     </p>
 
     <section class="signatures" aria-label="Firmas">

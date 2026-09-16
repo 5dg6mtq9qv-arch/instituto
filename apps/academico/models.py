@@ -1,5 +1,6 @@
 import uuid
 from decimal import Decimal
+from html import unescape
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -1889,3 +1890,48 @@ class MoodleMatricula(models.Model):
         db_table = '"academico"."moodle_matricula"'
         default_permissions = ()
         constraints = [models.UniqueConstraint(fields=["curso", "cuenta"], name="moodle_matricula_curso_cuenta")]
+
+
+class MoodleCalificacion(models.Model):
+    matricula = models.ForeignKey(
+        MoodleMatricula,
+        on_delete=models.CASCADE,
+        related_name="calificaciones",
+    )
+    item_id = models.PositiveBigIntegerField()
+    nombre = models.CharField(max_length=500)
+    tipo = models.CharField(max_length=30)
+    modulo = models.CharField(max_length=100, blank=True)
+    instancia_id = models.PositiveBigIntegerField(null=True, blank=True)
+    modulo_curso_id = models.PositiveBigIntegerField(null=True, blank=True)
+    categoria_id = models.PositiveBigIntegerField(null=True, blank=True)
+    nota = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True)
+    nota_minima = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True)
+    nota_maxima = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True)
+    nota_formateada = models.CharField(max_length=100, blank=True)
+    rango_formateado = models.CharField(max_length=100, blank=True)
+    porcentaje_formateado = models.CharField(max_length=100, blank=True)
+    retroalimentacion = models.TextField(blank=True)
+    fecha_envio = models.DateTimeField(null=True, blank=True)
+    fecha_calificacion = models.DateTimeField(null=True, blank=True)
+    oculta = models.BooleanField(default=False)
+    activa = models.BooleanField(default=True)
+    sincronizada_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = '"academico"."moodle_calificacion"'
+        default_permissions = ()
+        ordering = ["matricula__curso__materia_curso__materia__nombre", "tipo", "nombre", "item_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["matricula", "item_id"],
+                name="moodle_calificacion_matricula_item",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.matricula.cuenta.persona} - {self.nombre}: {self.nota_formateada or '-'}"
+
+    @property
+    def rango_display(self):
+        return unescape(self.rango_formateado)

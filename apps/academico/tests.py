@@ -39,6 +39,7 @@ from apps.academico.models import (
     Materia,
     MateriaCurso,
     MoodleConfiguracion,
+    MoodleCalificacion,
     MoodleCuenta,
     MoodleCurso,
     MoodleMatricula,
@@ -3925,23 +3926,175 @@ class DocenteHorariosPanelTests(TestCase):
             estado="presente",
             registrado_por=self.docente,
         )
+        moodle_course = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=81,
+            completo=True,
+        )
+        moodle_account = MoodleCuenta.objects.create(
+            persona=estudiante,
+            sitio="https://moodle.example",
+            usuario="gabriela",
+            usuario_id=151,
+        )
+        moodle_enrollment = MoodleMatricula.objects.create(
+            curso=moodle_course,
+            cuenta=moodle_account,
+            rol="Alumno",
+            confirmada=True,
+        )
+        MoodleCalificacion.objects.create(
+            matricula=moodle_enrollment,
+            item_id=501,
+            nombre="Cuestionario de fracciones",
+            tipo="mod",
+            modulo="quiz",
+            nota=Decimal("8.5"),
+            nota_minima=Decimal("0"),
+            nota_maxima=Decimal("10"),
+            nota_formateada="8,50",
+            rango_formateado="0–10",
+            porcentaje_formateado="85,00 %",
+        )
+        MoodleCalificacion.objects.create(
+            matricula=moodle_enrollment,
+            item_id=502,
+            nombre="Total del curso",
+            tipo="course",
+            nota=Decimal("8.5"),
+            nota_formateada="8,50",
+            porcentaje_formateado="85,00 %",
+        )
+        MoodleCalificacion.objects.create(
+            matricula=moodle_enrollment,
+            item_id=503,
+            nombre="Evaluacion privada",
+            tipo="mod",
+            modulo="quiz",
+            nota_formateada="10,00",
+            oculta=True,
+        )
         self.client.force_login(coordinator)
 
-        response = self.client.get(
-            reverse("academico:estudiante_reporte_asistencia", args=[estudiante.pk]),
-            HTTP_HOST="localhost",
-        )
+        from unittest.mock import patch
+
+        with patch(
+            "apps.academico.moodle_grades.sync_student_grades",
+            return_value={"courses": 1, "items": 2, "activities": 1},
+        ) as sync_grades:
+            response = self.client.get(
+                reverse("academico:estudiante_reporte_asistencia", args=[estudiante.pk]),
+                HTTP_HOST="localhost",
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "academico/coordinacion_reporte_asistencia_alumno_imprimir.html")
         self.assertContains(response, "Gabriela Aguirre Carranco")
         self.assertContains(response, "Documento A4")
         self.assertContains(response, "Imprimir / Guardar PDF")
+        self.assertNotContains(response, "Actualizar calificaciones Moodle")
+        self.assertContains(response, "Cuestionario de fracciones")
+        self.assertContains(response, "8,50")
+        self.assertContains(response, "85,00 %")
+        self.assertNotContains(response, "Evaluacion privada")
         self.assertContains(response, "no considera fechas futuras")
         self.assertNotContains(response, 'name="desde"')
         self.assertEqual(response.context["stats"]["total"], 1)
         self.assertEqual(response.context["stats"]["presente"], 1)
+        self.assertEqual(response.context["grade_activity_count"], 1)
+        self.assertEqual(response.context["graded_activity_count"], 1)
         self.assertTrue(all(row["fecha"] <= timezone.localdate() for row in response.context["rows"]))
+        sync_grades.assert_called_once_with(estudiante)
+
+        from apps.academico.moodle import MoodleError
+
+        with patch(
+            "apps.academico.moodle_grades.sync_student_grades",
+            side_effect=MoodleError("Moodle no responde."),
+        ):
+            fallback_response = self.client.get(
+                reverse("academico:estudiante_reporte_asistencia", args=[estudiante.pk]),
+                HTTP_HOST="localhost",
+            )
+
+        self.assertEqual(fallback_response.status_code, 200)
+        self.assertContains(fallback_response, "Se muestran los últimos datos guardados")
+        self.assertContains(fallback_response, "Cuestionario de fracciones")
+
+    def test_moodle_grade_sync_stores_activity_and_course_total_idempotently(self):
+        from unittest.mock import MagicMock
+
+        from apps.academico.moodle_grades import sync_student_grades
+
+        estudiante, _ficha = self.create_student_ficha(
+            nombre="Alumno Moodle",
+            identificacion="MOODLE-GRADES-1",
+            numero="M-GRADE-1",
+        )
+        moodle_course = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=91,
+            completo=True,
+        )
+        moodle_account = MoodleCuenta.objects.create(
+            persona=estudiante,
+            sitio="https://moodle.example",
+            usuario="alumno_grades",
+            usuario_id=191,
+        )
+        enrollment = MoodleMatricula.objects.create(
+            curso=moodle_course,
+            cuenta=moodle_account,
+            rol="Alumno",
+            confirmada=True,
+        )
+        client = MagicMock(base_url="https://moodle.example")
+        client.user_grade_items.return_value = [
+            {
+                "id": 601,
+                "itemname": "<strong>Tarea aplicada</strong>",
+                "itemtype": "mod",
+                "itemmodule": "assign",
+                "iteminstance": 44,
+                "cmid": 72,
+                "categoryid": 9,
+                "graderaw": 9.25,
+                "grademin": 0,
+                "grademax": 10,
+                "gradeformatted": "9,25",
+                "rangeformatted": "0&ndash;10",
+                "percentageformatted": "92,50 %",
+                "feedback": "<p>Buen trabajo</p>",
+                "gradedatesubmitted": 1_700_000_000,
+                "gradedategraded": 1_700_000_100,
+            },
+            {
+                "id": 602,
+                "itemname": "Total del curso",
+                "itemtype": "course",
+                "itemmodule": "",
+                "graderaw": 9.25,
+                "gradeformatted": "9,25",
+            },
+        ]
+
+        first_result = sync_student_grades(estudiante, client=client)
+        second_result = sync_student_grades(estudiante, client=client)
+
+        self.assertEqual(first_result, {"courses": 1, "items": 2, "activities": 1})
+        self.assertEqual(second_result, first_result)
+        self.assertEqual(MoodleCalificacion.objects.filter(matricula=enrollment).count(), 2)
+        activity = MoodleCalificacion.objects.get(matricula=enrollment, item_id=601)
+        self.assertEqual(activity.nombre, "Tarea aplicada")
+        self.assertEqual(activity.modulo, "assign")
+        self.assertEqual(activity.nota, Decimal("9.25000"))
+        self.assertEqual(activity.rango_formateado, "0–10")
+        activity.rango_formateado = "0&ndash;10"
+        self.assertEqual(activity.rango_display, "0–10")
+        self.assertEqual(activity.retroalimentacion, "Buen trabajo")
+        self.assertIsNotNone(activity.fecha_calificacion)
 
     def test_director_attendance_review_opens_without_docente_partner(self):
         director = get_user_model().objects.create_user(username="director-asistencia", password="ClaveActual987!")

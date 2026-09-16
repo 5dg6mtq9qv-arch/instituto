@@ -79,8 +79,10 @@ from .models import (
     Materia,
     MateriaCurso,
     MoodleConfiguracion,
+    MoodleCalificacion,
     MoodleCuenta,
     MoodleCurso,
+    MoodleMatricula,
     MateriaSubtema,
     MateriaTema,
     Periodo,
@@ -6002,10 +6004,27 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
     attendance_state_labels = {**dict(ClaseAsistencia.ESTADO_CHOICES), "pendiente": "Pendiente"}
 
     def get(self, request, estudiante_pk):
-        estudiante = get_object_or_404(
+        estudiante = self.get_estudiante(estudiante_pk)
+        from .moodle import MoodleError
+        from .moodle_grades import sync_student_grades
+
+        try:
+            sync_student_grades(estudiante)
+        except MoodleError as exc:
+            messages.warning(
+                request,
+                f"No se pudieron actualizar las calificaciones. Se muestran los últimos datos guardados. {exc}",
+            )
+        return render(request, self.template_name, self.get_context(estudiante.pk))
+
+    def get_estudiante(self, estudiante_pk):
+        return get_object_or_404(
             Partner.objects.filter(es_estudiante=True, activo=True),
             pk=estudiante_pk,
         )
+
+    def get_context(self, estudiante_pk):
+        estudiante = self.get_estudiante(estudiante_pk)
         report_date = timezone.localdate()
         rows, assignments = self.get_attendance_rows(estudiante, report_date)
         stats = self.get_stats(rows)
@@ -6013,19 +6032,73 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
             ", ".join(sorted({assignment.grupo.nombre for assignment in assignments}))
             or "Sin grupo asignado"
         )
-        return render(
-            request,
-            self.template_name,
-            {
-                "title": "Reporte de asistencia del alumno",
-                "selected_estudiante": estudiante,
-                "group_label": group_label,
-                "report_date": report_date,
-                "rows": rows,
-                "stats": stats,
-                "generated_at": timezone.localtime(timezone.now()),
-            },
+        grade_context = self.get_grade_context(estudiante)
+        return {
+            "title": "Reporte académico del alumno",
+            "selected_estudiante": estudiante,
+            "group_label": group_label,
+            "report_date": report_date,
+            "rows": rows,
+            "stats": stats,
+            "generated_at": timezone.localtime(timezone.now()),
+            **grade_context,
+        }
+
+    def get_grade_context(self, estudiante):
+        enrollments = list(
+            MoodleMatricula.objects.filter(
+                cuenta__persona=estudiante,
+                rol="Alumno",
+                confirmada=True,
+            )
+            .select_related(
+                "curso__materia_curso__materia",
+                "curso__materia_curso__grupo",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "calificaciones",
+                    queryset=MoodleCalificacion.objects.filter(
+                        activa=True,
+                        oculta=False,
+                    ),
+                    to_attr="calificaciones_visibles",
+                )
+            )
+            .order_by("curso__materia_curso__materia__nombre", "curso__materia_curso__grupo__nombre")
         )
+        grade_courses = []
+        last_sync = None
+        activity_count = 0
+        graded_count = 0
+        for enrollment in enrollments:
+            grades = list(enrollment.calificaciones_visibles)
+            activities = [grade for grade in grades if grade.tipo == "mod"]
+            course_total = next((grade for grade in grades if grade.tipo == "course"), None)
+            if grades:
+                enrollment_sync = max(grade.sincronizada_en for grade in grades)
+                last_sync = max(filter(None, [last_sync, enrollment_sync]))
+            activity_count += len(activities)
+            graded_count += sum(
+                1
+                for grade in activities
+                if grade.nota is not None or grade.nota_formateada not in {"", "-"}
+            )
+            grade_courses.append(
+                {
+                    "materia": enrollment.curso.materia_curso.materia,
+                    "grupo": enrollment.curso.materia_curso.grupo,
+                    "activities": activities,
+                    "course_total": course_total,
+                }
+            )
+        return {
+            "grade_courses": grade_courses,
+            "has_moodle_enrollments": bool(enrollments),
+            "grade_activity_count": activity_count,
+            "graded_activity_count": graded_count,
+            "grades_synced_at": last_sync,
+        }
 
     def get_attendance_rows(self, estudiante, report_date):
         assignments = list(

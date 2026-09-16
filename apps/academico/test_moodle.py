@@ -178,6 +178,38 @@ class MoodleClientTests(SimpleTestCase):
         self.assertEqual(payload["enrolments[0][roleid]"], ["5"])
         self.assertEqual(payload["enrolments[0][courseid]"], ["8"])
 
+    def test_grade_items_returns_the_requested_students_activities(self):
+        client = self.client_with_response(json.dumps({
+            "usergrades": [{
+                "courseid": 8,
+                "userid": 15,
+                "gradeitems": [
+                    {
+                        "id": 31,
+                        "itemname": "Cuestionario 1",
+                        "itemtype": "mod",
+                        "itemmodule": "quiz",
+                    }
+                ],
+            }],
+            "warnings": [],
+        }).encode())
+
+        items = client.user_grade_items(8, 15)
+
+        self.assertEqual(items[0]["itemname"], "Cuestionario 1")
+        from urllib.parse import parse_qs
+        payload = parse_qs(client.opener.open.call_args.kwargs["data"].decode())
+        self.assertEqual(payload["wsfunction"], ["gradereport_user_get_grade_items"])
+        self.assertEqual(payload["courseid"], ["8"])
+        self.assertEqual(payload["userid"], ["15"])
+
+    def test_grade_items_rejects_an_unexpected_response(self):
+        client = self.client_with_response(b'{"usergrades": []}')
+
+        with self.assertRaises(MoodleError):
+            client.user_grade_items(8, 15)
+
     def test_user_lookup_rejects_unexpected_results(self):
         client = self.client_with_response(b'{"users": []}')
         with self.assertRaises(MoodleError):
