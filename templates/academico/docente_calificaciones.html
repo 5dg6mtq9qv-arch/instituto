@@ -1,0 +1,93 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Docente</p>
+      <h1>{{ title }}</h1>
+      <p class="text-muted mb-0">Consulta el libro de calificaciones de cada una de tus materias.</p>
+    </div>
+  </header>
+
+  {% include "academico/includes/docente_tabs.html" with active_tab="calificaciones" %}
+
+  {% if not docente %}
+    <section class="panel">
+      <p class="text-muted mb-0">Tu usuario no está vinculado a un docente activo.</p>
+    </section>
+  {% elif course_cards %}
+    <section class="teacher-grade-course-grid">
+      {% for card in course_cards %}
+        <article class="teacher-grade-course-card{% if not card.moodle_course %} is-pending{% endif %}">
+          <header>
+            <span class="subject-color" style="background: {{ card.materia_curso.materia.color|default:'#0f766e' }}"></span>
+            <div>
+              <span class="course-group">{{ card.materia_curso.grupo }}</span>
+              <h2>{{ card.materia_curso.materia }}</h2>
+            </div>
+            {% if card.moodle_course %}
+              <span class="course-state is-ready"><i class="ri-checkbox-circle-line"></i> Moodle</span>
+            {% else %}
+              <span class="course-state"><i class="ri-time-line"></i> Pendiente</span>
+            {% endif %}
+          </header>
+
+          <div class="course-metrics">
+            <div><strong>{{ card.student_count }}</strong><span>Alumnos</span></div>
+            <div><strong>{{ card.activity_count }}</strong><span>Actividades</span></div>
+            <div><strong>{{ card.confirmed_count }}</strong><span>En Moodle</span></div>
+          </div>
+
+          <p class="course-sync">
+            <i class="ri-refresh-line"></i>
+            {% if card.last_sync %}
+              Actualizado {{ card.last_sync|date:"d/m/Y H:i" }}
+            {% elif card.moodle_course %}
+              Todavía no se han recuperado calificaciones
+            {% else %}
+              Coordinación debe crear primero el aula Moodle
+            {% endif %}
+          </p>
+
+          {% if card.url %}
+            <a class="btn btn-primary-600" href="{{ card.url }}">
+              <i class="ri-bar-chart-grouped-line"></i>
+              Ver calificaciones
+            </a>
+          {% else %}
+            <span class="btn btn-outline-secondary disabled" aria-disabled="true">
+              Aula Moodle no disponible
+            </span>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </section>
+  {% else %}
+    <section class="panel academic-empty-state">
+      No tienes materias asignadas para consultar calificaciones.
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .teacher-grade-course-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); }
+    .teacher-grade-course-card { background: #fff; border: 1px solid #dbe7e5; border-radius: 14px; box-shadow: 0 8px 24px rgba(15, 23, 42, .05); padding: 18px; }
+    .teacher-grade-course-card.is-pending { border-color: #e5e7eb; }
+    .teacher-grade-course-card header { align-items: start; display: grid; gap: 11px; grid-template-columns: 6px minmax(0, 1fr) auto; }
+    .subject-color { border-radius: 999px; display: block; height: 48px; }
+    .course-group { color: #667085; display: block; font-size: 12px; font-weight: 700; margin-bottom: 3px; text-transform: uppercase; }
+    .teacher-grade-course-card h2 { color: #172033; font-size: 18px; margin: 0; }
+    .course-state { align-items: center; background: #f2f4f7; border-radius: 999px; color: #667085; display: flex; font-size: 11px; font-weight: 800; gap: 4px; padding: 6px 9px; }
+    .course-state.is-ready { background: #e8f6f3; color: #087669; }
+    .course-metrics { border-bottom: 1px solid #eef2f6; border-top: 1px solid #eef2f6; display: grid; grid-template-columns: repeat(3, 1fr); margin: 18px 0 14px; padding: 14px 0; }
+    .course-metrics div { display: grid; gap: 3px; text-align: center; }
+    .course-metrics div + div { border-left: 1px solid #eef2f6; }
+    .course-metrics strong { color: #172033; font-size: 21px; }
+    .course-metrics span { color: #667085; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .course-sync { align-items: center; color: #667085; display: flex; font-size: 12px; gap: 6px; min-height: 20px; }
+    .teacher-grade-course-card .btn { justify-content: center; margin-top: 8px; width: 100%; }
+  </style>
+{% endblock %}

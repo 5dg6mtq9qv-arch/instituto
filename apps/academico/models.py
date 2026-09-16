@@ -1921,6 +1921,9 @@ class MoodleCalificacion(models.Model):
     class Meta:
         db_table = '"academico"."moodle_calificacion"'
         default_permissions = ()
+        permissions = (
+            ("access_docente_calificaciones", "Puede acceder a las calificaciones docentes"),
+        )
         ordering = ["matricula__curso__materia_curso__materia__nombre", "tipo", "nombre", "item_id"]
         constraints = [
             models.UniqueConstraint(

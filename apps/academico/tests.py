@@ -144,6 +144,14 @@ class DocenteHorariosPanelTests(TestCase):
         self.media_override.disable()
         shutil.rmtree(self.media_root, ignore_errors=True)
 
+    def grant_teacher_gradebook_permission(self, user=None):
+        permission = Permission.objects.get(
+            codename="access_docente_calificaciones",
+            content_type__app_label="academico",
+        )
+        (user or self.user).user_permissions.add(permission)
+        return permission
+
     def test_moodle_permission_and_button_for_coordinator(self):
         user = self.create_coordinator()
         self.assertTrue(user.has_perm("academico.crear_moodlecurso"))
@@ -4095,6 +4103,253 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(activity.rango_display, "0–10")
         self.assertEqual(activity.retroalimentacion, "Buen trabajo")
         self.assertIsNotNone(activity.fecha_calificacion)
+
+    def test_teacher_gradebook_lists_only_assigned_courses_and_shows_students(self):
+        self.grant_teacher_gradebook_permission()
+        estudiante, ficha = self.create_student_ficha(
+            nombre="Ana",
+            apellido="Alvarez",
+            identificacion="GRADEBOOK-1",
+            numero="GRADEBOOK-F1",
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+        )
+        moodle_course = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=301,
+            completo=True,
+        )
+        account = MoodleCuenta.objects.create(
+            persona=estudiante,
+            sitio="https://moodle.example",
+            usuario="ana_gradebook",
+            usuario_id=401,
+        )
+        enrollment = MoodleMatricula.objects.create(
+            curso=moodle_course,
+            cuenta=account,
+            rol="Alumno",
+            confirmada=True,
+        )
+        MoodleCalificacion.objects.create(
+            matricula=enrollment,
+            item_id=701,
+            nombre="Tarea de algebra",
+            tipo="mod",
+            modulo="assign",
+            nota=Decimal("9"),
+            nota_formateada="9,00",
+            rango_formateado="0–10",
+            porcentaje_formateado="90,00 %",
+        )
+        MoodleCalificacion.objects.create(
+            matricula=enrollment,
+            item_id=702,
+            nombre="Total del curso",
+            tipo="course",
+            nota_formateada="9,00",
+            porcentaje_formateado="90,00 %",
+        )
+        other_subject = Materia.objects.create(nombre="Materia ajena")
+        other_materia_curso = MateriaCurso.objects.create(
+            materia=other_subject,
+            grupo=self.curso,
+        )
+        MoodleCurso.objects.create(
+            materia_curso=other_materia_curso,
+            sitio="https://moodle.example",
+            curso_id=302,
+            completo=True,
+        )
+        self.client.force_login(self.user)
+
+        list_response = self.client.get(
+            reverse("academico:docente_calificaciones"),
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "Matematicas")
+        self.assertNotContains(list_response, "Materia ajena")
+        self.assertContains(list_response, "Ver calificaciones")
+
+        detail_response = self.client.get(
+            reverse(
+                "academico:docente_calificaciones_detalle",
+                args=[self.materia_curso.pk],
+            ),
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Ana Alvarez")
+        self.assertContains(detail_response, "Tarea de algebra")
+        self.assertContains(detail_response, "9,00")
+        self.assertContains(detail_response, "Recuperar notas de Moodle")
+        self.assertContains(detail_response, "sweetalert2@11")
+        self.assertContains(detail_response, "Recuperando calificaciones")
+        self.assertEqual(detail_response.context["student_count"], 1)
+        self.assertEqual(detail_response.context["activity_count"], 1)
+
+        forbidden_response = self.client.get(
+            reverse(
+                "academico:docente_calificaciones_detalle",
+                args=[other_materia_curso.pk],
+            ),
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(forbidden_response.status_code, 404)
+
+    def test_teacher_can_manually_recover_all_course_grades(self):
+        from unittest.mock import patch
+
+        self.grant_teacher_gradebook_permission()
+        MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=303,
+            completo=True,
+        )
+        self.client.force_login(self.user)
+        url = reverse(
+            "academico:docente_calificaciones_detalle",
+            args=[self.materia_curso.pk],
+        )
+
+        with patch(
+            "apps.academico.moodle_grades.sync_course_grades",
+            return_value={"students": 4, "items": 12, "activities": 3},
+        ) as sync_grades:
+            response = self.client.post(url, HTTP_HOST="localhost", follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "notas de 4 alumnos y 3 actividades")
+        sync_grades.assert_called_once()
+        self.assertEqual(sync_grades.call_args.args[0].materia_curso, self.materia_curso)
+
+        with patch(
+            "apps.academico.moodle_grades.sync_course_grades",
+            return_value={"students": 4, "items": 12, "activities": 3},
+        ):
+            json_response = self.client.post(
+                url,
+                HTTP_HOST="localhost",
+                HTTP_ACCEPT="application/json",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(json_response.status_code, 200)
+        self.assertTrue(json_response.json()["ok"])
+        self.assertEqual(json_response.json()["icon"], "success")
+        self.assertEqual(json_response.json()["result"]["students"], 4)
+
+        from apps.academico.moodle import MoodleError
+
+        with patch(
+            "apps.academico.moodle_grades.sync_course_grades",
+            side_effect=MoodleError("Moodle no responde."),
+        ):
+            error_response = self.client.post(
+                url,
+                HTTP_HOST="localhost",
+                HTTP_ACCEPT="application/json",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+
+        self.assertEqual(error_response.status_code, 502)
+        self.assertFalse(error_response.json()["ok"])
+        self.assertEqual(error_response.json()["icon"], "error")
+        self.assertIn("Moodle no responde", error_response.json()["message"])
+
+    def test_teacher_gradebook_requires_explicit_permission(self):
+        list_url = reverse("academico:docente_calificaciones")
+        detail_url = reverse(
+            "academico:docente_calificaciones_detalle",
+            args=[self.materia_curso.pk],
+        )
+        self.client.force_login(self.user)
+
+        self.assertEqual(
+            self.client.get(list_url, HTTP_HOST="localhost").status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.get(detail_url, HTTP_HOST="localhost").status_code,
+            403,
+        )
+        attendance = self.client.get(
+            reverse("academico:docente_asistencias"),
+            HTTP_HOST="localhost",
+        )
+        self.assertNotContains(attendance, f'href="{list_url}"')
+
+        self.grant_teacher_gradebook_permission()
+        allowed = self.client.get(list_url, HTTP_HOST="localhost")
+        self.assertEqual(allowed.status_code, 200)
+        attendance = self.client.get(
+            reverse("academico:docente_asistencias"),
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(attendance, f'href="{list_url}"')
+
+    def test_moodle_course_grade_sync_recovers_every_confirmed_student(self):
+        from unittest.mock import MagicMock
+
+        from apps.academico.moodle_grades import sync_course_grades
+
+        moodle_course = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=304,
+            completo=True,
+        )
+        for index in range(2):
+            student, _ficha = self.create_student_ficha(
+                nombre=f"Alumno {index}",
+                identificacion=f"BATCH-GRADE-{index}",
+                numero=f"BATCH-GRADE-F{index}",
+            )
+            account = MoodleCuenta.objects.create(
+                persona=student,
+                sitio="https://moodle.example",
+                usuario=f"batch_grade_{index}",
+                usuario_id=500 + index,
+            )
+            MoodleMatricula.objects.create(
+                curso=moodle_course,
+                cuenta=account,
+                rol="Alumno",
+                confirmada=True,
+            )
+        client = MagicMock(base_url="https://moodle.example")
+        client.user_grade_items.return_value = [
+            {
+                "id": 801,
+                "itemname": "Cuestionario comun",
+                "itemtype": "mod",
+                "itemmodule": "quiz",
+                "graderaw": 8,
+                "gradeformatted": "8,00",
+            },
+            {
+                "id": 802,
+                "itemname": "Total del curso",
+                "itemtype": "course",
+                "graderaw": 8,
+                "gradeformatted": "8,00",
+            },
+        ]
+
+        result = sync_course_grades(moodle_course, client=client)
+
+        self.assertEqual(result, {"students": 2, "items": 4, "activities": 1})
+        self.assertEqual(client.user_grade_items.call_count, 2)
+        self.assertEqual(
+            MoodleCalificacion.objects.filter(matricula__curso=moodle_course).count(),
+            4,
+        )
 
     def test_director_attendance_review_opens_without_docente_partner(self):
         director = get_user_model().objects.create_user(username="director-asistencia", password="ClaveActual987!")

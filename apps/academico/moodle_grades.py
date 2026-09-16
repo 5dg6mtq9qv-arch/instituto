@@ -54,20 +54,55 @@ def grade_defaults(item):
     }
 
 
-def sync_student_grades(estudiante, client=None):
-    enrollments = list(
-        MoodleMatricula.objects.select_related(
-            "cuenta__persona",
-            "curso__materia_curso__materia",
-            "curso__materia_curso__grupo",
-        ).filter(
-            cuenta__persona=estudiante,
-            cuenta__usuario_id__isnull=False,
-            curso__curso_id__isnull=False,
-            rol="Alumno",
-            confirmada=True,
+def sync_enrollment_grades(enrollment, client):
+    if enrollment.curso.sitio and enrollment.curso.sitio.rstrip("/") != client.base_url:
+        raise MoodleError("El aula está vinculada a otra instancia Moodle.")
+    try:
+        grade_items = client.user_grade_items(
+            enrollment.curso.curso_id,
+            enrollment.cuenta.usuario_id,
         )
+    except MoodleError as exc:
+        subject = enrollment.curso.materia_curso.materia.nombre
+        student = enrollment.cuenta.persona.nombre_completo()
+        raise MoodleError(
+            f"No se pudieron consultar las calificaciones de {student} en {subject}. {exc}"
+        ) from None
+
+    received_ids = set()
+    activity_count = 0
+    with transaction.atomic():
+        for item in grade_items:
+            item_id = item["id"]
+            received_ids.add(item_id)
+            defaults = grade_defaults(item)
+            MoodleCalificacion.objects.update_or_create(
+                matricula=enrollment,
+                item_id=item_id,
+                defaults=defaults,
+            )
+            if defaults["tipo"] == "mod":
+                activity_count += 1
+        enrollment.calificaciones.exclude(item_id__in=received_ids).update(activa=False)
+
+    return {"items": len(grade_items), "activities": activity_count}
+
+
+def eligible_enrollments():
+    return MoodleMatricula.objects.select_related(
+        "cuenta__persona",
+        "curso__materia_curso__materia",
+        "curso__materia_curso__grupo",
+    ).filter(
+        cuenta__usuario_id__isnull=False,
+        curso__curso_id__isnull=False,
+        rol="Alumno",
+        confirmada=True,
     )
+
+
+def sync_student_grades(estudiante, client=None):
+    enrollments = list(eligible_enrollments().filter(cuenta__persona=estudiante))
     if not enrollments:
         return {"courses": 0, "items": 0, "activities": 0}
     client = client or MoodleClient()
@@ -75,35 +110,34 @@ def sync_student_grades(estudiante, client=None):
     item_count = 0
     activity_count = 0
     for enrollment in enrollments:
-        if enrollment.curso.sitio and enrollment.curso.sitio.rstrip("/") != client.base_url:
-            raise MoodleError("El aula del estudiante está vinculada a otra instancia Moodle.")
-        try:
-            grade_items = client.user_grade_items(
-                enrollment.curso.curso_id,
-                enrollment.cuenta.usuario_id,
-            )
-        except MoodleError as exc:
-            subject = enrollment.curso.materia_curso.materia.nombre
-            raise MoodleError(f"No se pudieron consultar las calificaciones de {subject}. {exc}") from None
-
-        received_ids = set()
-        with transaction.atomic():
-            for item in grade_items:
-                item_id = item["id"]
-                received_ids.add(item_id)
-                defaults = grade_defaults(item)
-                MoodleCalificacion.objects.update_or_create(
-                    matricula=enrollment,
-                    item_id=item_id,
-                    defaults=defaults,
-                )
-                item_count += 1
-                if defaults["tipo"] == "mod":
-                    activity_count += 1
-            enrollment.calificaciones.exclude(item_id__in=received_ids).update(activa=False)
+        result = sync_enrollment_grades(enrollment, client)
+        item_count += result["items"]
+        activity_count += result["activities"]
 
     return {
         "courses": len(enrollments),
         "items": item_count,
         "activities": activity_count,
+    }
+
+
+def sync_course_grades(course, client=None):
+    enrollments = list(eligible_enrollments().filter(curso=course))
+    if not enrollments:
+        return {"students": 0, "items": 0, "activities": 0}
+    client = client or MoodleClient()
+
+    item_count = 0
+    activity_ids = set()
+    for enrollment in enrollments:
+        result = sync_enrollment_grades(enrollment, client)
+        item_count += result["items"]
+        activity_ids.update(
+            enrollment.calificaciones.filter(activa=True, tipo="mod").values_list("item_id", flat=True)
+        )
+
+    return {
+        "students": len(enrollments),
+        "items": item_count,
+        "activities": len(activity_ids),
     }

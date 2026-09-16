@@ -13,6 +13,12 @@
     <i class="ri-list-check-3"></i>
     Asistencias
   </a>
+  {% if perms.academico.access_docente_calificaciones %}
+    <a class="{% if active_tab == 'calificaciones' %}is-active{% endif %}" href="{% url 'academico:docente_calificaciones' %}">
+      <i class="ri-graduation-cap-line"></i>
+      Calificaciones
+    </a>
+  {% endif %}
   <a class="{% if active_tab == 'calendario' %}is-active{% endif %}" href="{% url 'academico:docente_calendario' %}">
     <i class="ri-calendar-schedule-line"></i>
     Calendario

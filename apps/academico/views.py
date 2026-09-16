@@ -3989,6 +3989,279 @@ class DocenteAsistenciasView(LoginRequiredMixin, View):
         )
 
 
+class DocenteCalificacionesMixin:
+    def get_docente(self):
+        docente = getattr(self.request.user, "partner", None)
+        if docente and docente.es_docente and docente.activo:
+            return docente
+        return None
+
+    def get_materias_queryset(self, docente):
+        if not docente:
+            return MateriaCurso.objects.none()
+        return (
+            MateriaCurso.objects.select_related("materia", "grupo", "aula_moodle")
+            .filter(
+                profesor_materia_cursos__partner=docente,
+                profesor_materia_cursos__auto_generada_por_clases=False,
+            )
+            .distinct()
+            .order_by("grupo__nombre", "materia__nombre")
+        )
+
+    def get_materia_curso(self, docente, materia_curso_pk):
+        return get_object_or_404(self.get_materias_queryset(docente), pk=materia_curso_pk)
+
+    @staticmethod
+    def get_moodle_course(materia_curso):
+        try:
+            return materia_curso.aula_moodle
+        except MoodleCurso.DoesNotExist:
+            return None
+
+    @staticmethod
+    def get_roster(materia_curso):
+        return list(
+            Partner.objects.filter(
+                grupo_asignaciones__grupo=materia_curso.grupo,
+                grupo_asignaciones__estado="activo",
+                es_estudiante=True,
+                activo=True,
+            )
+            .distinct()
+            .order_by("apellido", "nombre", "pk")
+        )
+
+
+class DocenteCalificacionesView(LoginRequiredMixin, PermissionRequiredMixin, DocenteCalificacionesMixin, View):
+    template_name = "academico/docente_calificaciones.html"
+    permission_required = "academico.access_docente_calificaciones"
+
+    def get(self, request):
+        docente = self.get_docente()
+        course_cards = []
+        for materia_curso in self.get_materias_queryset(docente):
+            moodle_course = self.get_moodle_course(materia_curso)
+            roster_count = len(self.get_roster(materia_curso))
+            confirmed_count = 0
+            activity_count = 0
+            last_sync = None
+            if moodle_course:
+                confirmed_count = moodle_course.matriculas.filter(
+                    rol="Alumno", confirmada=True
+                ).count()
+                grades = MoodleCalificacion.objects.filter(
+                    matricula__curso=moodle_course,
+                    activa=True,
+                )
+                activity_count = grades.filter(tipo="mod").order_by().values("item_id").distinct().count()
+                last_sync = grades.aggregate(last=Max("sincronizada_en"))["last"]
+            course_cards.append(
+                {
+                    "materia_curso": materia_curso,
+                    "moodle_course": moodle_course,
+                    "student_count": roster_count,
+                    "confirmed_count": confirmed_count,
+                    "activity_count": activity_count,
+                    "last_sync": last_sync,
+                    "url": (
+                        reverse_lazy(
+                            "academico:docente_calificaciones_detalle",
+                            kwargs={"materia_curso_pk": materia_curso.pk},
+                        )
+                        if moodle_course
+                        else ""
+                    ),
+                }
+            )
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Calificaciones",
+                "docente": docente,
+                "course_cards": course_cards,
+            },
+        )
+
+
+class DocenteCalificacionesDetalleView(
+    LoginRequiredMixin,
+    PermissionRequiredMixin,
+    DocenteCalificacionesMixin,
+    View,
+):
+    template_name = "academico/docente_calificaciones_detalle.html"
+    permission_required = "academico.access_docente_calificaciones"
+
+    def post(self, request, materia_curso_pk):
+        wants_json = (
+            request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            or "application/json" in request.headers.get("Accept", "")
+        )
+
+        def json_response(ok, icon, title, message, status=200, result=None):
+            return JsonResponse(
+                {
+                    "ok": ok,
+                    "icon": icon,
+                    "title": title,
+                    "message": message,
+                    "result": result or {},
+                },
+                status=status,
+            )
+
+        docente = self.get_docente()
+        materia_curso = self.get_materia_curso(docente, materia_curso_pk)
+        moodle_course = self.get_moodle_course(materia_curso)
+        detail_url = "academico:docente_calificaciones_detalle"
+        if not moodle_course or not moodle_course.curso_id:
+            message = "Esta materia todavía no tiene un aula Moodle disponible."
+            if wants_json:
+                return json_response(False, "error", "Aula no disponible", message, status=400)
+            messages.error(request, message)
+            return redirect(detail_url, materia_curso_pk=materia_curso.pk)
+
+        from .moodle import MoodleError
+        from .moodle_grades import sync_course_grades
+
+        try:
+            result = sync_course_grades(moodle_course)
+        except MoodleError as exc:
+            message = f"No fue posible recuperar las notas. {exc}"
+            if wants_json:
+                return json_response(False, "error", "No se recuperaron las notas", message, status=502)
+            messages.error(request, message)
+        else:
+            if result["students"]:
+                message = (
+                    f"Se actualizaron las notas de {result['students']} alumnos "
+                    f"y {result['activities']} actividades."
+                )
+                if wants_json:
+                    return json_response(
+                        True,
+                        "success",
+                        "Calificaciones recuperadas",
+                        message,
+                        result=result,
+                    )
+                messages.success(request, message)
+            else:
+                message = "El aula no tiene alumnos confirmados en Moodle para recuperar sus notas."
+                if wants_json:
+                    return json_response(
+                        False,
+                        "warning",
+                        "No hay alumnos vinculados",
+                        message,
+                    )
+                messages.warning(
+                    request,
+                    message,
+                )
+        return redirect(detail_url, materia_curso_pk=materia_curso.pk)
+
+    def get(self, request, materia_curso_pk):
+        docente = self.get_docente()
+        materia_curso = self.get_materia_curso(docente, materia_curso_pk)
+        moodle_course = self.get_moodle_course(materia_curso)
+        roster = self.get_roster(materia_curso)
+
+        enrollments = {}
+        activity_map = {}
+        last_sync = None
+        if moodle_course:
+            grade_queryset = MoodleCalificacion.objects.filter(activa=True).order_by(
+                "modulo_curso_id", "item_id"
+            )
+            moodle_enrollments = MoodleMatricula.objects.select_related(
+                "cuenta__persona"
+            ).prefetch_related(
+                Prefetch("calificaciones", queryset=grade_queryset, to_attr="active_grades")
+            ).filter(
+                curso=moodle_course,
+                rol="Alumno",
+                confirmada=True,
+            )
+            for enrollment in moodle_enrollments:
+                enrollments[enrollment.cuenta.persona_id] = enrollment
+                for grade in enrollment.active_grades:
+                    if grade.tipo == "mod":
+                        activity_map.setdefault(grade.item_id, grade)
+                    if last_sync is None or grade.sincronizada_en > last_sync:
+                        last_sync = grade.sincronizada_en
+
+        activities = sorted(
+            activity_map.values(),
+            key=lambda grade: (
+                grade.modulo_curso_id is None,
+                grade.modulo_curso_id or 0,
+                grade.nombre.lower(),
+                grade.item_id,
+            ),
+        )
+        module_labels = {
+            "assign": "Tarea",
+            "quiz": "Cuestionario",
+            "forum": "Foro",
+            "lesson": "Lección",
+            "workshop": "Taller",
+            "h5pactivity": "H5P",
+            "scorm": "SCORM",
+        }
+        for activity in activities:
+            activity.module_label = module_labels.get(
+                activity.modulo.lower(),
+                activity.modulo or "Actividad",
+            )
+        rows = []
+        graded_cell_count = 0
+        for student in roster:
+            enrollment = enrollments.get(student.pk)
+            grade_by_item = {}
+            course_total = None
+            if enrollment:
+                for grade in enrollment.active_grades:
+                    if grade.tipo == "mod":
+                        grade_by_item[grade.item_id] = grade
+                    elif grade.tipo == "course":
+                        course_total = grade
+            cells = []
+            for activity in activities:
+                grade = grade_by_item.get(activity.item_id)
+                if grade and (grade.nota is not None or grade.nota_formateada not in {"", "-"}):
+                    graded_cell_count += 1
+                cells.append({"grade": grade})
+            rows.append(
+                {
+                    "student": student,
+                    "enrollment": enrollment,
+                    "cells": cells,
+                    "course_total": course_total,
+                }
+            )
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Calificaciones",
+                "docente": docente,
+                "materia_curso": materia_curso,
+                "moodle_course": moodle_course,
+                "activities": activities,
+                "rows": rows,
+                "student_count": len(rows),
+                "moodle_student_count": len(enrollments),
+                "activity_count": len(activities),
+                "graded_cell_count": graded_cell_count,
+                "last_sync": last_sync,
+            },
+        )
+
+
 class DocenteCalendarioMixin:
     weekday_headers = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
 

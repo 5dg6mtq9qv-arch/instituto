@@ -1,0 +1,249 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ materia_curso.materia }} | Calificaciones{% endblock %}
+
+{% block content %}
+  <header class="page-header gradebook-page-header">
+    <div>
+      <p class="eyebrow">{{ materia_curso.grupo }}</p>
+      <h1>{{ materia_curso.materia }}</h1>
+      <p class="text-muted mb-0">Libro de calificaciones del aula</p>
+    </div>
+    <div class="gradebook-actions">
+      <a class="btn btn-outline-primary" href="{% url 'academico:docente_calificaciones' %}">
+        <i class="ri-arrow-left-line"></i> Mis aulas
+      </a>
+      {% if moodle_course and moodle_course.curso_id %}
+        <form id="gradebook-sync-form" method="post">
+          {% csrf_token %}
+          <button id="gradebook-sync-button" class="btn btn-primary-600" type="submit">
+            <i class="ri-refresh-line"></i> Recuperar notas de Moodle
+          </button>
+        </form>
+      {% endif %}
+    </div>
+  </header>
+
+  {% include "academico/includes/docente_tabs.html" with active_tab="calificaciones" %}
+
+  <section class="gradebook-summary-grid">
+    <article><span>Alumnos del aula</span><strong>{{ student_count }}</strong><small>{{ moodle_student_count }} vinculados con Moodle</small></article>
+    <article><span>Actividades</span><strong>{{ activity_count }}</strong><small>Recuperadas desde Moodle</small></article>
+    <article><span>Notas registradas</span><strong>{{ graded_cell_count }}</strong><small>Celdas con calificación</small></article>
+    <article><span>Última actualización</span><strong class="is-date">{% if last_sync %}{{ last_sync|date:"d/m/Y" }}{% else %}--{% endif %}</strong><small>{% if last_sync %}{{ last_sync|date:"H:i" }}{% else %}Sin sincronizar{% endif %}</small></article>
+  </section>
+
+  {% if not moodle_course %}
+    <section class="panel academic-empty-state">
+      Esta materia todavía no tiene un aula Moodle vinculada.
+    </section>
+  {% elif not activities %}
+    <section class="panel gradebook-empty">
+      <i class="ri-bar-chart-box-line"></i>
+      <h2>Aún no hay actividades recuperadas</h2>
+      <p>Usa el botón <strong>Recuperar notas de Moodle</strong> para consultar las calificaciones del aula.</p>
+    </section>
+  {% else %}
+    <section class="panel gradebook-panel">
+      <header class="gradebook-toolbar">
+        <div>
+          <span>Vista por aula</span>
+          <h2>Alumnos y actividades</h2>
+        </div>
+        <label class="gradebook-search">
+          <i class="ri-search-line"></i>
+          <input id="gradebook-search" type="search" placeholder="Buscar alumno..." autocomplete="off">
+        </label>
+      </header>
+
+      <div class="gradebook-scroll">
+        <table class="gradebook-table">
+          <thead>
+            <tr>
+              <th class="student-column">Alumno</th>
+              {% for activity in activities %}
+                <th>
+                  <span class="activity-type">{{ activity.module_label }}</span>
+                  <strong>{{ activity.nombre }}</strong>
+                  <small>{{ activity.rango_display|default:"Sin rango" }}</small>
+                  {% if activity.oculta %}<em><i class="ri-eye-off-line"></i> Oculta</em>{% endif %}
+                </th>
+              {% endfor %}
+              <th class="total-column">Total del curso</th>
+            </tr>
+          </thead>
+          <tbody id="gradebook-rows">
+            {% for row in rows %}
+              <tr data-student="{{ row.student.nombre_completo|lower }} {{ row.student.identificacion|lower }}">
+                <th class="student-column">
+                  <strong>{{ row.student.nombre_completo }}</strong>
+                  <small>{{ row.student.identificacion }}</small>
+                  {% if not row.enrollment %}<em class="not-linked">Sin acceso Moodle</em>{% endif %}
+                </th>
+                {% for cell in row.cells %}
+                  <td class="{% if cell.grade.oculta %}is-hidden-grade{% endif %}">
+                    {% if cell.grade %}
+                      <strong>{{ cell.grade.nota_formateada|default:"-" }}</strong>
+                      {% if cell.grade.porcentaje_formateado %}<small>{{ cell.grade.porcentaje_formateado }}</small>{% endif %}
+                      {% if cell.grade.oculta %}<em title="Nota oculta para el alumno"><i class="ri-eye-off-line"></i></em>{% endif %}
+                    {% else %}
+                      <span class="no-grade">--</span>
+                    {% endif %}
+                  </td>
+                {% endfor %}
+                <td class="total-column">
+                  {% if row.course_total %}
+                    <strong>{{ row.course_total.nota_formateada|default:"-" }}</strong>
+                    {% if row.course_total.porcentaje_formateado %}<small>{{ row.course_total.porcentaje_formateado }}</small>{% endif %}
+                  {% else %}
+                    <span class="no-grade">--</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="2" class="gradebook-no-students">No hay alumnos activos en esta aula.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p id="gradebook-no-results" class="gradebook-no-results" hidden>No se encontraron alumnos con esa búsqueda.</p>
+      <footer class="gradebook-legend">
+        <span><i class="legend-dot has-grade"></i> Calificada</span>
+        <span><i class="legend-dot no-value"></i> Sin calificación</span>
+        <span><i class="ri-eye-off-line"></i> Oculta en Moodle</span>
+      </footer>
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+  <style>
+    .gradebook-page-header { align-items: end; display: flex; gap: 16px; justify-content: space-between; }
+    .gradebook-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+    .gradebook-actions form { margin: 0; }
+    .gradebook-summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }
+    .gradebook-summary-grid article { background: #fff; border: 1px solid #e4e9ef; border-radius: 12px; display: grid; padding: 15px 17px; }
+    .gradebook-summary-grid span { color: #667085; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .gradebook-summary-grid strong { color: #0f766e; font-size: 29px; line-height: 1.2; margin: 5px 0 2px; }
+    .gradebook-summary-grid strong.is-date { color: #172033; font-size: 20px; margin-top: 10px; }
+    .gradebook-summary-grid small { color: #667085; font-size: 12px; }
+    .gradebook-empty { color: #667085; padding: 52px 24px; text-align: center; }
+    .gradebook-empty > i { color: #0f766e; font-size: 42px; }
+    .gradebook-empty h2 { color: #172033; font-size: 19px; margin: 10px 0 5px; }
+    .gradebook-empty p { margin: 0; }
+    .gradebook-panel { padding: 0; overflow: hidden; }
+    .gradebook-toolbar { align-items: center; border-bottom: 1px solid #e7edf2; display: flex; gap: 16px; justify-content: space-between; padding: 17px 19px; }
+    .gradebook-toolbar span { color: #0f766e; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+    .gradebook-toolbar h2 { font-size: 18px; margin: 2px 0 0; }
+    .gradebook-search { align-items: center; background: #f8fafc; border: 1px solid #dbe2ea; border-radius: 9px; display: flex; gap: 7px; padding: 0 11px; }
+    .gradebook-search i { color: #667085; }
+    .gradebook-search input { background: transparent; border: 0; min-width: 220px; outline: 0; padding: 9px 0; }
+    .gradebook-scroll { max-height: 65vh; overflow: auto; }
+    .gradebook-table { border-collapse: separate; border-spacing: 0; min-width: 100%; width: max-content; }
+    .gradebook-table th, .gradebook-table td { background: #fff; border-bottom: 1px solid #e8edf2; border-right: 1px solid #e8edf2; min-width: 138px; padding: 12px; text-align: center; vertical-align: middle; }
+    .gradebook-table thead th { background: #f1f6f7; color: #344054; font-size: 12px; position: sticky; top: 0; z-index: 2; }
+    .gradebook-table thead th strong { display: block; font-size: 12px; line-height: 1.3; margin: 3px auto; max-width: 150px; }
+    .gradebook-table thead th small { color: #667085; display: block; font-weight: 500; }
+    .gradebook-table thead th em { color: #9a6700; display: block; font-size: 10px; font-style: normal; margin-top: 4px; }
+    .activity-type { color: #0f766e; font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
+    .gradebook-table .student-column { left: 0; min-width: 235px; position: sticky; text-align: left; z-index: 1; }
+    .gradebook-table thead .student-column { z-index: 3; }
+    .gradebook-table tbody .student-column strong { color: #172033; display: block; font-size: 13px; }
+    .gradebook-table tbody .student-column small { color: #667085; display: block; font-size: 11px; margin-top: 2px; }
+    .not-linked { color: #b54708; display: block; font-size: 10px; font-style: normal; margin-top: 4px; }
+    .gradebook-table td > strong { color: #172033; display: block; font-size: 14px; }
+    .gradebook-table td > small { color: #0f766e; display: block; font-size: 10px; margin-top: 2px; }
+    .gradebook-table td > em { color: #9a6700; display: block; font-style: normal; margin-top: 3px; }
+    .gradebook-table td.is-hidden-grade { background: #fffaf0; }
+    .gradebook-table .total-column { background: #f7fbfa; font-weight: 800; min-width: 135px; }
+    .no-grade { color: #98a2b3; }
+    .gradebook-no-students { color: #667085; padding: 30px !important; text-align: center !important; }
+    .gradebook-no-results { color: #667085; margin: 0; padding: 24px; text-align: center; }
+    .gradebook-legend { align-items: center; color: #667085; display: flex; flex-wrap: wrap; font-size: 11px; gap: 16px; padding: 12px 18px; }
+    .gradebook-legend span { align-items: center; display: flex; gap: 5px; }
+    .legend-dot { border-radius: 50%; height: 8px; width: 8px; }
+    .legend-dot.has-grade { background: #0f766e; }
+    .legend-dot.no-value { background: #cbd5e1; }
+    @media (max-width: 900px) {
+      .gradebook-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .gradebook-page-header, .gradebook-toolbar { align-items: stretch; flex-direction: column; }
+      .gradebook-search input { min-width: 0; width: 100%; }
+    }
+    @media (max-width: 560px) {
+      .gradebook-summary-grid { grid-template-columns: 1fr; }
+      .gradebook-actions, .gradebook-actions .btn, .gradebook-actions form { width: 100%; }
+      .gradebook-actions .btn { justify-content: center; }
+    }
+  </style>
+  <script>
+    (() => {
+      const syncForm = document.getElementById('gradebook-sync-form');
+      const syncButton = document.getElementById('gradebook-sync-button');
+      if (syncForm && syncButton && window.Swal) {
+        syncForm.addEventListener('submit', async (event) => {
+          event.preventDefault();
+          if (syncButton.disabled) return;
+          syncButton.disabled = true;
+
+          Swal.fire({
+            title: 'Recuperando calificaciones',
+            text: 'Estamos consultando Moodle. Este proceso puede tardar unos segundos.',
+            allowEscapeKey: false,
+            allowOutsideClick: false,
+            didOpen: () => Swal.showLoading(),
+          });
+
+          try {
+            const response = await fetch(syncForm.action || window.location.href, {
+              method: 'POST',
+              body: new FormData(syncForm),
+              credentials: 'same-origin',
+              headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+            });
+            const payload = await response.json();
+            await Swal.fire({
+              icon: payload.icon || (response.ok ? 'success' : 'error'),
+              title: payload.title || (response.ok ? 'Proceso completado' : 'Ocurrió un error'),
+              text: payload.message || 'Moodle no devolvió una respuesta válida.',
+              confirmButtonText: 'Aceptar',
+              confirmButtonColor: '#0f766e',
+            });
+            if (response.ok && payload.ok) {
+              window.location.reload();
+              return;
+            }
+          } catch (error) {
+            await Swal.fire({
+              icon: 'error',
+              title: 'No se pudo conectar',
+              text: 'No fue posible completar la solicitud. Revisa la conexión e inténtalo nuevamente.',
+              confirmButtonText: 'Aceptar',
+              confirmButtonColor: '#0f766e',
+            });
+          } finally {
+            syncButton.disabled = false;
+          }
+        });
+      }
+
+      const search = document.getElementById('gradebook-search');
+      const body = document.getElementById('gradebook-rows');
+      const empty = document.getElementById('gradebook-no-results');
+      if (!search || !body) return;
+      search.addEventListener('input', () => {
+        const query = search.value.trim().toLocaleLowerCase('es');
+        let visible = 0;
+        body.querySelectorAll('tr[data-student]').forEach((row) => {
+          const show = !query || row.dataset.student.includes(query);
+          row.hidden = !show;
+          if (show) visible += 1;
+        });
+        empty.hidden = visible !== 0;
+      });
+    })();
+  </script>
+{% endblock %}

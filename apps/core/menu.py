@@ -135,6 +135,12 @@ MENU_GROUPS = [
         "items": [
             {"label": "Mis planificaciones", "url_name": "academico:docente_horarios", "perm": None, "groups": ["Docente"]},
             {"label": "Tomar asistencia", "url_name": "academico:docente_asistencias", "perm": None, "groups": ["Docente"]},
+            {
+                "label": "Calificaciones",
+                "url_name": "academico:docente_calificaciones",
+                "perm": "academico.access_docente_calificaciones",
+                "groups": ["Docente"],
+            },
             {"label": "Mi calendario", "url_name": "academico:docente_calendario", "perm": None, "groups": ["Docente"]},
         ],
     },
