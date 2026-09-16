@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from tempfile import TemporaryDirectory
 
@@ -11,7 +11,18 @@ from django.utils import timezone
 
 from apps.core.current_user import set_current_request
 from apps.core.models import Empresa, Partner, TipoIdentificacion
-from apps.academico.models import Aula, AulaCurso, Curso, CursoPeriodo, GrupoEstudiante, Periodo
+from apps.academico.models import (
+    Aula,
+    AulaCurso,
+    Curso,
+    CursoPeriodo,
+    Dia,
+    GrupoEstudiante,
+    Horario,
+    HorarioAulaCurso,
+    HorarioDia,
+    Periodo,
+)
 from apps.matricula.models import FichaInscripcion
 
 from .forms import FormaPagoForm
@@ -294,7 +305,7 @@ class FormaPagoFormTests(TestCase):
         self.assertContains(response, reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}))
         self.assertContains(response, reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}))
 
-    def test_student_wallet_list_uses_academic_group_classrooms_when_enrollment_has_no_classroom(self):
+    def test_student_wallet_list_ignores_group_classrooms_without_schedules(self):
         self.client.force_login(self.user)
         ficha, _, _, _, _ = self.create_payment_flow_data()
         today = timezone.localdate()
@@ -307,8 +318,12 @@ class FormaPagoFormTests(TestCase):
         CursoPeriodo.objects.create(curso=group, periodo=period)
         classroom_one = Aula.objects.create(nombre="Aula 1")
         classroom_four = Aula.objects.create(nombre="Aula 4")
-        AulaCurso.objects.create(aula=classroom_one, curso=group)
+        aula_curso = AulaCurso.objects.create(aula=classroom_one, curso=group)
         AulaCurso.objects.create(aula=classroom_four, curso=group)
+        dia, _ = Dia.objects.get_or_create(dia="Sabado")
+        horario, _ = Horario.objects.get_or_create(hora_inicio=time(8, 0), hora_fin=time(10, 0))
+        horario_dia, _ = HorarioDia.objects.get_or_create(dia=dia, horario=horario)
+        HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
         GrupoEstudiante.objects.create(
             ficha_inscripcion=ficha,
             estudiante=ficha.estudiante,
@@ -322,8 +337,9 @@ class FormaPagoFormTests(TestCase):
 
         self.assertIsNone(ficha.aula)
         self.assertEqual(card["academic_group_label"], group.nombre)
-        self.assertEqual(card["classroom_label"], "Aula 1 / Aula 4")
-        self.assertContains(response, "Aula 1 / Aula 4")
+        self.assertEqual(card["classroom_label"], "Aula 1")
+        self.assertContains(response, "Aula 1")
+        self.assertNotContains(response, "Aula 4")
         self.assertContains(response, group.nombre)
         self.assertNotContains(response, "Sin aula")
 
@@ -331,9 +347,10 @@ class FormaPagoFormTests(TestCase):
             reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
             HTTP_HOST="localhost",
         )
-        self.assertEqual(pending_response.context["classroom_label"], "Aula 1 / Aula 4")
+        self.assertEqual(pending_response.context["classroom_label"], "Aula 1")
         self.assertEqual(pending_response.context["academic_group_label"], group.nombre)
-        self.assertContains(pending_response, "Aula 1 / Aula 4")
+        self.assertContains(pending_response, "Aula 1")
+        self.assertNotContains(pending_response, "Aula 4")
         self.assertContains(pending_response, group.nombre)
         self.assertNotContains(pending_response, "Sin aula asignada")
 

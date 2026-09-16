@@ -5996,6 +5996,123 @@ class CoordinacionReporteAsistenciaAlumnoView(CoordinacionRequiredMixin, View):
         return "Todas las fechas"
 
 
+class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
+    permission_required = "academico.view_claseasistencia"
+    template_name = "academico/coordinacion_reporte_asistencia_alumno_imprimir.html"
+    attendance_state_labels = {**dict(ClaseAsistencia.ESTADO_CHOICES), "pendiente": "Pendiente"}
+
+    def get(self, request, estudiante_pk):
+        estudiante = get_object_or_404(
+            Partner.objects.filter(es_estudiante=True, activo=True),
+            pk=estudiante_pk,
+        )
+        report_date = timezone.localdate()
+        rows, assignments = self.get_attendance_rows(estudiante, report_date)
+        stats = self.get_stats(rows)
+        group_label = (
+            ", ".join(sorted({assignment.grupo.nombre for assignment in assignments}))
+            or "Sin grupo asignado"
+        )
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Reporte de asistencia del alumno",
+                "selected_estudiante": estudiante,
+                "group_label": group_label,
+                "report_date": report_date,
+                "rows": rows,
+                "stats": stats,
+                "generated_at": timezone.localtime(timezone.now()),
+            },
+        )
+
+    def get_attendance_rows(self, estudiante, report_date):
+        assignments = list(
+            GrupoEstudiante.objects.select_related("grupo", "ficha_inscripcion", "estudiante")
+            .filter(estudiante=estudiante)
+            .order_by("fecha_asignacion", "grupo__nombre")
+        )
+        if not assignments:
+            return [], []
+
+        group_ids = {assignment.grupo_id for assignment in assignments}
+        movements = ClaseEstudianteMovimiento.objects.filter(asignacion__in=assignments, activo=True)
+        destination_materia_curso_ids = set(movements.values_list("clase_destino__materia_curso_id", flat=True))
+        clase_filter = Q(materia_curso__grupo_id__in=group_ids)
+        if destination_materia_curso_ids:
+            clase_filter |= Q(materia_curso_id__in=destination_materia_curso_ids)
+
+        clases = (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "docente",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
+            .filter(clase_filter, fecha__lte=report_date)
+            .distinct()
+            .order_by(
+                "fecha",
+                "horario_aula_curso__horario_dia__horario__hora_inicio",
+                "materia_curso__materia__nombre",
+            )
+        )
+
+        roster_view = DocenteClaseAsistenciaView()
+        report_rows = []
+        for clase in clases:
+            roster_rows, _ = roster_view.get_roster_rows(clase)
+            student_row = next((row for row in roster_rows if row["estudiante"].pk == estudiante.pk), None)
+            if not student_row:
+                continue
+            asignacion = student_row["asignacion"]
+            if asignacion.fecha_asignacion and asignacion.fecha_asignacion > clase.fecha:
+                continue
+            report_rows.append(self.build_attendance_row(clase, student_row))
+        return report_rows, assignments
+
+    def build_attendance_row(self, clase, student_row):
+        horario = clase.horario_aula_curso.horario_dia.horario
+        attendance = student_row["attendance"]
+        estado = attendance.estado if attendance else "pendiente"
+        docentes = get_clase_docentes(clase)
+        return {
+            "fecha": clase.fecha,
+            "materia": clase.materia_curso.materia,
+            "grupo": clase.materia_curso.grupo,
+            "aula": clase.horario_aula_curso.aula_curso.aula,
+            "horario": horario,
+            "docente_label": (
+                ", ".join(docente.nombre for docente in docentes)
+                if docentes
+                else "Sin docente asignado"
+            ),
+            "estado": estado,
+            "estado_label": self.attendance_state_labels.get(estado, estado),
+            "observacion": (attendance.observacion or "") if attendance else "",
+        }
+
+    def get_stats(self, rows):
+        stats = {
+            "total": len(rows),
+            "presente": 0,
+            "ausente": 0,
+            "atraso": 0,
+            "justificado": 0,
+            "pendiente": 0,
+            "observaciones": 0,
+        }
+        for row in rows:
+            stats[row["estado"]] = stats.get(row["estado"], 0) + 1
+            if row["observacion"]:
+                stats["observaciones"] += 1
+        stats["registradas"] = stats["total"] - stats["pendiente"]
+        return stats
+
+
 class DocenteClasePlanificacionView(LoginRequiredMixin, View):
     template_name = "academico/docente_clase_planificacion.html"
 

@@ -39,6 +39,7 @@ urlpatterns = [
     path("coordinacion/revision-asistencia/", views.CoordinacionRevisionAsistenciaView.as_view(), name="coordinacion_revision_asistencia"),
     path("coordinacion/revision-asistencia/clases/<int:pk>/", views.CoordinacionReporteAsistenciaClaseView.as_view(), name="coordinacion_reporte_asistencia_clase"),
     path("coordinacion/reporte-asistencia-alumno/", views.CoordinacionReporteAsistenciaAlumnoView.as_view(), name="coordinacion_reporte_asistencia_alumno"),
+    path("estudiantes/<int:estudiante_pk>/reporte-asistencia/", views.EstudianteReporteAsistenciaImprimirView.as_view(), name="estudiante_reporte_asistencia"),
     path("coordinacion/revision-planificaciones/", views.CoordinacionRevisionPlanificacionesView.as_view(), name="coordinacion_revision_planificaciones"),
     path("coordinacion/revision-planificaciones/<int:pk>/", views.CoordinacionRevisionPlanificacionDetalleView.as_view(), name="coordinacion_revision_planificacion_detalle"),
     path("direccion/horas-docente/", views.DireccionHorasDocenteView.as_view(), name="direccion_horas_docente"),

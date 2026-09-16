@@ -393,9 +393,19 @@ class PartnerRoleViewTests(TestCase):
         self.assertNotContains(representatives_response, "list-create-btn")
 
     def test_student_list_searches_and_filters_group_and_classroom_assignments(self):
-        from datetime import date
+        from datetime import date, time
 
-        from apps.academico.models import Aula, AulaCurso, Curso, GrupoEstudiante, MoodleCuenta
+        from apps.academico.models import (
+            Aula,
+            AulaCurso,
+            Curso,
+            Dia,
+            GrupoEstudiante,
+            Horario,
+            HorarioAulaCurso,
+            HorarioDia,
+            MoodleCuenta,
+        )
         from apps.matricula.models import FichaInscripcion
 
         self.estudiante.apellido = "Zamora"
@@ -412,7 +422,13 @@ class PartnerRoleViewTests(TestCase):
         )
         grupo = Curso.objects.create(nombre="Grupo Norte", activo=True)
         aula = Aula.objects.create(nombre="Aula Norte")
-        AulaCurso.objects.create(aula=aula, curso=grupo)
+        aula_obsoleta = Aula.objects.create(nombre="Aula Obsoleta")
+        aula_curso = AulaCurso.objects.create(aula=aula, curso=grupo)
+        AulaCurso.objects.create(aula=aula_obsoleta, curso=grupo)
+        dia, _ = Dia.objects.get_or_create(dia="Sabado")
+        horario, _ = Horario.objects.get_or_create(hora_inicio=time(8, 0), hora_fin=time(10, 0))
+        horario_dia, _ = HorarioDia.objects.get_or_create(dia=dia, horario=horario)
+        HorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
         GrupoEstudiante.objects.create(
             ficha_inscripcion=ficha_asignada,
             estudiante=self.estudiante,
@@ -444,6 +460,12 @@ class PartnerRoleViewTests(TestCase):
             representante=self.representante,
             estado="activa",
         )
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="view_claseasistencia",
+            )
+        )
         self.client.force_login(self.user)
 
         response = self.client.get(reverse("core:estudiante_list"), HTTP_HOST="localhost")
@@ -461,7 +483,21 @@ class PartnerRoleViewTests(TestCase):
         self.assertEqual(first_row_values["grupos_asignados"], "Grupo Norte")
         self.assertEqual(first_row_values["aulas_asignadas"], "Aula Norte")
         self.assertEqual(first_row_values["usuario_moodle"], "alumno_zamora")
-        self.assertEqual(first_row_values["representante_principal"], "Representante Uno")
+        self.assertNotIn("telefono_celular", first_row_values)
+        self.assertNotIn("email", first_row_values)
+        self.assertNotIn("representante_principal", first_row_values)
+        self.assertTrue(response.context["show_list_actions"])
+        self.assertTrue(response.context["rows_are_clickable"])
+        self.assertContains(
+            response,
+            f'data-row-url="{reverse("core:estudiante_editar", kwargs={"pk": self.estudiante.pk})}"',
+        )
+        attendance_report_url = reverse("academico:estudiante_reporte_asistencia", args=[self.estudiante.pk])
+        self.assertContains(
+            response,
+            f'href="{attendance_report_url}" target="_blank" rel="noopener"',
+        )
+        self.assertContains(response, "Asistencias")
         self.assertContains(response, 'name="estado"')
         self.assertContains(response, 'name="ibarra"')
         self.assertContains(response, 'name="grupo"')
@@ -478,6 +514,13 @@ class PartnerRoleViewTests(TestCase):
             HTTP_HOST="localhost",
         )
         self.assertEqual([obj.pk for obj in response.context["object_list"]], [self.estudiante.pk])
+
+        response = self.client.get(
+            reverse("core:estudiante_list"),
+            {"q": "Obsoleta"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(list(response.context["object_list"]), [])
 
         response = self.client.get(
             reverse("core:estudiante_list"),

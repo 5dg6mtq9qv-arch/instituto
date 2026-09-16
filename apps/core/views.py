@@ -5,8 +5,8 @@ from django.contrib.auth.mixins import UserPassesTestMixin
 from django.contrib.auth.models import Group
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
-from django.urls import reverse_lazy
+from django.db.models import Prefetch, Q
+from django.urls import reverse, reverse_lazy
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
 
@@ -21,6 +21,7 @@ from apps.core.forms import (
     SystemUserForm,
 )
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
+from apps.academico.models import AulaCurso
 
 from .models import Empresa, Partner
 
@@ -72,13 +73,16 @@ class PartnerTypeListView(InstitutoListView):
     )
     search_fields = ("nombre", "apellido", "identificacion", "telefono", "telefono_celular", "email")
 
+    def get_search_query(self, term):
+        query = Q()
+        for field in self.search_fields:
+            query |= Q(**{f"{field}__icontains": term})
+        return query
+
     def get_queryset(self):
         queryset = super().get_queryset().select_related("tipo_identificacion", "empresa")
         for term in self.request.GET.get("q", "").split():
-            query = Q()
-            for field in self.search_fields:
-                query |= Q(**{f"{field}__icontains": term})
-            queryset = queryset.filter(query)
+            queryset = queryset.filter(self.get_search_query(term))
         return queryset
 
     def get_column_value(self, obj, attr):
@@ -122,6 +126,9 @@ class EstudianteListView(PartnerTypeListView):
     title = "Estudiantes"
     template_name = "core/estudiante_list.html"
     update_url_name = "core:estudiante_editar"
+    show_list_actions = True
+    rows_are_clickable = True
+    list_actions_label = "Accion"
     search_fields = PartnerTypeListView.search_fields + (
         "codigo",
         "codigo_aux",
@@ -138,7 +145,6 @@ class EstudianteListView(PartnerTypeListView):
         "fichas_estudiante__horario",
         "fichas_estudiante__aula__nombre",
         "grupo_asignaciones__grupo__nombre",
-        "grupo_asignaciones__grupo__aula_cursos__aula__nombre",
         "relaciones_a__partner_b__nombre",
         "relaciones_a__partner_b__apellido",
         "relaciones_a__partner_b__identificacion",
@@ -150,13 +156,10 @@ class EstudianteListView(PartnerTypeListView):
     )
     columns = (
         ("Apellidos y nombres", "apellidos_nombres"),
-        ("Identificacion", "identificacion"),
-        ("Celular", "telefono_celular"),
-        ("Email", "email"),
-        ("Representante", "representante_principal"),
         ("Grupo", "grupos_asignados"),
         ("Aula", "aulas_asignadas"),
-        ("Usuario Moodle", "usuario_moodle"),
+        ("Identificacion", "identificacion"),
+        ("Moodle", "usuario_moodle"),
         ("Ibarra", "ibarra_estado"),
         ("Estado", "estado_operativo"),
     )
@@ -167,11 +170,15 @@ class EstudianteListView(PartnerTypeListView):
             .get_queryset()
             .filter(es_estudiante=True)
             .prefetch_related(
-                "relaciones_a__partner_b",
                 "fichas_estudiante__aula",
-                "fichas_estudiante__representante",
-                "fichas_estudiante__cliente",
-                "grupo_asignaciones__grupo__aula_cursos__aula",
+                Prefetch(
+                    "grupo_asignaciones__grupo__aula_cursos",
+                    queryset=AulaCurso.objects.filter(horario_aula_cursos__isnull=False)
+                    .select_related("aula")
+                    .distinct()
+                    .order_by("aula__nombre", "pk"),
+                    to_attr="aulas_con_horario",
+                ),
                 "cuentas_moodle",
             )
         )
@@ -199,7 +206,7 @@ class EstudianteListView(PartnerTypeListView):
                 )
                 | Q(
                     grupo_asignaciones__estado="activo",
-                    grupo_asignaciones__grupo__aula_cursos__aula__isnull=False,
+                    grupo_asignaciones__grupo__aula_cursos__horario_aula_cursos__isnull=False,
                 )
             )
             estudiantes_con_aula = Partner.objects.filter(es_estudiante=True).filter(aula_filter).values("pk")
@@ -215,15 +222,32 @@ class EstudianteListView(PartnerTypeListView):
             queryset = queryset.exclude(cuentas_moodle__usuario_id__isnull=False)
         return queryset.distinct().order_by("apellido", "nombre", "pk")
 
+    def get_search_query(self, term):
+        return super().get_search_query(term) | (
+            Q(grupo_asignaciones__estado="activo")
+            & Q(grupo_asignaciones__grupo__aula_cursos__aula__nombre__icontains=term)
+            & Q(grupo_asignaciones__grupo__aula_cursos__horario_aula_cursos__isnull=False)
+        )
+
     def get_context_data(self, **kwargs):
         from apps.academico.models import Curso
 
+        self.show_list_actions = self.request.user.has_perm("academico.view_claseasistencia")
         context = super().get_context_data(**kwargs)
         context["student_groups"] = Curso.objects.filter(activo=True).order_by("nombre")
         context["search_placeholder"] = (
             "Buscar por estudiante, ficha, representante, grupo, aula o usuario Moodle"
         )
         return context
+
+    def get_row(self, obj):
+        row = super().get_row(obj)
+        if self.request.user.has_perm("academico.view_claseasistencia"):
+            row["attendance_report_url"] = reverse(
+                "academico:estudiante_reporte_asistencia",
+                args=[obj.pk],
+            )
+        return row
 
     def get_column_value(self, obj, attr):
         if attr == "grupos_asignados":
@@ -242,7 +266,10 @@ class EstudianteListView(PartnerTypeListView):
             for asignacion in obj.grupo_asignaciones.all():
                 if asignacion.estado != "activo":
                     continue
-                aulas.update(str(aula_curso.aula) for aula_curso in asignacion.grupo.aula_cursos.all())
+                aulas.update(
+                    str(aula_curso.aula)
+                    for aula_curso in getattr(asignacion.grupo, "aulas_con_horario", ())
+                )
             return ", ".join(sorted(aulas)) or "Sin aula"
         if attr == "ibarra_estado":
             return "Sí" if obj.es_de_ibarra else "No"

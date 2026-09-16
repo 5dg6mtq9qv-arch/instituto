@@ -110,18 +110,40 @@
       element.addEventListener("click", closeMobileSidebar);
     });
 
-    qsa(".sidebar-toggle").forEach(function (button) {
-      button.addEventListener("click", function () {
-        const sidebar = qs(".sidebar");
-        const main = qs(".dashboard-main");
-        if (sidebar) {
-          sidebar.classList.toggle("active");
-        }
-        if (main) {
-          main.classList.toggle("active");
-        }
-        button.classList.toggle("active");
+    const desktopSidebarQuery = window.matchMedia("(min-width: 1200px)");
+    const sidebar = qs(".sidebar");
+    const dashboardMain = qs(".dashboard-main");
+    const sidebarToggles = qsa(".sidebar-toggle");
+
+    function setSidebarCollapsed(collapsed, remember) {
+      const shouldCollapse = collapsed && desktopSidebarQuery.matches;
+      if (sidebar) {
+        sidebar.classList.toggle("active", shouldCollapse);
+      }
+      if (dashboardMain) {
+        dashboardMain.classList.toggle("active", shouldCollapse);
+      }
+      sidebarToggles.forEach(function (button) {
+        button.classList.toggle("active", shouldCollapse);
+        button.setAttribute("aria-pressed", shouldCollapse ? "true" : "false");
+        button.setAttribute("aria-label", shouldCollapse ? "Expandir menu" : "Contraer menu");
+        button.title = shouldCollapse ? "Expandir menu" : "Contraer menu";
       });
+      if (remember) {
+        localStorage.setItem("institutoSidebarCollapsed", collapsed ? "true" : "false");
+      }
+    }
+
+    setSidebarCollapsed(localStorage.getItem("institutoSidebarCollapsed") === "true", false);
+
+    sidebarToggles.forEach(function (button) {
+      button.addEventListener("click", function () {
+        setSidebarCollapsed(!sidebar.classList.contains("active"), true);
+      });
+    });
+
+    desktopSidebarQuery.addEventListener("change", function () {
+      setSidebarCollapsed(localStorage.getItem("institutoSidebarCollapsed") === "true", false);
     });
 
     qsa(".sidebar-menu .dropdown > a").forEach(function (link) {
@@ -158,6 +180,29 @@
       button.addEventListener("click", function () {
         const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
         applyTheme(currentTheme === "dark" ? "light" : "dark");
+      });
+    });
+
+    qsa("[data-row-url]").forEach(function (row) {
+      function openRow() {
+        const url = row.getAttribute("data-row-url");
+        if (url) {
+          window.location.assign(url);
+        }
+      }
+
+      row.addEventListener("click", function (event) {
+        if (event.target.closest("a, button, input, select, textarea, label")) {
+          return;
+        }
+        openRow();
+      });
+
+      row.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" && !event.target.closest("a, button, input, select, textarea")) {
+          event.preventDefault();
+          openRow();
+        }
       });
     });
 

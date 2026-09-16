@@ -1,6 +1,6 @@
 import subprocess
 import tempfile
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,7 +19,15 @@ from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacio
 from apps.academico.models import Aula as AcademicAula
 from apps.academico.models import AulaCurso as AcademicAulaCurso
 from apps.academico.models import Curso as AcademicCurso
-from apps.academico.models import CursoPeriodo, GrupoEstudiante, Periodo
+from apps.academico.models import (
+    CursoPeriodo,
+    Dia as AcademicDia,
+    GrupoEstudiante,
+    Horario as AcademicHorario,
+    HorarioAulaCurso as AcademicHorarioAulaCurso,
+    HorarioDia as AcademicHorarioDia,
+    Periodo,
+)
 
 from .forms import (
     FichaInscripcionForm,
@@ -970,8 +978,14 @@ class MatriculaProcesoTests(TestCase):
         )
         group = AcademicCurso.objects.create(nombre="Terceros - Sabado - A1")
         classroom = AcademicAula.objects.create(nombre="Aula academica 1")
+        obsolete_classroom = AcademicAula.objects.create(nombre="Aula academica obsoleta")
         CursoPeriodo.objects.create(curso=group, periodo=period)
-        AcademicAulaCurso.objects.create(aula=classroom, curso=group)
+        aula_curso = AcademicAulaCurso.objects.create(aula=classroom, curso=group)
+        AcademicAulaCurso.objects.create(aula=obsolete_classroom, curso=group)
+        dia, _ = AcademicDia.objects.get_or_create(dia="Sabado")
+        horario, _ = AcademicHorario.objects.get_or_create(hora_inicio=time(8, 0), hora_fin=time(10, 0))
+        horario_dia, _ = AcademicHorarioDia.objects.get_or_create(dia=dia, horario=horario)
+        AcademicHorarioAulaCurso.objects.create(aula_curso=aula_curso, horario_dia=horario_dia)
         GrupoEstudiante.objects.create(
             ficha_inscripcion=ficha,
             estudiante=estudiante,
@@ -991,6 +1005,7 @@ class MatriculaProcesoTests(TestCase):
         self.assertIn(classroom.nombre, values)
         self.assertContains(response, group.nombre)
         self.assertContains(response, classroom.nombre)
+        self.assertNotContains(response, obsolete_classroom.nombre)
 
     def test_ficha_list_filters_by_status_period_course_and_classroom(self):
         estudiante = self.create_partner("1002003024", "Alumno Filtrado", es_estudiante=True)

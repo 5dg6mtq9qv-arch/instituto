@@ -15,6 +15,9 @@ class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
     create_label = "Nuevo"
     update_url_name = None
     columns = ()
+    show_list_actions = True
+    rows_are_clickable = False
+    list_actions_label = "Accion"
 
     def get_permission_required(self):
         opts = self.model._meta
@@ -27,6 +30,10 @@ class InstitutoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
         context["create_label"] = self.create_label
         context["update_url_name"] = self.get_update_url_name()
         context["columns"] = self.columns
+        context["show_list_actions"] = self.show_list_actions
+        context["rows_are_clickable"] = self.rows_are_clickable
+        context["list_actions_label"] = self.list_actions_label
+        context["list_colspan"] = len(self.columns) + 2 + int(self.show_list_actions)
         context["object_rows"] = [self.get_row(obj) for obj in context["object_list"]]
         query_params = self.request.GET.copy()
         query_params.pop("page", None)

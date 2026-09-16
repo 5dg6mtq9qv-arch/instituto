@@ -3905,6 +3905,44 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIn("No asistio por cita medica.", values)
         self.assertNotIn("Luis Padres", values)
 
+    def test_individual_student_attendance_report_only_includes_dates_through_today(self):
+        coordinator = self.create_coordinator()
+        estudiante, ficha = self.create_student_ficha(
+            nombre="Gabriela",
+            apellido="Aguirre Carranco",
+            identificacion="1005452733",
+            numero="A4-001",
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+            fecha_asignacion=self.atrasada.fecha,
+        )
+        ClaseAsistencia.objects.create(
+            clase=self.atrasada,
+            estudiante=estudiante,
+            estado="presente",
+            registrado_por=self.docente,
+        )
+        self.client.force_login(coordinator)
+
+        response = self.client.get(
+            reverse("academico:estudiante_reporte_asistencia", args=[estudiante.pk]),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "academico/coordinacion_reporte_asistencia_alumno_imprimir.html")
+        self.assertContains(response, "Gabriela Aguirre Carranco")
+        self.assertContains(response, "Documento A4")
+        self.assertContains(response, "Imprimir / Guardar PDF")
+        self.assertContains(response, "no considera fechas futuras")
+        self.assertNotContains(response, 'name="desde"')
+        self.assertEqual(response.context["stats"]["total"], 1)
+        self.assertEqual(response.context["stats"]["presente"], 1)
+        self.assertTrue(all(row["fecha"] <= timezone.localdate() for row in response.context["rows"]))
+
     def test_director_attendance_review_opens_without_docente_partner(self):
         director = get_user_model().objects.create_user(username="director-asistencia", password="ClaveActual987!")
         director.groups.add(Group.objects.get_or_create(name="Director")[0])

@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="{% static 'assets/css/lib/bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/remixicon.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/style.css' %}">
-  <link rel="stylesheet" href="{% static 'css/instituto.css' %}?v=20260904-2">
+  <link rel="stylesheet" href="{% static 'css/instituto.css' %}?v=20260915-4">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -75,7 +75,7 @@
       <ul class="sidebar-menu" id="sidebar-menu">
         {% for group in security_menu_groups %}
           <li class="dropdown{% if group.active %} open{% endif %}">
-            <a href="#" class="{% if group.active %}active-page{% endif %}" aria-expanded="{% if group.active %}true{% else %}false{% endif %}">
+            <a href="#" class="{% if group.active %}active-page{% endif %}" aria-expanded="{% if group.active %}true{% else %}false{% endif %}" aria-label="{{ group.label }}" title="{{ group.label }}">
               <i class="{{ group.icon|default:'ri-folder-line' }}"></i>
               <span>{{ group.label }}</span>
             </a>
@@ -137,7 +137,7 @@
   </main>
 
   <script src="{% static 'assets/js/lib/bootstrap.bundle.min.js' %}"></script>
-  <script src="{% static 'js/instituto.js' %}"></script>
+  <script src="{% static 'js/instituto.js' %}?v=20260915-2"></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

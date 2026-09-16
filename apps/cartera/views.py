@@ -61,7 +61,8 @@ class AlumnoCarteraListView(InstitutoListView):
                 Prefetch(
                     "grupo__aula_cursos",
                     queryset=AulaCurso.objects.select_related("aula")
-                    .prefetch_related("horario_aula_cursos")
+                    .filter(horario_aula_cursos__isnull=False)
+                    .distinct()
                     .order_by("aula__nombre", "pk"),
                     to_attr="cartera_aulas",
                 )
@@ -119,12 +120,6 @@ class AlumnoCarteraListView(InstitutoListView):
         classroom_names = []
         if assignment:
             classroom_links = list(getattr(assignment.grupo, "cartera_aulas", ()))
-            scheduled_classrooms = [
-                aula_curso
-                for aula_curso in classroom_links
-                if aula_curso.horario_aula_cursos.all()
-            ]
-            classroom_links = scheduled_classrooms or classroom_links
             classroom_names = list(
                 dict.fromkeys(
                     aula_curso.aula.nombre

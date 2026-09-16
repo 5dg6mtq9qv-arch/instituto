@@ -1,0 +1,523 @@
+{% load static %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} | {{ selected_estudiante.nombre_completo }}</title>
+  <link rel="icon" href="{% static 'assets/images/favicon.png' %}">
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #667085;
+      --line: #d8e0e8;
+      --soft: #f4f7f9;
+      --brand: #0f766e;
+      --brand-soft: #e7f5f3;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #e9eef2;
+      color: var(--ink);
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.35;
+      margin: 0;
+    }
+
+    .print-toolbar {
+      align-items: center;
+      background: #ffffff;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      padding: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .print-toolbar a,
+    .print-toolbar button {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #b8c4cf;
+      border-radius: 7px;
+      color: #344054;
+      cursor: pointer;
+      display: inline-flex;
+      font: 700 14px/1 "Segoe UI", Arial, sans-serif;
+      min-height: 40px;
+      padding: 0 15px;
+      text-decoration: none;
+    }
+
+    .print-toolbar button {
+      background: var(--brand);
+      border-color: var(--brand);
+      color: #ffffff;
+    }
+
+    .report-sheet {
+      background: #ffffff;
+      box-shadow: 0 12px 38px rgba(16, 24, 40, 0.14);
+      margin: 24px auto;
+      min-height: 297mm;
+      padding: 12mm;
+      width: 210mm;
+    }
+
+    .report-header {
+      align-items: center;
+      border-bottom: 2px solid var(--brand);
+      display: flex;
+      justify-content: space-between;
+      padding-bottom: 5mm;
+    }
+
+    .brand {
+      align-items: center;
+      display: flex;
+      gap: 3mm;
+    }
+
+    .brand-mark {
+      align-items: center;
+      background: var(--brand);
+      border-radius: 3mm;
+      color: #ffffff;
+      display: flex;
+      font-size: 19pt;
+      font-weight: 900;
+      height: 12mm;
+      justify-content: center;
+      width: 12mm;
+    }
+
+    .brand strong,
+    .brand span {
+      display: block;
+    }
+
+    .brand strong {
+      font-size: 13pt;
+      letter-spacing: -0.2px;
+    }
+
+    .brand span,
+    .document-meta span {
+      color: var(--muted);
+      font-size: 8.5pt;
+    }
+
+    .document-meta {
+      text-align: right;
+    }
+
+    .document-meta strong {
+      color: var(--brand);
+      display: block;
+      font-size: 9pt;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .title-block {
+      padding: 7mm 0 5mm;
+    }
+
+    .title-block p {
+      color: var(--brand);
+      font-size: 8.5pt;
+      font-weight: 800;
+      letter-spacing: 0.6px;
+      margin: 0 0 1.5mm;
+      text-transform: uppercase;
+    }
+
+    .title-block h1 {
+      font-size: 22pt;
+      letter-spacing: -0.6px;
+      line-height: 1.1;
+      margin: 0;
+    }
+
+    .student-card {
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--brand);
+      border-radius: 2mm;
+      display: grid;
+      gap: 4mm;
+      grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr) minmax(0, 1fr);
+      margin-bottom: 5mm;
+      padding: 4mm;
+    }
+
+    .student-card span,
+    .student-card strong {
+      display: block;
+    }
+
+    .student-card span {
+      color: var(--muted);
+      font-size: 7.5pt;
+      font-weight: 800;
+      margin-bottom: 1mm;
+      text-transform: uppercase;
+    }
+
+    .student-card strong {
+      font-size: 10pt;
+      overflow-wrap: anywhere;
+    }
+
+    .student-card .student-name {
+      font-size: 12pt;
+    }
+
+    .summary {
+      display: grid;
+      gap: 2mm;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      margin-bottom: 6mm;
+    }
+
+    .summary-item {
+      border: 1px solid var(--line);
+      border-radius: 2mm;
+      padding: 2.5mm 2mm;
+      text-align: center;
+    }
+
+    .summary-item span,
+    .summary-item strong {
+      display: block;
+    }
+
+    .summary-item span {
+      color: var(--muted);
+      font-size: 6.5pt;
+      font-weight: 800;
+      line-height: 1.15;
+      min-height: 2.3em;
+      text-transform: uppercase;
+    }
+
+    .summary-item strong {
+      font-size: 16pt;
+      line-height: 1;
+      margin-top: 1.5mm;
+    }
+
+    .summary-item.present strong { color: #15803d; }
+    .summary-item.absent strong { color: #b42318; }
+    .summary-item.late strong,
+    .summary-item.pending strong { color: #b45309; }
+    .summary-item.justified strong,
+    .summary-item.notes strong { color: #0369a1; }
+
+    .section-heading {
+      align-items: end;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 2mm;
+    }
+
+    .section-heading h2 {
+      font-size: 12pt;
+      margin: 0;
+    }
+
+    .section-heading span {
+      color: var(--muted);
+      font-size: 8pt;
+    }
+
+    table {
+      border-collapse: collapse;
+      table-layout: fixed;
+      width: 100%;
+    }
+
+    col.date { width: 15%; }
+    col.class { width: 23%; }
+    col.schedule { width: 24%; }
+    col.status { width: 14%; }
+    col.observation { width: 24%; }
+
+    thead {
+      display: table-header-group;
+    }
+
+    th {
+      background: #e7efef;
+      border: 1px solid #bccdcb;
+      color: #264744;
+      font-size: 7.5pt;
+      letter-spacing: 0.25px;
+      padding: 2.3mm 2mm;
+      text-align: left;
+      text-transform: uppercase;
+    }
+
+    td {
+      border: 1px solid var(--line);
+      color: #344054;
+      font-size: 8pt;
+      overflow-wrap: anywhere;
+      padding: 2.4mm 2mm;
+      vertical-align: top;
+    }
+
+    tbody tr {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    tbody tr:nth-child(even) td {
+      background: #fafbfc;
+    }
+
+    td strong,
+    td span {
+      display: block;
+    }
+
+    td strong {
+      color: var(--ink);
+      font-size: 8.5pt;
+    }
+
+    td span {
+      color: var(--muted);
+      margin-top: 0.8mm;
+    }
+
+    .status-pill {
+      border-radius: 999px;
+      display: inline-block;
+      font-size: 7pt;
+      font-weight: 800;
+      padding: 1.2mm 2mm;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .state-presente { background: #dcfce7; color: #166534; }
+    .state-ausente { background: #fee2e2; color: #991b1b; }
+    .state-atraso { background: #fef3c7; color: #92400e; }
+    .state-justificado { background: #e0f2fe; color: #075985; }
+    .state-pendiente { background: #eef2f6; color: #475467; }
+
+    .empty-row {
+      color: var(--muted);
+      padding: 10mm;
+      text-align: center;
+    }
+
+    .signatures {
+      break-inside: avoid;
+      display: grid;
+      gap: 18mm;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 16mm;
+      page-break-inside: avoid;
+    }
+
+    .signature {
+      border-top: 1px solid #475467;
+      color: #475467;
+      font-size: 8pt;
+      font-weight: 700;
+      padding-top: 2mm;
+      text-align: center;
+    }
+
+    .report-note {
+      color: var(--muted);
+      font-size: 7.5pt;
+      margin: 5mm 0 0;
+    }
+
+    @page {
+      margin: 12mm;
+      size: A4 portrait;
+    }
+
+    @media print {
+      html,
+      body {
+        background: #ffffff !important;
+      }
+
+      body {
+        font-size: 10pt;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
+
+      .print-toolbar {
+        display: none !important;
+      }
+
+      .report-sheet {
+        box-shadow: none;
+        margin: 0;
+        min-height: 0;
+        padding: 0;
+        width: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav class="print-toolbar" aria-label="Acciones del reporte">
+    <a href="{% url 'core:estudiante_list' %}">Volver a estudiantes</a>
+    <button type="button" onclick="window.print()">Imprimir / Guardar PDF</button>
+  </nav>
+
+  <main class="report-sheet">
+    <header class="report-header">
+      <div class="brand">
+        <div class="brand-mark">I</div>
+        <div>
+          <strong>Instituto</strong>
+          <span>Gestión académica</span>
+        </div>
+      </div>
+      <div class="document-meta">
+        <strong>Documento A4</strong>
+        <span>Generado: {{ generated_at|date:"d/m/Y" }} · {{ generated_at|time:"H:i" }}</span>
+      </div>
+    </header>
+
+    <section class="title-block">
+      <p>Informe individual para representante</p>
+      <h1>Reporte de asistencia</h1>
+    </section>
+
+    <section class="student-card" aria-label="Datos del estudiante">
+      <div>
+        <span>Estudiante</span>
+        <strong class="student-name">{{ selected_estudiante.nombre_completo }}</strong>
+      </div>
+      <div>
+        <span>Identificación</span>
+        <strong>{{ selected_estudiante.identificacion|default:"No registrada" }}</strong>
+      </div>
+      <div>
+        <span>Grupo</span>
+        <strong>{{ group_label }}</strong>
+      </div>
+      <div>
+        <span>Periodo consultado</span>
+        <strong>Desde el inicio</strong>
+      </div>
+      <div>
+        <span>Fecha de corte</span>
+        <strong>{{ report_date|date:"d/m/Y" }}</strong>
+      </div>
+      <div>
+        <span>Registros completados</span>
+        <strong>{{ stats.registradas }} de {{ stats.total }}</strong>
+      </div>
+    </section>
+
+    <section class="summary" aria-label="Resumen de asistencia">
+      <div class="summary-item">
+        <span>Clases</span>
+        <strong>{{ stats.total }}</strong>
+      </div>
+      <div class="summary-item present">
+        <span>Presentes</span>
+        <strong>{{ stats.presente }}</strong>
+      </div>
+      <div class="summary-item absent">
+        <span>Ausentes</span>
+        <strong>{{ stats.ausente }}</strong>
+      </div>
+      <div class="summary-item late">
+        <span>Atrasos</span>
+        <strong>{{ stats.atraso }}</strong>
+      </div>
+      <div class="summary-item justified">
+        <span>Justificados</span>
+        <strong>{{ stats.justificado }}</strong>
+      </div>
+      <div class="summary-item pending">
+        <span>Pendientes</span>
+        <strong>{{ stats.pendiente }}</strong>
+      </div>
+      <div class="summary-item notes">
+        <span>Observaciones</span>
+        <strong>{{ stats.observaciones }}</strong>
+      </div>
+    </section>
+
+    <section aria-label="Detalle de asistencia">
+      <div class="section-heading">
+        <h2>Detalle de clases</h2>
+        <span>{{ rows|length }} registro{{ rows|length|pluralize }}</span>
+      </div>
+      <table>
+        <colgroup>
+          <col class="date">
+          <col class="class">
+          <col class="schedule">
+          <col class="status">
+          <col class="observation">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Clase</th>
+            <th>Horario y docente</th>
+            <th>Estado</th>
+            <th>Observación</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr>
+              <td>
+                <strong>{{ row.fecha|date:"d/m/Y" }}</strong>
+                <span>{{ row.aula }}</span>
+              </td>
+              <td>
+                <strong>{{ row.materia.nombre }}</strong>
+                <span>{{ row.grupo.nombre }}</span>
+              </td>
+              <td>
+                <strong>{{ row.horario.hora_inicio|time:"H:i" }}–{{ row.horario.hora_fin|time:"H:i" }}</strong>
+                <span>{{ row.docente_label }}</span>
+              </td>
+              <td><span class="status-pill state-{{ row.estado }}">{{ row.estado_label }}</span></td>
+              <td>{{ row.observacion|default:"Sin observación" }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td class="empty-row" colspan="5">No existen clases hasta la fecha de corte seleccionada.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <p class="report-note">
+      Este reporte incluye únicamente clases realizadas hasta el {{ report_date|date:"d/m/Y" }}; no considera fechas futuras.
+    </p>
+
+    <section class="signatures" aria-label="Firmas">
+      <div class="signature">Responsable académico</div>
+      <div class="signature">Representante del estudiante</div>
+    </section>
+  </main>
+</body>
+</html>

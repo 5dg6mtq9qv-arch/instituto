@@ -68,6 +68,7 @@ body.overlay-active .instituto-overlay {
 }
 
 .sidebar {
+  transition: width 0.2s ease, inset-inline-start 0.2s ease;
   z-index: 99;
 }
 
@@ -187,6 +188,65 @@ body.overlay-active .instituto-overlay {
 
 .sidebar-menu li:not(.dropdown) > a.active-page i {
   color: var(--primary-600);
+}
+
+@media (min-width: 1200px) {
+  .sidebar.active,
+  .sidebar.active:hover {
+    overflow-x: hidden;
+    width: 86px;
+  }
+
+  .sidebar.active .sidebar-logo,
+  .sidebar.active:hover .sidebar-logo {
+    justify-content: center;
+    padding-inline: 12px;
+  }
+
+  .sidebar.active .brand-link,
+  .sidebar.active:hover .brand-link {
+    display: none;
+  }
+
+  .sidebar.active .sidebar-menu-area,
+  .sidebar.active:hover .sidebar-menu-area {
+    padding-inline: 12px;
+  }
+
+  .sidebar.active .sidebar-menu > li > a,
+  .sidebar.active:hover .sidebar-menu > li > a {
+    justify-content: center;
+    padding-inline: 10px;
+  }
+
+  .sidebar.active .sidebar-menu > li > a i,
+  .sidebar.active:hover .sidebar-menu > li > a i {
+    margin-inline-end: 0;
+  }
+
+  .sidebar.active .sidebar-menu li a span,
+  .sidebar.active:hover .sidebar-menu li a span,
+  .sidebar.active .sidebar-menu li.dropdown.open .sidebar-submenu,
+  .sidebar.active:hover .sidebar-menu li.dropdown.open .sidebar-submenu {
+    display: none !important;
+  }
+
+  .sidebar.active .sidebar-menu li.dropdown > a::after,
+  .sidebar.active:hover .sidebar-menu li.dropdown > a::after {
+    display: none;
+  }
+
+  .sidebar.active > .mx-16,
+  .sidebar.active:hover > .mx-16 {
+    margin-inline: 15px !important;
+  }
+
+  .sidebar.active .profile-dropdown__contents,
+  .sidebar.active:hover .profile-dropdown__contents,
+  .sidebar.active .profile-dropdown__icon,
+  .sidebar.active:hover .profile-dropdown__icon {
+    display: none !important;
+  }
 }
 
 .navbar-header {
@@ -1881,8 +1941,22 @@ dd {
 
 .list-table-responsive {
   max-width: 100%;
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: var(--neutral-300) transparent;
+  scrollbar-width: thin;
   width: 100%;
+}
+
+.list-table-responsive::-webkit-scrollbar {
+  height: 10px;
+}
+
+.list-table-responsive::-webkit-scrollbar-thumb {
+  background: var(--neutral-300);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
 }
 
 .list-panel .dropdown-menu {
@@ -2140,13 +2214,109 @@ dd {
 }
 
 .list-panel .app-table {
-  table-layout: fixed;
-  width: 100%;
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
 }
 
 .list-panel .app-table th,
 .list-panel .app-table td {
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.list-panel .app-table thead th {
+  white-space: nowrap;
+}
+
+.list-panel .app-table tbody td {
+  line-height: 1.45;
+  max-width: 260px;
+  min-width: 110px;
+}
+
+.list-panel .app-table .select-col,
+.list-panel .app-table .serial-col,
+.list-panel .app-table th.text-end:last-child,
+.list-panel .app-table td.text-end:last-child {
+  min-width: 0;
+}
+
+.student-table {
+  table-layout: fixed !important;
+  min-width: 820px !important;
+  width: 100% !important;
+}
+
+.student-table th:nth-child(3),
+.student-table td:nth-child(3) {
+  min-width: 0;
+  width: 18%;
+}
+
+.student-table th:nth-child(4),
+.student-table td:nth-child(4) {
+  min-width: 0;
+  width: 20%;
+}
+
+.student-table th:nth-child(5),
+.student-table td:nth-child(5) {
+  min-width: 0;
+  width: 7%;
+}
+
+.student-table th:nth-child(6),
+.student-table td:nth-child(6) {
+  min-width: 0;
+  width: 12%;
+}
+
+.student-table th:nth-child(7),
+.student-table td:nth-child(7) {
+  min-width: 0;
+  width: 10%;
+}
+
+.student-table th:nth-child(8),
+.student-table td:nth-child(8) {
+  min-width: 0;
+  width: 5%;
+}
+
+.student-table th:nth-child(9),
+.student-table td:nth-child(9) {
+  min-width: 0;
+  width: 10%;
+}
+
+.student-table td {
+  overflow-wrap: break-word !important;
+}
+
+.student-table .select-col {
+  width: 3.5%;
+}
+
+.student-table .serial-col {
+  width: 4.5%;
+}
+
+.student-table th.text-end:last-child,
+.student-table td.text-end:last-child {
+  width: 72px !important;
+}
+
+.attendance-report-menu-link {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.attendance-report-menu-link i {
+  color: var(--primary-600);
+  font-size: 17px;
 }
 
 .list-panel .app-table th.text-end:last-child,
@@ -2162,6 +2332,15 @@ dd {
 
 .app-table tbody tr:hover td {
   background: #fbfdff;
+}
+
+.clickable-table-row {
+  cursor: pointer;
+}
+
+.clickable-table-row:focus {
+  outline: 2px solid var(--primary-500);
+  outline-offset: -2px;
 }
 
 .select-col {
