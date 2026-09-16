@@ -73,6 +73,7 @@ MENU_GROUPS = [
         "label": "Administrativo",
         "icon": "ri-building-4-line",
         "items": [
+            {"label": "Identidad institucional", "url_name": "core:institution_branding", "perm": None, "groups": ["Administrador"]},
             {"label": "Empresas", "url_name": "core:empresa_list", "perm": None, "groups": ["Administrador"]},
             {"label": "Docentes", "url_name": "core:docente_list", "perm": None, "groups": ["Director"]},
             {"label": "Usuarios", "url_name": "core:usuario_list", "perm": None, "groups": ["Administrador"]},

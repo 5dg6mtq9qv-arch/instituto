@@ -2,6 +2,7 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import Group, Permission
+from django.core.files.uploadedfile import UploadedFile
 
 from .models import Empresa, Partner, TipoIdentificacion
 
@@ -55,6 +56,43 @@ class EmpresaForm(BootstrapFormMixin, forms.ModelForm):
             "direccion": forms.Textarea(attrs={"rows": 2}),
             "email": forms.Textarea(attrs={"rows": 2}),
         }
+
+
+class InstitutionBrandingForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Empresa
+        fields = ["nombre_comercial", "logo"]
+        labels = {
+            "nombre_comercial": "Nombre de la institución",
+            "logo": "Logo institucional",
+        }
+        help_texts = {
+            "nombre_comercial": "Este nombre aparecerá en la barra lateral y en el panel principal.",
+            "logo": "Usa una imagen PNG, JPG o WEBP de hasta 2 MB.",
+        }
+        widgets = {
+            "logo": forms.ClearableFileInput(attrs={"accept": "image/png,image/jpeg,image/webp"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["nombre_comercial"].required = True
+        self.fields["nombre_comercial"].widget.attrs.update(
+            {"placeholder": "Nombre mostrado en la plataforma", "maxlength": 300}
+        )
+
+    def clean_nombre_comercial(self):
+        return " ".join((self.cleaned_data.get("nombre_comercial") or "").split())
+
+    def clean_logo(self):
+        logo = self.cleaned_data.get("logo")
+        if isinstance(logo, UploadedFile):
+            if logo.size > 2 * 1024 * 1024:
+                raise forms.ValidationError("El logo no puede superar los 2 MB.")
+            allowed_types = {"image/png", "image/jpeg", "image/webp"}
+            if logo.content_type not in allowed_types:
+                raise forms.ValidationError("El logo debe ser una imagen PNG, JPG o WEBP.")
+        return logo
 
 
 class PartnerForm(BootstrapFormMixin, forms.ModelForm):

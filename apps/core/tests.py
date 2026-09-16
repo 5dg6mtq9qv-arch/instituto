@@ -1,12 +1,91 @@
+import shutil
+import tempfile
+from io import BytesIO
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
-from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.urls import reverse
+from PIL import Image
 
 from apps.core.forms import SystemUserForm
 from apps.core.current_user import set_current_request
 from apps.core.menu import permitted_menu_groups
 from apps.core.models import Empresa, Partner, PartnerPartner, TipoIdentificacion
+
+
+class InstitutionalBrandingTests(TestCase):
+    def setUp(self):
+        set_current_request(None)
+        self.media_root = tempfile.mkdtemp()
+        self.media_override = override_settings(MEDIA_ROOT=self.media_root)
+        self.media_override.enable()
+        self.institution = Empresa.objects.create(
+            ruc="1799999999001",
+            razon_social="Instituto Inicial",
+            nombre_comercial="Instituto Inicial",
+            activa=True,
+        )
+        self.admin = get_user_model().objects.create_user(
+            username="admin_identidad",
+            password="ClaveActual987!",
+        )
+        self.admin.groups.add(Group.objects.get_or_create(name="Administrador")[0])
+        self.regular_user = get_user_model().objects.create_user(
+            username="usuario_identidad",
+            password="ClaveActual987!",
+        )
+
+    def tearDown(self):
+        set_current_request(None)
+        self.media_override.disable()
+        shutil.rmtree(self.media_root, ignore_errors=True)
+
+    def logo_upload(self):
+        content = BytesIO()
+        Image.new("RGB", (120, 80), color="#0f766e").save(content, format="PNG")
+        return SimpleUploadedFile("logo-institucional.png", content.getvalue(), content_type="image/png")
+
+    def test_only_administrator_can_edit_institutional_brand(self):
+        url = reverse("core:institution_branding")
+        self.client.force_login(self.regular_user)
+
+        self.assertEqual(self.client.get(url, HTTP_HOST="localhost").status_code, 403)
+        home = self.client.get(reverse("home"), HTTP_HOST="localhost")
+        self.assertNotContains(home, f'href="{url}"')
+
+        self.client.force_login(self.admin)
+        response = self.client.get(url, HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Identidad institucional")
+        self.assertContains(response, "Vista previa")
+        home = self.client.get(reverse("home"), HTTP_HOST="localhost")
+        self.assertContains(home, f'href="{url}"')
+
+    def test_administrator_updates_name_and_logo_used_by_platform(self):
+        self.client.force_login(self.admin)
+        url = reverse("core:institution_branding")
+
+        response = self.client.post(
+            url,
+            {
+                "nombre_comercial": "Academia Horizonte",
+                "logo": self.logo_upload(),
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.institution.refresh_from_db()
+        self.assertEqual(self.institution.nombre_comercial, "Academia Horizonte")
+        self.assertTrue(self.institution.logo.name.startswith("core/empresa/"))
+
+        home = self.client.get(reverse("home"), HTTP_HOST="localhost")
+        self.assertContains(home, "Academia Horizonte")
+        self.assertContains(home, self.institution.logo.url)
+        self.assertContains(home, "brand-mark-image")
 
 
 class SystemUserFormPasswordTests(TestCase):

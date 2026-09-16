@@ -3916,6 +3916,13 @@ class DocenteHorariosPanelTests(TestCase):
 
     def test_individual_student_attendance_report_only_includes_dates_through_today(self):
         coordinator = self.create_coordinator()
+        self.empresa.nombre_comercial = "Academia del Norte"
+        self.empresa.logo = SimpleUploadedFile(
+            "logo-reporte.png",
+            b"logo-reporte",
+            content_type="image/png",
+        )
+        self.empresa.save(update_fields=["nombre_comercial", "logo"])
         estudiante, ficha = self.create_student_ficha(
             nombre="Gabriela",
             apellido="Aguirre Carranco",
@@ -3999,6 +4006,9 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "academico/coordinacion_reporte_asistencia_alumno_imprimir.html")
         self.assertContains(response, "Gabriela Aguirre Carranco")
+        self.assertContains(response, "Academia del Norte")
+        self.assertContains(response, self.empresa.logo.url)
+        self.assertContains(response, "Logo de Academia del Norte")
         self.assertContains(response, "Documento A4")
         self.assertContains(response, "Imprimir / Guardar PDF")
         self.assertNotContains(response, "Actualizar calificaciones Moodle")

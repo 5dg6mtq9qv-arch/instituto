@@ -26,9 +26,18 @@
 
   <section class="payment-receipt">
     <header class="payment-receipt-header">
-      <div>
-        <span>{{ pago.empresa.nombre_display }}</span>
-        <h2>Comprobante de pago</h2>
+      <div class="payment-receipt-brand">
+        {% if pago.empresa.logo %}
+          <span class="payment-receipt-logo">
+            <img src="{{ pago.empresa.logo.url }}" alt="Logo de {{ pago.empresa.nombre_display }}">
+          </span>
+        {% else %}
+          <span class="payment-receipt-logo is-initial">{{ pago.empresa.nombre_display|first|upper|default:"I" }}</span>
+        {% endif %}
+        <div>
+          <span>{{ pago.empresa.nombre_display }}</span>
+          <h2>Comprobante de pago</h2>
+        </div>
       </div>
       <div class="payment-receipt-number">
         <span>No. comprobante</span>
@@ -124,6 +133,40 @@
       gap: 16px;
       justify-content: space-between;
       padding-bottom: 16px;
+    }
+
+    .payment-receipt-brand {
+      align-items: center;
+      display: flex;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .payment-receipt-logo {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d0d5dd;
+      border-radius: 9px;
+      display: inline-flex;
+      flex: 0 0 46px;
+      height: 46px;
+      justify-content: center;
+      overflow: hidden;
+      padding: 3px;
+    }
+
+    .payment-receipt-logo.is-initial {
+      background: #0f766e;
+      border-color: #0f766e;
+      color: #ffffff;
+      font-size: 20px;
+      font-weight: 900;
+    }
+
+    .payment-receipt-logo img {
+      height: 100%;
+      object-fit: contain;
+      width: 100%;
     }
 
     .payment-receipt-header span,

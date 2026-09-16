@@ -124,6 +124,19 @@
       width: 12mm;
     }
 
+    .brand-mark.has-logo {
+      background: #ffffff;
+      border: 0.35mm solid var(--line);
+      overflow: hidden;
+      padding: 0.8mm;
+    }
+
+    .brand-mark img {
+      height: 100%;
+      object-fit: contain;
+      width: 100%;
+    }
+
     .brand strong,
     .brand span {
       display: block;
@@ -132,6 +145,8 @@
     .brand strong {
       font-size: 13pt;
       letter-spacing: -0.2px;
+      max-width: 90mm;
+      overflow-wrap: anywhere;
     }
 
     .brand span,
@@ -510,9 +525,15 @@
   <main class="report-sheet">
     <header class="report-header">
       <div class="brand">
-        <div class="brand-mark">I</div>
+        {% if institution_brand.logo_url %}
+          <div class="brand-mark has-logo">
+            <img src="{{ institution_brand.logo_url }}" alt="Logo de {{ institution_brand.name }}">
+          </div>
+        {% else %}
+          <div class="brand-mark">{{ institution_brand.name|first|upper|default:"I" }}</div>
+        {% endif %}
         <div>
-          <strong>Instituto</strong>
+          <strong>{{ institution_brand.name }}</strong>
           <span>Gestión académica</span>
         </div>
       </div>

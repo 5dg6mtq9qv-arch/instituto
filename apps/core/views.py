@@ -15,6 +15,7 @@ from apps.core.forms import (
     EmpresaForm,
     EstudianteForm,
     GroupPermissionForm,
+    InstitutionBrandingForm,
     MiPerfilPartnerForm,
     MiPerfilPasswordChangeForm,
     RepresentanteForm,
@@ -517,6 +518,49 @@ class SecurityAccessMixin(UserPassesTestMixin):
         context = super().get_context_data(**kwargs)
         context["security_active_tab"] = self.security_active_tab
         return context
+
+
+class InstitutionBrandingView(LoginRequiredMixin, SecurityAccessMixin, View):
+    template_name = "core/institution_branding.html"
+
+    def get_institution(self):
+        institution = Empresa.objects.filter(activa=True).order_by("pk").first()
+        return institution or Empresa.objects.order_by("pk").first()
+
+    def get(self, request):
+        institution = self.get_institution()
+        form = InstitutionBrandingForm(instance=institution)
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Identidad institucional",
+                "form": form,
+                "institution": institution,
+            },
+        )
+
+    def post(self, request):
+        institution = self.get_institution()
+        form = InstitutionBrandingForm(request.POST, request.FILES, instance=institution)
+        if form.is_valid():
+            institution = form.save(commit=False)
+            if not institution.razon_social:
+                institution.razon_social = institution.nombre_comercial
+            institution.activa = True
+            institution.usuario_updated = request.user
+            institution.save()
+            messages.success(request, "La identidad institucional se actualizó correctamente.")
+            return redirect("core:institution_branding")
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Identidad institucional",
+                "form": form,
+                "institution": institution,
+            },
+        )
 
 
 class GroupListView(SecurityAccessMixin, InstitutoListView):

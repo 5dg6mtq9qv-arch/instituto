@@ -5,6 +5,7 @@ from . import views
 app_name = "core"
 
 urlpatterns = [
+    path("configuracion/identidad-institucional/", views.InstitutionBrandingView.as_view(), name="institution_branding"),
     path("empresas/", views.EmpresaListView.as_view(), name="empresa_list"),
     path("empresas/nueva/", views.EmpresaCreateView.as_view(), name="empresa_nueva"),
     path("empresas/<int:pk>/editar/", views.EmpresaUpdateView.as_view(), name="empresa_editar"),

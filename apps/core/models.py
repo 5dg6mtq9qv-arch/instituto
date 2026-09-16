@@ -23,7 +23,7 @@ class Empresa(models.Model):
     telefono = models.CharField(max_length=20, blank=True, null=True)
     email = models.TextField(blank=True, null=True)
     ciudad = models.CharField(max_length=80, blank=True, null=True)
-    logo = models.TextField(blank=True, null=True)
+    logo = models.ImageField(upload_to="core/empresa/", max_length=255, blank=True, null=True)
     activa = models.BooleanField(default=True)
     tags = HStoreField(blank=True, null=True, default=dict)
     created = models.DateTimeField(auto_now_add=True)

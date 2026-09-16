@@ -1,0 +1,129 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Administración</p>
+      <h1>{{ title }}</h1>
+      <p class="text-muted mb-0">Personaliza el nombre y el logo que identifican a la plataforma.</p>
+    </div>
+  </header>
+
+  <form class="institution-brand-form" method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    <section class="panel institution-brand-editor">
+      <div class="institution-brand-preview-card">
+        <span class="preview-label">Vista previa</span>
+        <div class="institution-brand-preview">
+          <span id="brand-preview-mark" class="brand-preview-mark{% if institution.logo %} has-image{% endif %}">
+            {% if institution.logo %}
+              <img id="brand-preview-image" src="{{ institution.logo.url }}" alt="Logo actual">
+            {% else %}
+              <img id="brand-preview-image" src="" alt="" hidden>
+              <b id="brand-preview-initial">{{ institution.nombre_display|first|upper|default:"I" }}</b>
+            {% endif %}
+          </span>
+          <span class="brand-preview-copy">
+            <strong id="brand-preview-name">{{ institution.nombre_display|default:"Instituto" }}</strong>
+            <small>Plataforma académica</small>
+          </span>
+        </div>
+        <p>Así aparecerá en la barra lateral para todos los usuarios.</p>
+      </div>
+
+      <div class="institution-brand-fields">
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <div>
+          <label class="form-label" for="{{ form.nombre_comercial.id_for_label }}">{{ form.nombre_comercial.label }}</label>
+          {{ form.nombre_comercial }}
+          {% if form.nombre_comercial.help_text %}<small class="form-help">{{ form.nombre_comercial.help_text }}</small>{% endif %}
+          {% for error in form.nombre_comercial.errors %}<div class="form-error">{{ error }}</div>{% endfor %}
+        </div>
+
+        <div>
+          <label class="form-label" for="{{ form.logo.id_for_label }}">{{ form.logo.label }}</label>
+          <div class="institution-logo-input">{{ form.logo }}</div>
+          {% if form.logo.help_text %}<small class="form-help">{{ form.logo.help_text }}</small>{% endif %}
+          {% for error in form.logo.errors %}<div class="form-error">{{ error }}</div>{% endfor %}
+        </div>
+
+        <div class="institution-brand-note">
+          <i class="ri-information-line"></i>
+          <span>Para obtener un mejor resultado usa un logo cuadrado o apaisado, con fondo transparente.</span>
+        </div>
+
+        <div class="institution-brand-actions">
+          <a class="btn btn-outline-secondary" href="{% url 'home' %}">Cancelar</a>
+          <button class="btn btn-primary-600" type="submit">
+            <i class="ri-save-line"></i> Guardar identidad
+          </button>
+        </div>
+      </div>
+    </section>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .institution-brand-form { max-width: 980px; }
+    .institution-brand-editor { align-items: start; display: grid; gap: 28px; grid-template-columns: minmax(280px, .8fr) minmax(360px, 1.2fr); }
+    .institution-brand-preview-card { background: linear-gradient(145deg, #f3faf8, #f8fafc); border: 1px solid #d9e8e4; border-radius: 14px; padding: 22px; }
+    .preview-label { color: #0f766e; display: block; font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .institution-brand-preview { align-items: center; background: #fff; border: 1px solid #e1e7ec; border-radius: 12px; display: flex; gap: 12px; margin: 16px 0; min-height: 74px; padding: 15px; }
+    .brand-preview-mark { align-items: center; background: #0fada1; border-radius: 10px; color: #fff; display: inline-flex; flex: 0 0 44px; font-size: 22px; font-weight: 800; height: 44px; justify-content: center; overflow: hidden; }
+    .brand-preview-mark.has-image { background: #fff; border: 1px solid #d8e0e8; padding: 3px; }
+    .brand-preview-mark img { height: 100%; object-fit: contain; width: 100%; }
+    .brand-preview-copy { display: grid; line-height: 1.2; min-width: 0; }
+    .brand-preview-copy strong { color: #172033; font-size: 17px; overflow-wrap: anywhere; }
+    .brand-preview-copy small { color: #667085; font-size: 12px; margin-top: 3px; }
+    .institution-brand-preview-card > p { color: #667085; font-size: 12px; margin: 0; }
+    .institution-brand-fields { display: grid; gap: 20px; }
+    .form-help { color: #667085; display: block; font-size: 12px; margin-top: 6px; }
+    .form-error { color: #b42318; font-size: 12px; margin-top: 5px; }
+    .institution-logo-input { background: #f8fafc; border: 1px dashed #b8c4ce; border-radius: 10px; padding: 14px; }
+    .institution-logo-input input[type="file"] { width: 100%; }
+    .institution-brand-note { align-items: start; background: #eff8ff; border: 1px solid #b2ddff; border-radius: 10px; color: #175cd3; display: flex; font-size: 12px; gap: 8px; padding: 11px 12px; }
+    .institution-brand-note i { font-size: 18px; }
+    .institution-brand-actions { display: flex; gap: 9px; justify-content: flex-end; }
+    @media (max-width: 760px) {
+      .institution-brand-editor { grid-template-columns: 1fr; }
+      .institution-brand-actions { flex-direction: column-reverse; }
+      .institution-brand-actions .btn { justify-content: center; width: 100%; }
+    }
+  </style>
+  <script>
+    (() => {
+      const nameInput = document.getElementById('{{ form.nombre_comercial.id_for_label }}');
+      const logoInput = document.getElementById('{{ form.logo.id_for_label }}');
+      const previewName = document.getElementById('brand-preview-name');
+      const previewMark = document.getElementById('brand-preview-mark');
+      const previewImage = document.getElementById('brand-preview-image');
+      let previewInitial = document.getElementById('brand-preview-initial');
+
+      const updateName = () => {
+        const name = nameInput.value.trim() || 'Instituto';
+        previewName.textContent = name;
+        if (previewInitial) previewInitial.textContent = name.charAt(0).toLocaleUpperCase('es');
+      };
+      nameInput.addEventListener('input', updateName);
+
+      logoInput.addEventListener('change', () => {
+        const file = logoInput.files && logoInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.addEventListener('load', () => {
+          previewImage.src = reader.result;
+          previewImage.hidden = false;
+          if (previewInitial) previewInitial.hidden = true;
+          previewMark.classList.add('has-image');
+        });
+        reader.readAsDataURL(file);
+      });
+    })();
+  </script>
+{% endblock %}

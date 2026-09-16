@@ -18,7 +18,9 @@ def home(request):
     User = get_user_model()
     user = request.user
     today = timezone.localdate()
-    institution = Empresa.objects.first()
+    institution = Empresa.objects.filter(activa=True).order_by("pk").first()
+    if institution is None:
+        institution = Empresa.objects.order_by("pk").first()
     institution_name = institution.nombre_display() if institution else "Instituto"
 
     def can(perm):

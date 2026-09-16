@@ -106,6 +106,19 @@ body.overlay-active .instituto-overlay {
   width: 42px;
 }
 
+.brand-mark-image {
+  background: #ffffff;
+  border: 1px solid var(--instituto-border);
+  overflow: hidden;
+  padding: 3px;
+}
+
+.brand-mark-image img {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
 .brand-copy {
   display: grid;
   line-height: 1.2;
@@ -113,8 +126,14 @@ body.overlay-active .instituto-overlay {
 }
 
 .brand-copy strong {
-  font-size: 18px;
+  display: -webkit-box;
+  font-size: 15px;
   font-weight: 800;
+  line-height: 1.1;
+  max-width: 125px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .brand-copy small {

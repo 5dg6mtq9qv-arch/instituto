@@ -22,9 +22,15 @@
 
     <div class="sidebar-logo d-flex align-items-center justify-content-between">
       <a class="brand-link" href="{% url 'home' %}" aria-label="Inicio">
-        <span class="brand-mark">I</span>
+        {% if institution_brand.logo_url %}
+          <span class="brand-mark brand-mark-image">
+            <img src="{{ institution_brand.logo_url }}" alt="Logo de {{ institution_brand.name }}">
+          </span>
+        {% else %}
+          <span class="brand-mark">{{ institution_brand.name|first|upper|default:"I" }}</span>
+        {% endif %}
         <span class="brand-copy">
-          <strong>Instituto</strong>
+          <strong title="{{ institution_brand.name }}">{{ institution_brand.name }}</strong>
           <small>Plataforma academica</small>
         </span>
       </a>
