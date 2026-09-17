@@ -57,7 +57,7 @@
       {% for row in moved_out_rows %}
         <div>
           <i class="ri-arrow-right-up-line"></i>
-          <span>{{ row.estudiante.nombre }} - {{ row.destino_label }}</span>
+          <span>{{ row.estudiante.apellido }} {{ row.estudiante.nombre }} - {{ row.destino_label }}</span>
         </div>
       {% endfor %}
     </section>
@@ -82,14 +82,14 @@
               <tr>
                 <td>{{ forloop.counter|stringformat:"02d" }}</td>
                 <td>
-                  <strong>{{ row.estudiante.nombre }}</strong>
+                  <strong>{{ row.estudiante.apellido }} {{ row.estudiante.nombre }}</strong>
                   {% if row.incoming %}
                     <span class="incoming-label">Movimiento activo</span>
                   {% endif %}
                 </td>
                 <td>{{ row.ficha.numero }}</td>
                 <td>
-                  <div class="attendance-status-group" role="group" aria-label="Estado de {{ row.estudiante.nombre }}">
+                  <div class="attendance-status-group" role="group" aria-label="Estado de {{ row.estudiante.apellido }} {{ row.estudiante.nombre }}">
                     {% for choice in estado_choices %}
                       <label class="attendance-choice state-{{ choice.0 }}" for="estado_{{ row.asignacion.pk }}_{{ choice.0 }}">
                         <input id="estado_{{ row.asignacion.pk }}_{{ choice.0 }}" type="radio" name="estado_{{ row.asignacion.pk }}" value="{{ choice.0 }}"{% if row.estado == choice.0 %} checked{% endif %}{% if not can_edit_attendance %} disabled{% endif %}>

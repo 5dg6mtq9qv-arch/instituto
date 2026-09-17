@@ -18,23 +18,22 @@ workon instituto
 command -v python
 ```
 
-Normalmente será `/home/USUARIO/.virtualenvs/instituto/bin/python`. En cron
-se usa directamente ese ejecutable; no hace falta ejecutar `workon`. Si el
-proyecto está en `/srv/instituto`, la entrada para el mismo usuario que creó
-el entorno es:
+En el servidor `preuniversitario`, el ejecutable confirmado es
+`/home/preuniversitario/.virtualenvs/instituto/bin/python`. En cron se usa
+directamente ese ejecutable; no hace falta ejecutar `workon`. La entrada para
+ese servidor es:
 
 ```cron
-*/5 * * * * cd /srv/instituto && $HOME/.virtualenvs/instituto/bin/python manage.py cerrar_asistencias_vencidas >> /srv/instituto/logs/cierre_asistencias.log 2>&1
+*/5 * * * * cd /home/preuniversitario/Dev/instituto && /home/preuniversitario/.virtualenvs/instituto/bin/python manage.py cerrar_asistencias_vencidas >> /home/preuniversitario/Dev/instituto/logs/cierre_asistencias.log 2>&1
 ```
 
-Sustituye `/srv/instituto` por la ruta real del proyecto. Antes de activar el
-cron, aplica las migraciones y crea el directorio de logs:
+Antes de activar el cron, aplica las migraciones y crea el directorio de logs:
 
 ```bash
-cd /srv/instituto
-$HOME/.virtualenvs/instituto/bin/python manage.py migrate
+cd /home/preuniversitario/Dev/instituto
+/home/preuniversitario/.virtualenvs/instituto/bin/python manage.py migrate
 mkdir -p logs
-$HOME/.virtualenvs/instituto/bin/python manage.py cerrar_asistencias_vencidas
+/home/preuniversitario/.virtualenvs/instituto/bin/python manage.py cerrar_asistencias_vencidas
 crontab -e
 ```
 
