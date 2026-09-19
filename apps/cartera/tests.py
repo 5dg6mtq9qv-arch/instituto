@@ -23,6 +23,7 @@ from apps.academico.models import (
     HorarioDia,
     Periodo,
 )
+from apps.auditoria.models import PagoAuditoria
 from apps.matricula.models import FichaInscripcion
 
 from .forms import FormaPagoForm
@@ -173,7 +174,7 @@ class FormaPagoFormTests(TestCase):
 
     def test_student_pending_payments_page_renders_flow_summary(self):
         self.client.force_login(self.user)
-        ficha, _, cuota_atrasada, _, _ = self.create_payment_flow_data()
+        ficha, _, cuota_atrasada, cuota_proxima, _ = self.create_payment_flow_data()
 
         response = self.client.get(reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}), HTTP_HOST="localhost")
 
@@ -191,6 +192,12 @@ class FormaPagoFormTests(TestCase):
         )
         self.assertContains(response, "Editar fecha de pago")
         self.assertContains(response, "data-due-date-form")
+        self.assertContains(
+            response,
+            f'data-update-url="{reverse("cartera:cuota_valor_editar", kwargs={"pk": ficha.pk, "cuota_pk": cuota_proxima.pk})}"',
+        )
+        self.assertContains(response, "Editar valor de cuota")
+        self.assertContains(response, "data-installment-amount-form")
 
     def test_due_date_gear_is_hidden_without_specific_permission(self):
         ficha, _, cuota_atrasada, _, _ = self.create_payment_flow_data()
@@ -274,6 +281,176 @@ class FormaPagoFormTests(TestCase):
         cuota_atrasada.refresh_from_db()
         self.assertEqual(cuota_atrasada.fecha_pago_debito, past_date)
         self.assertEqual(cuota_atrasada.estado, "vencida")
+
+    def test_installment_amount_control_requires_specific_permission(self):
+        ficha, _, _, cuota_proxima, _ = self.create_payment_flow_data()
+        limited_user = get_user_model().objects.create_user(
+            username="cartera_sin_valores",
+            password="ClaveActual987!",
+        )
+        limited_user.user_permissions.add(
+            Permission.objects.get(content_type__app_label="cartera", codename="view_cuota")
+        )
+        self.client.force_login(limited_user)
+        update_url = reverse(
+            "cartera:cuota_valor_editar",
+            kwargs={"pk": ficha.pk, "cuota_pk": cuota_proxima.pk},
+        )
+
+        response = self.client.get(
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, f'data-update-url="{update_url}"')
+
+        update_response = self.client.post(
+            update_url,
+            {"valor": "300.00"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(update_response.status_code, 403)
+        cuota_proxima.refresh_from_db()
+        self.assertEqual(cuota_proxima.valor, Decimal("200.00"))
+
+    def test_authorized_user_can_update_unpaid_installment_amount_and_balances(self):
+        ficha, plan, _, cuota_proxima, _ = self.create_payment_flow_data()
+        authorized_user = get_user_model().objects.create_user(
+            username="cartera_valores",
+            password="ClaveActual987!",
+        )
+        authorized_user.user_permissions.add(
+            Permission.objects.get(content_type__app_label="cartera", codename="view_cuota"),
+            Permission.objects.get(content_type__app_label="cartera", codename="change_valor_cuota"),
+        )
+        self.client.force_login(authorized_user)
+
+        response = self.client.post(
+            reverse(
+                "cartera:cuota_valor_editar",
+                kwargs={"pk": ficha.pk, "cuota_pk": cuota_proxima.pk},
+            ),
+            {"valor": "300.00"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            fetch_redirect_response=False,
+        )
+        cuota_proxima.refresh_from_db()
+        plan.refresh_from_db()
+        ficha.refresh_from_db()
+        self.assertEqual(cuota_proxima.valor, Decimal("300.00"))
+        self.assertEqual(cuota_proxima.usuario_updated, authorized_user)
+        self.assertEqual(plan.valor_total, Decimal("600.00"))
+        self.assertEqual(plan.saldo, Decimal("500.00"))
+        self.assertEqual(ficha.valor_total_curso, Decimal("550.00"))
+        self.assertEqual(ficha.saldo, Decimal("500.00"))
+        audit = PagoAuditoria.objects.get(tipo_evento="cuota", cuota_id=cuota_proxima.pk)
+        self.assertIsNone(audit.pago_id)
+        self.assertEqual(audit.accion, "modificar")
+        self.assertEqual(audit.plan_pago_id, plan.pk)
+        self.assertEqual(audit.ficha_inscripcion_id, ficha.pk)
+        self.assertEqual(audit.estudiante_id, ficha.estudiante_id)
+        self.assertEqual(audit.usuario_accion_id, authorized_user.pk)
+        self.assertEqual(audit.metodo_http, "POST")
+        self.assertEqual(
+            audit.cambios["valor_cuota"],
+            {"antes": "200.00", "despues": "300.00"},
+        )
+        self.assertEqual(
+            audit.cambios["saldo_plan"],
+            {"antes": "400.00", "despues": "500.00"},
+        )
+
+    def test_installment_amount_cannot_change_after_a_payment(self):
+        ficha, plan, cuota_atrasada, _, _ = self.create_payment_flow_data()
+        authorized_user = get_user_model().objects.create_user(
+            username="cartera_valores_pagados",
+            password="ClaveActual987!",
+        )
+        authorized_user.user_permissions.add(
+            Permission.objects.get(content_type__app_label="cartera", codename="view_cuota"),
+            Permission.objects.get(content_type__app_label="cartera", codename="change_valor_cuota"),
+        )
+        self.client.force_login(authorized_user)
+        update_url = reverse(
+            "cartera:cuota_valor_editar",
+            kwargs={"pk": ficha.pk, "cuota_pk": cuota_atrasada.pk},
+        )
+
+        page_response = self.client.get(
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            HTTP_HOST="localhost",
+        )
+        self.assertNotContains(page_response, f'data-update-url="{update_url}"')
+
+        response = self.client.post(update_url, {"valor": "300.00"}, HTTP_HOST="localhost")
+        self.assertRedirects(
+            response,
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            fetch_redirect_response=False,
+        )
+        cuota_atrasada.refresh_from_db()
+        plan.refresh_from_db()
+        self.assertEqual(cuota_atrasada.valor, Decimal("250.00"))
+        self.assertEqual(plan.valor_total, Decimal("500.00"))
+        self.assertEqual(plan.saldo, Decimal("400.00"))
+
+    def test_generic_installment_edit_cannot_bypass_amount_flow(self):
+        _, _, _, cuota_proxima, _ = self.create_payment_flow_data()
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("cartera:cuota_editar", kwargs={"pk": cuota_proxima.pk}),
+            {
+                "plan_pago": cuota_proxima.plan_pago_id,
+                "numero": cuota_proxima.numero,
+                "fecha_pago_debito": cuota_proxima.fecha_pago_debito.isoformat(),
+                "valor": "999.00",
+                "valor_pagado": "0.00",
+                "estado": cuota_proxima.estado,
+                "prioridad": cuota_proxima.prioridad,
+                "activo": "on",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 302)
+        cuota_proxima.refresh_from_db()
+        self.assertEqual(cuota_proxima.valor, Decimal("200.00"))
+
+    def test_registered_payment_form_keeps_amount_read_only(self):
+        _, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        pago = Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.now(),
+            valor=Decimal("25.00"),
+            usuario=self.user,
+        )
+
+        form = PagoForm(
+            data={
+                "empresa": self.empresa.pk,
+                "cuota": cuota_atrasada.pk,
+                "forma_pago": forma_pago.pk,
+                "fecha_registro": timezone.localtime(pago.fecha_registro).strftime("%Y-%m-%dT%H:%M"),
+                "valor": "999.00",
+                "numero_documento": "",
+                "comentario": "Actualizacion permitida",
+            },
+            instance=pago,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        pago.refresh_from_db()
+        self.assertEqual(pago.valor, Decimal("25.00"))
+        self.assertEqual(pago.comentario, "Actualizacion permitida")
 
     def test_student_wallet_list_renders_status_filters_and_payment_links(self):
         self.client.force_login(self.user)

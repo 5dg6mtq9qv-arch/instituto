@@ -127,6 +127,21 @@
                   <div class="payment-installment-amount">
                     <div class="payment-installment-amount-heading">
                       <span>Restante</span>
+                      {% if item.can_change_amount %}
+                        <button
+                          class="payment-date-settings"
+                          type="button"
+                          title="Editar valor de cuota"
+                          aria-label="Editar valor de {{ item.cuota.etiqueta }}"
+                          data-edit-installment-amount
+                          data-update-url="{% url 'cartera:cuota_valor_editar' ficha.pk item.cuota.pk %}"
+                          data-installment-label="{{ item.cuota.etiqueta }}"
+                          data-current-amount="{{ item.cuota.valor|unlocalize }}"
+                          data-current-amount-label="{{ item.cuota.valor|floatformat:2 }}"
+                        >
+                          <i class="ri-money-dollar-circle-line" aria-hidden="true"></i>
+                        </button>
+                      {% endif %}
                       {% if can_change_cuota_due_date %}
                         <button
                           class="payment-date-settings"
@@ -319,6 +334,50 @@
       </div>
     </div>
   {% endif %}
+
+  {% if can_change_cuota_amount %}
+    <div class="modal fade" id="installmentAmountModal" tabindex="-1" aria-labelledby="installmentAmountModalTitle" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <form class="modal-content" method="post" data-installment-amount-form>
+          {% csrf_token %}
+          <div class="modal-header">
+            <div>
+              <span class="payment-modal-kicker">Opciones de cuota</span>
+              <h5 class="modal-title" id="installmentAmountModalTitle">Editar valor de cuota</h5>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body payment-date-modal-body">
+            <p>
+              Cambia el valor de <strong data-installment-amount-label></strong>.
+              Valor actual: <strong>$<span data-installment-amount-current></span></strong>.
+            </p>
+            <div>
+              <label class="form-label" for="id_installment_amount">Nuevo valor de la cuota</label>
+              <input
+                class="form-control"
+                id="id_installment_amount"
+                type="number"
+                name="valor"
+                min="0.01"
+                step="0.01"
+                required
+                data-installment-amount-input
+              >
+            </div>
+            <small>Solo se puede modificar mientras la cuota no tenga pagos. El saldo pendiente se recalculará automáticamente.</small>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary-600" type="submit">
+              <i class="ri-save-line"></i>
+              Guardar valor
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
 {% endblock %}
 
 {% block extra_scripts %}
@@ -342,6 +401,12 @@
       const dueDateInput = document.querySelector("[data-due-date-input]");
       const dueDateInstallment = document.querySelector("[data-due-date-installment]");
       const dueDateCurrent = document.querySelector("[data-due-date-current]");
+      const installmentAmountButtons = Array.from(document.querySelectorAll("[data-edit-installment-amount]"));
+      const installmentAmountModalElement = document.getElementById("installmentAmountModal");
+      const installmentAmountForm = document.querySelector("[data-installment-amount-form]");
+      const installmentAmountInput = document.querySelector("[data-installment-amount-input]");
+      const installmentAmountLabel = document.querySelector("[data-installment-amount-label]");
+      const installmentAmountCurrent = document.querySelector("[data-installment-amount-current]");
 
       function parseAmount(value) {
         return Number(String(value || "0").replace(",", "."));
@@ -490,6 +555,21 @@
             dueDateCurrent.textContent = button.dataset.currentDateLabel;
           }
           bootstrap.Modal.getOrCreateInstance(dueDateModalElement).show();
+        });
+      });
+
+      installmentAmountButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          if (!installmentAmountModalElement || !installmentAmountForm || !installmentAmountInput) return;
+          installmentAmountForm.action = button.dataset.updateUrl;
+          installmentAmountInput.value = button.dataset.currentAmount;
+          if (installmentAmountLabel) {
+            installmentAmountLabel.textContent = button.dataset.installmentLabel;
+          }
+          if (installmentAmountCurrent) {
+            installmentAmountCurrent.textContent = button.dataset.currentAmountLabel;
+          }
+          bootstrap.Modal.getOrCreateInstance(installmentAmountModalElement).show();
         });
       });
 

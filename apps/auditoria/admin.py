@@ -24,6 +24,7 @@ class LogAccionAdmin(admin.ModelAdmin):
 class PagoAuditoriaAdmin(admin.ModelAdmin):
     list_display = (
         "created",
+        "tipo_evento",
         "accion",
         "pago_id",
         "ficha_inscripcion_id",
@@ -31,7 +32,7 @@ class PagoAuditoriaAdmin(admin.ModelAdmin):
         "usuario_accion_id",
         "usuario_accion_username",
     )
-    list_filter = ("accion", "created")
+    list_filter = ("tipo_evento", "accion", "created")
     search_fields = (
         "=pago_id",
         "=ficha_inscripcion_id",

@@ -133,6 +133,7 @@ class Cuota(models.Model):
         ordering = ["fecha_pago_debito", "numero"]
         permissions = (
             ("change_fecha_pago_debito", "Puede editar manualmente la fecha de pago de una cuota"),
+            ("change_valor_cuota", "Puede editar el valor de una cuota sin pagos realizados"),
         )
 
     def __str__(self):

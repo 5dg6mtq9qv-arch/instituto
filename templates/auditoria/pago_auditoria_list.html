@@ -42,6 +42,7 @@
         <thead>
           <tr>
             <th>Fecha</th>
+            <th>Tipo</th>
             <th>Acción</th>
             <th>Pago ID</th>
             <th>Documento</th>
@@ -57,8 +58,9 @@
           {% for audit in auditorias %}
             <tr>
               <td>{{ audit.created|date:"d/m/Y H:i:s" }}</td>
+              <td>{{ audit.get_tipo_evento_display }}</td>
               <td><span class="status-badge status-{{ audit.accion }}">{{ audit.get_accion_display }}</span></td>
-              <td>#{{ audit.pago_id }}</td>
+              <td>{% if audit.pago_id %}#{{ audit.pago_id }}{% else %}-{% endif %}</td>
               <td>{{ audit.datos_nuevos.numero_documento|default:"-" }}</td>
               <td>{% if audit.ficha_inscripcion_id %}#{{ audit.ficha_inscripcion_id }}{% else %}-{% endif %}</td>
               <td>{% if audit.cuota_id %}#{{ audit.cuota_id }}{% else %}-{% endif %}</td>
@@ -71,7 +73,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="10" class="text-center text-muted py-4">No existen eventos de auditoría.</td>
+              <td colspan="11" class="text-center text-muted py-4">No existen eventos de auditoría.</td>
             </tr>
           {% endfor %}
         </tbody>

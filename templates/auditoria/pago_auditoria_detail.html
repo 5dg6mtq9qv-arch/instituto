@@ -20,9 +20,10 @@
     <div class="row g-3">
       <div class="col-md-3"><small class="text-muted d-block">Evento</small><strong>#{{ auditoria.pk }}</strong></div>
       <div class="col-md-3"><small class="text-muted d-block">Fecha</small><strong>{{ auditoria.created|date:"d/m/Y H:i:s" }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Tipo</small><strong>{{ auditoria.get_tipo_evento_display }}</strong></div>
       <div class="col-md-3"><small class="text-muted d-block">Acción</small><strong>{{ auditoria.get_accion_display }}</strong></div>
       <div class="col-md-3"><small class="text-muted d-block">Usuario</small><strong>#{{ auditoria.usuario_accion_id|default:"-" }} {{ auditoria.usuario_accion_username|default:"Sistema" }}</strong></div>
-      <div class="col-md-3"><small class="text-muted d-block">Pago ID</small><strong>#{{ auditoria.pago_id }}</strong></div>
+      <div class="col-md-3"><small class="text-muted d-block">Pago ID</small><strong>{% if auditoria.pago_id %}#{{ auditoria.pago_id }}{% else %}-{% endif %}</strong></div>
       <div class="col-md-3"><small class="text-muted d-block">Empresa ID</small><strong>#{{ auditoria.empresa_id|default:"-" }}</strong></div>
       <div class="col-md-3"><small class="text-muted d-block">Cuota ID</small><strong>#{{ auditoria.cuota_id|default:"-" }}</strong></div>
       <div class="col-md-3"><small class="text-muted d-block">Plan de pago ID</small><strong>#{{ auditoria.plan_pago_id|default:"-" }}</strong></div>

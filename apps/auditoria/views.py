@@ -74,6 +74,11 @@ class PagoAuditoriaDetailView(AdministratorOnlyMixin, DetailView):
     context_object_name = "auditoria"
 
     FIELD_LABELS = {
+        "valor_cuota": "Valor de la cuota",
+        "valor_total_plan": "Valor total del plan",
+        "saldo_plan": "Saldo pendiente del plan",
+        "valor_total_curso": "Valor total del curso",
+        "saldo_ficha": "Saldo pendiente de la ficha",
         "empresa_id": "Empresa ID",
         "cuota_id": "Cuota ID",
         "forma_pago_id": "Forma de pago ID",
@@ -109,10 +114,11 @@ class PagoAuditoriaDetailView(AdministratorOnlyMixin, DetailView):
                 }
                 for field_name, values in audit.cambios.items()
             ]
-        payment_exists = Pago.objects.filter(pk=audit.pago_id).exists()
+        payment_exists = bool(audit.pago_id and Pago.objects.filter(pk=audit.pago_id).exists())
+        object_label = f"pago #{audit.pago_id}" if audit.pago_id else f"cuota #{audit.cuota_id}"
         context.update(
             {
-                "title": f"Auditoría del pago #{audit.pago_id}",
+                "title": f"Auditoría de {object_label}",
                 "changes": changes,
                 "payment_url": reverse("cartera:pago_detalle", kwargs={"pk": audit.pago_id}) if payment_exists else "",
             }

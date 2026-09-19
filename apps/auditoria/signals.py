@@ -98,6 +98,7 @@ def audit_payment_save(sender, instance, created, raw=False, using=None, **kwarg
 
     context = payment_context(instance)
     PagoAuditoria.objects.using(using).create(
+        tipo_evento="pago",
         accion="crear" if created else "modificar",
         pago_id=instance.pk,
         empresa_id=instance.empresa_id,

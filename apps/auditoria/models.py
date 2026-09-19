@@ -44,13 +44,19 @@ class LogAccion(models.Model):
 
 
 class PagoAuditoria(models.Model):
+    TIPO_EVENTO_CHOICES = (
+        ("pago", "Pago"),
+        ("cuota", "Cambio de cuota"),
+    )
+
     ACCION_CHOICES = (
         ("crear", "Creación"),
         ("modificar", "Modificación"),
     )
 
+    tipo_evento = models.CharField(max_length=20, choices=TIPO_EVENTO_CHOICES, default="pago", db_index=True)
     accion = models.CharField(max_length=20, choices=ACCION_CHOICES)
-    pago_id = models.PositiveBigIntegerField(db_index=True)
+    pago_id = models.PositiveBigIntegerField(blank=True, null=True, db_index=True)
     empresa_id = models.PositiveBigIntegerField(blank=True, null=True, db_index=True)
     cuota_id = models.PositiveBigIntegerField(blank=True, null=True, db_index=True)
     plan_pago_id = models.PositiveBigIntegerField(blank=True, null=True, db_index=True)
@@ -80,7 +86,8 @@ class PagoAuditoria(models.Model):
         )
 
     def __str__(self):
-        return f"{self.get_accion_display()} del pago #{self.pago_id}"
+        object_label = f"pago #{self.pago_id}" if self.pago_id else f"cuota #{self.cuota_id}"
+        return f"{self.get_accion_display()} de {object_label}"
 
     def cambios_resumen(self):
         if self.accion == "crear":

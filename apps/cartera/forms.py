@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 from django import forms
@@ -196,6 +197,20 @@ class CuotaFechaPagoForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["fecha_pago_debito"].input_formats = ["%Y-%m-%d"]
 
 
+class CuotaValorForm(BootstrapFormMixin, forms.ModelForm):
+    valor = forms.DecimalField(
+        label="Nuevo valor de la cuota",
+        min_value=Decimal("0.01"),
+        max_digits=12,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={"step": "0.01", "min": "0.01", "required": True}),
+    )
+
+    class Meta:
+        model = Cuota
+        fields = ["valor"]
+
+
 class FormaPagoForm(BootstrapFormMixin, forms.ModelForm):
     class Meta:
         model = FormaPago
@@ -307,6 +322,11 @@ class PagoForm(BootstrapFormMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["fecha_registro"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+        if self.instance.pk:
+            self.fields["valor"].disabled = True
+            self.fields["valor"].widget.attrs["readonly"] = "readonly"
+            self.fields["valor"].widget.attrs["aria-readonly"] = "true"
+            self.fields["valor"].help_text = "El valor no puede modificarse después de registrar el pago."
 
     def clean(self):
         cleaned_data = super().clean()

@@ -12,6 +12,11 @@ urlpatterns = [
         views.CuotaFechaPagoUpdateView.as_view(),
         name="cuota_fecha_pago_editar",
     ),
+    path(
+        "alumnos/<int:pk>/cuotas/<int:cuota_pk>/valor/",
+        views.CuotaValorUpdateView.as_view(),
+        name="cuota_valor_editar",
+    ),
     path("alumnos/<int:pk>/pagos/", views.AlumnoPagosView.as_view(), name="alumno_pagos"),
     path("formas-pago/", views.FormaPagoListView.as_view(), name="forma_pago_list"),
     path("formas-pago/nueva/", views.FormaPagoCreateView.as_view(), name="forma_pago_nueva"),

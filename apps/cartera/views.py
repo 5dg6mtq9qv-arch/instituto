@@ -12,11 +12,13 @@ from django.views.generic import DetailView, ListView
 
 from apps.core.web_views import InstitutoCreateView, InstitutoListView, InstitutoUpdateView
 from apps.academico.models import AulaCurso, GrupoEstudiante
+from apps.auditoria.services import decimal_snapshot, registrar_cambio_valor_cuota
 from apps.matricula.models import FichaInscripcion
 
 from .forms import (
     CuotaForm,
     CuotaFechaPagoForm,
+    CuotaValorForm,
     FormaPagoForm,
     PagoForm,
     PlanPagoForm,
@@ -332,6 +334,7 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         total_pendiente = Decimal("0")
         total_vencido = Decimal("0")
         total_pagado_pendientes = Decimal("0")
+        can_change_cuota_amount = self.request.user.has_perm("cartera.change_valor_cuota")
 
         for cuota in cuotas:
             saldo = cuota.saldo()
@@ -351,6 +354,11 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     "is_overdue": is_overdue,
                     "days_overdue": max((today - cuota.fecha_pago_debito).days, 0),
                     "progress": progress,
+                    "can_change_amount": (
+                        can_change_cuota_amount
+                        and cuota.valor_pagado <= 0
+                        and not cuota.pagos.exists()
+                    ),
                 }
             )
 
@@ -377,6 +385,7 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             "proxima_cuota": cuota_items[0] if cuota_items else None,
             "pagos_recientes": pagos_recientes,
             "can_change_cuota_due_date": self.request.user.has_perm("cartera.change_fecha_pago_debito"),
+            "can_change_cuota_amount": can_change_cuota_amount,
         }
 
     def get_payment_targets(self, cuotas, selected_cuotas):
@@ -490,6 +499,95 @@ class CuotaFechaPagoUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View
         cuota.usuario_updated = request.user
         cuota.save(update_fields=["fecha_pago_debito", "estado", "usuario_updated", "updated"])
         messages.success(request, f"Fecha de {cuota.etiqueta()} actualizada correctamente.")
+        return redirect("cartera:alumno_pendientes", pk=pk)
+
+
+class CuotaValorUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = ("cartera.view_cuota", "cartera.change_valor_cuota")
+
+    def get_cuota(self, ficha_pk, cuota_pk):
+        return get_object_or_404(
+            Cuota.objects.select_for_update().select_related("plan_pago__ficha_inscripcion"),
+            pk=cuota_pk,
+            plan_pago__ficha_inscripcion_id=ficha_pk,
+            activo=True,
+        )
+
+    @transaction.atomic
+    def post(self, request, pk, cuota_pk):
+        cuota = self.get_cuota(pk, cuota_pk)
+        plan = PlanPago.objects.select_for_update().get(pk=cuota.plan_pago_id)
+        ficha = FichaInscripcion.objects.select_for_update().get(pk=pk)
+
+        if cuota.estado in {"pagada", "anulada"} or cuota.valor_pagado > 0 or cuota.pagos.exists():
+            messages.error(request, "No puedes editar el valor de una cuota que ya tiene pagos realizados.")
+            return redirect("cartera:alumno_pendientes", pk=pk)
+
+        valor_anterior = cuota.valor
+        datos_anteriores = decimal_snapshot(
+            valor_cuota=valor_anterior,
+            valor_total_plan=plan.valor_total,
+            saldo_plan=plan.saldo,
+            valor_total_curso=ficha.valor_total_curso,
+            saldo_ficha=ficha.saldo,
+        )
+        form = CuotaValorForm(request.POST, instance=cuota)
+        if not form.is_valid():
+            messages.error(request, "Ingresa un valor de cuota valido y mayor que cero.")
+            return redirect("cartera:alumno_pendientes", pk=pk)
+
+        cuota = form.save(commit=False)
+        diferencia = cuota.valor - valor_anterior
+        cuota.usuario_updated = request.user
+        cuota.save(update_fields=["valor", "usuario_updated", "updated"])
+
+        plan.valor_total += diferencia
+        if cuota.numero == Cuota.NUMERO_MATRICULA:
+            plan.valor_matricula = cuota.valor
+        plan.saldo = max(plan.valor_total - plan.descuento - plan.abono, Decimal("0.00"))
+        if plan.estado != "anulado":
+            if plan.saldo == 0:
+                plan.estado = "cerrado"
+            elif plan.estado == "cerrado":
+                plan.estado = "activo"
+        plan.usuario_updated = request.user
+        plan_update_fields = ["valor_total", "saldo", "estado", "usuario_updated", "updated"]
+        if cuota.numero == Cuota.NUMERO_MATRICULA:
+            plan_update_fields.append("valor_matricula")
+        plan.save(update_fields=plan_update_fields)
+
+        ficha.saldo = plan.saldo
+        ficha_update_fields = ["saldo", "updated"]
+        if cuota.numero == Cuota.NUMERO_MATRICULA:
+            ficha.valor_matricula = cuota.valor
+            ficha_update_fields.append("valor_matricula")
+        elif cuota.numero > 0:
+            ficha.valor_total_curso = sum(
+                plan.cuotas.filter(numero__gt=0, activo=True).values_list("valor", flat=True),
+                Decimal("0.00"),
+            )
+            ficha_update_fields.append("valor_total_curso")
+        ficha.save(update_fields=ficha_update_fields)
+
+        registrar_cambio_valor_cuota(
+            request=request,
+            cuota=cuota,
+            plan=plan,
+            ficha=ficha,
+            datos_anteriores=datos_anteriores,
+            datos_nuevos=decimal_snapshot(
+                valor_cuota=cuota.valor,
+                valor_total_plan=plan.valor_total,
+                saldo_plan=plan.saldo,
+                valor_total_curso=ficha.valor_total_curso,
+                saldo_ficha=ficha.saldo,
+            ),
+        )
+
+        messages.success(
+            request,
+            f"Valor de {cuota.etiqueta()} actualizado a ${cuota.valor:.2f}. Saldo pendiente: ${plan.saldo:.2f}.",
+        )
         return redirect("cartera:alumno_pendientes", pk=pk)
 
 
@@ -622,6 +720,16 @@ class CuotaUpdateView(InstitutoUpdateView):
     title = "Editar cuota"
     success_url = reverse_lazy("cartera:cuota_list")
     cancel_url = reverse_lazy("cartera:cuota_list")
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        form.fields["valor"].disabled = True
+        form.fields["valor"].widget.attrs["readonly"] = "readonly"
+        form.fields["valor"].widget.attrs["aria-readonly"] = "true"
+        form.fields["valor"].help_text = (
+            "Edita este valor desde la cartera del alumno; requiere el permiso especifico y que la cuota no tenga pagos."
+        )
+        return form
 
 
 class PagoListView(InstitutoListView):

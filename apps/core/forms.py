@@ -385,6 +385,7 @@ PERMISSION_ACTION_LABELS = (
 
 PERMISSION_ACTION_OVERRIDES = {
     "change_fecha_pago_debito": "Editar fecha de cuota",
+    "change_valor_cuota": "Editar valor de cuota sin pagos",
     "view_resumen_financiero": "Resumen financiero y pagos",
 }
 
