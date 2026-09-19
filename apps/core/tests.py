@@ -320,6 +320,25 @@ class SecurityGroupViewTests(TestCase):
         self.assertRedirects(response, reverse("core:grupo_list"), fetch_redirect_response=False)
         self.assertTrue(self.target_group.permissions.filter(pk=permission.pk).exists())
 
+    def test_general_schedule_permission_has_a_distinct_group_form_label(self):
+        self.admin_group.permissions.clear()
+        user = get_user_model().objects.create_user(username="admin_horario", password="ClaveActual987!")
+        user.groups.add(self.admin_group)
+        permission = Permission.objects.get(
+            content_type__app_label="academico",
+            codename="view_general_clase",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ver horario general")
+        self.assertContains(response, f'value="{permission.pk}"')
+
     def test_administrador_group_can_assign_groups_from_user_form(self):
         self.admin_group.permissions.clear()
         user = get_user_model().objects.create_user(username="admin_users", password="ClaveActual987!")
