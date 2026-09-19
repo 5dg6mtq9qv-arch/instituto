@@ -596,7 +596,7 @@ def clases_sin_docente_queryset(curso=None, start_date=None, end_date=None):
     return queryset.order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio")
 
 
-def clases_sin_docente_alert(curso=None, days=UNASSIGNED_CLASS_ALERT_DAYS, limit=6):
+def clases_sin_docente_alert(curso=None, days=UNASSIGNED_CLASS_ALERT_DAYS, limit=6, include_items=True):
     today = timezone.localdate()
     queryset = clases_sin_docente_queryset(
         curso=curso,
@@ -608,7 +608,7 @@ def clases_sin_docente_alert(curso=None, days=UNASSIGNED_CLASS_ALERT_DAYS, limit
         assign_url = f"{assign_url}?{urlencode({'curso': curso.pk})}"
     return {
         "count": queryset.count(),
-        "items": list(queryset[:limit]),
+        "items": list(queryset[:limit]) if include_items else [],
         "days": days,
         "assign_url": assign_url,
     }
@@ -1709,7 +1709,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         selected_curso_id = self.request.GET.get("curso") or self.request.POST.get("curso") or ""
         selected_curso = None
         selected_curso_periodo = None
-        unassigned_alert = clases_sin_docente_alert()
+        unassigned_alert = None
         rows = []
         calendar_events = []
         calendar_default_date = timezone.localdate().isoformat()
@@ -1740,8 +1740,9 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         if selected_curso_id and not selected_curso:
             selected_curso_id = ""
         if selected_curso:
+            materias_by_id = {item.pk: item for item in materias}
             materias_asignables = list(self.get_assignable_materias(selected_curso))
-            unassigned_alert = clases_sin_docente_alert(curso=selected_curso)
+            unassigned_alert = clases_sin_docente_alert(curso=selected_curso, include_items=False)
             selected_curso_periodo = (
                 CursoPeriodo.objects.select_related("periodo")
                 .filter(curso=selected_curso)
@@ -1811,7 +1812,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                         horario = horario_aula_curso.horario_dia.horario
                         clase = clases.get((horario_aula_curso.pk, current_date))
                         materia_id = clase.materia_curso.materia_id if clase else None
-                        materia = next((item for item in materias if item.pk == materia_id), None)
+                        materia = materias_by_id.get(materia_id)
                         clase_docentes = []
                         if clase:
                             if clase.docente_override:

@@ -92,8 +92,7 @@
   };
 
   document.addEventListener("DOMContentLoaded", function () {
-    const savedTheme = localStorage.getItem("theme") || "light";
-    applyTheme(savedTheme);
+    applyTheme(localStorage.getItem("theme") === "dark" ? "dark" : "light");
     initDatePickers(document);
 
     qsa(".sidebar-mobile-toggle").forEach(function (button) {

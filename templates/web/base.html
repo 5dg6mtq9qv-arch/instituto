@@ -5,14 +5,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Instituto{% endblock %}</title>
+  <script>
+    document.documentElement.dataset.theme = localStorage.getItem("theme") === "dark" ? "dark" : "light";
+  </script>
   <link rel="icon" href="{% static 'assets/images/favicon.png' %}">
   <link rel="stylesheet" href="{% static 'assets/css/lib/bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/remixicon.css' %}">
-  <link rel="stylesheet" href="{% static 'assets/css/style.css' %}">
-  <link rel="stylesheet" href="{% static 'css/instituto.css' %}?v=20260915-4">
+  <link rel="stylesheet" href="{% static 'assets/css/style.css' %}?v=20260919-1">
+  <link rel="stylesheet" href="{% static 'css/instituto.css' %}?v=20260919-3">
   {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
   <div class="instituto-overlay"></div>
 
   <aside class="sidebar">
@@ -31,50 +34,12 @@
         {% endif %}
         <span class="brand-copy">
           <strong title="{{ institution_brand.name }}">{{ institution_brand.name }}</strong>
-          <small>Plataforma academica</small>
+          <small>Plataforma académica</small>
         </span>
       </a>
       <button type="button" class="text-xxl d-xl-flex d-none line-height-1 sidebar-toggle text-neutral-500" aria-label="Contraer menu">
         <i class="ri-contract-left-line"></i>
       </button>
-    </div>
-
-    <div class="mx-16 py-12">
-      <div class="dropdown profile-dropdown">
-        <button type="button" class="profile-dropdown__button d-flex align-items-center justify-content-between p-10 w-100 overflow-hidden bg-neutral-50 radius-12" data-bs-toggle="dropdown" data-bs-display="static" aria-expanded="false">
-          <span class="d-flex align-items-center gap-10 min-w-0">
-            {% if request.user.partner.foto %}
-              <img class="avatar-image" src="{{ request.user.partner.foto.url }}" alt="{{ request.user.get_full_name|default:request.user.username }}">
-            {% else %}
-              <span class="avatar-initial">{{ request.user.username|first|upper }}</span>
-            {% endif %}
-            <span class="profile-dropdown__contents min-w-0">
-              <span class="h6 mb-0 text-md d-block text-primary-light text-truncate">{{ request.user.get_full_name|default:request.user.username }}</span>
-              <span class="text-secondary-light text-sm mb-0 d-block">Usuario</span>
-            </span>
-          </span>
-          <span class="profile-dropdown__icon pe-8 text-xl d-flex line-height-1">
-            <i class="ri-arrow-right-s-line"></i>
-          </span>
-        </button>
-        <ul class="dropdown-menu dropdown-menu-lg-end border p-12">
-          <li>
-            <a class="dropdown-item rounded text-secondary-light bg-hover-neutral-200 text-hover-neutral-900 d-flex align-items-center gap-2 py-6" href="{% url 'core:mi_perfil' %}">
-              <i class="ri-user-settings-line"></i>
-              Mi perfil
-            </a>
-          </li>
-          <li>
-            <form method="post" action="{% url 'logout' %}">
-              {% csrf_token %}
-              <button class="dropdown-item rounded text-secondary-light bg-hover-neutral-200 text-hover-neutral-900 d-flex align-items-center gap-2 py-6" type="submit">
-                <i class="ri-shut-down-line"></i>
-                Salir
-              </button>
-            </form>
-          </li>
-        </ul>
-      </div>
     </div>
 
     <nav class="sidebar-menu-area" aria-label="Principal">
@@ -99,6 +64,11 @@
         {% endfor %}
       </ul>
     </nav>
+
+    <div class="sidebar-quote" aria-hidden="true">
+      <p>“La educación enciende grandes futuros”</p>
+      <span></span>
+    </div>
   </aside>
 
   <main class="dashboard-main">
@@ -110,17 +80,51 @@
               <i class="ri-menu-line icon"></i>
             </button>
             <form class="navbar-search" method="get">
-              <input type="search" class="bg-transparent" name="q" value="{{ request.GET.q }}" placeholder="Buscar">
+              <input type="search" class="bg-transparent" name="q" value="{{ request.GET.q }}" placeholder="Buscar estudiantes, clases, planificaciones..." aria-label="Buscar">
               <i class="ri-search-line icon"></i>
             </form>
           </div>
         </div>
         <div class="col-auto">
           <div class="d-flex flex-wrap align-items-center gap-3">
-            <button type="button" class="theme-toggle-btn w-40-px h-40-px bg-neutral-200 rounded-circle d-flex justify-content-center align-items-center" aria-label="Cambiar tema">
-              <i class="ri-sun-line text-xl"></i>
+            <button type="button" class="theme-toggle-btn navbar-theme-toggle" aria-label="Cambiar tema" title="Cambiar tema">
+              <i class="ri-sun-line"></i>
             </button>
-            <span class="top-user d-sm-inline d-none">{{ request.user.username }}</span>
+            <button type="button" class="navbar-notification" aria-label="Notificaciones">
+              <i class="ri-notification-3-line"></i>
+              <span></span>
+            </button>
+            <div class="dropdown top-profile-dropdown">
+              <button type="button" class="top-profile-button" data-bs-toggle="dropdown" aria-expanded="false">
+                {% if request.user.partner.foto %}
+                  <img class="avatar-image" src="{{ request.user.partner.foto.url }}" alt="{{ request.user.get_full_name|default:request.user.username }}">
+                {% else %}
+                  <span class="avatar-initial">{{ request.user.get_full_name|default:request.user.username|first|upper }}</span>
+                {% endif %}
+                <span class="top-profile-copy d-sm-grid d-none">
+                  <strong>{{ request.user.get_full_name|default:request.user.username }}</strong>
+                  <small>{{ dashboard_profile.role_label|default:"Usuario" }}</small>
+                </span>
+                <i class="ri-arrow-down-s-line"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end border-0 shadow p-2">
+                <li>
+                  <a class="dropdown-item rounded d-flex align-items-center gap-2 py-2" href="{% url 'core:mi_perfil' %}">
+                    <i class="ri-user-settings-line"></i>
+                    Mi perfil
+                  </a>
+                </li>
+                <li>
+                  <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button class="dropdown-item rounded d-flex align-items-center gap-2 py-2" type="submit">
+                      <i class="ri-shut-down-line"></i>
+                      Salir
+                    </button>
+                  </form>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -143,7 +147,7 @@
   </main>
 
   <script src="{% static 'assets/js/lib/bootstrap.bundle.min.js' %}"></script>
-  <script src="{% static 'js/instituto.js' %}?v=20260915-2"></script>
+  <script src="{% static 'js/instituto.js' %}?v=20260919-3"></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

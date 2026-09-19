@@ -59,12 +59,15 @@ def home(request):
             "url": url or (reverse(url_name) if url_name else ""),
         }
 
-    def action(label, url_name, icon, variant="primary", url=""):
+    def action(label, url_name, icon, variant="primary", url="", quick_label="", helper="Abrir módulo", top=True):
         return {
             "label": label,
+            "quick_label": quick_label or label,
+            "helper": helper,
             "url": url or reverse(url_name),
             "icon": icon,
             "variant": variant,
+            "top": top,
         }
 
     def base_clases_queryset():
@@ -165,9 +168,10 @@ def home(request):
         return {
             "profile": {
                 "role": "docente",
+                "role_label": "Docente",
                 "eyebrow": "Panel docente",
                 "title": docente.nombre,
-                "subtitle": "Tu siguiente clase y accesos principales de trabajo.",
+                "subtitle": "Revisa tus clases, planificaciones y actividades pendientes.",
             },
             "metrics": [
                 metric("Mis clases", clases.count(), "ri-calendar-check-line", "primary", "Total de clases asignadas", "academico:docente_calendario"),
@@ -176,9 +180,10 @@ def home(request):
                 metric("Aprobadas", clases.filter(estado_planificacion="aprobada").count(), "ri-checkbox-circle-line", "success", "Planificaciones validadas", "academico:docente_horarios"),
             ],
             "actions": [
-                action("Planificaciones", "academico:docente_horarios", "ri-task-line"),
-                action("Asistencias", "academico:docente_asistencias", "ri-list-check-3", "secondary"),
-                action("Calendario", "academico:docente_calendario", "ri-calendar-schedule-line", "secondary"),
+                action("Nueva planificación", "academico:docente_horarios", "ri-file-edit-line", quick_label="Planificaciones", helper="Crear y gestionar"),
+                action("Registrar asistencia", "academico:docente_asistencias", "ri-team-line", "secondary", quick_label="Asistencias", helper="Registrar asistencia"),
+                action("Ver calendario", "academico:docente_calendario", "ri-calendar-schedule-line", "secondary", quick_label="Calendario", helper="Ver horarios"),
+                action("Recursos", "academico:docente_bolsa_recursos", "ri-book-open-line", "secondary", helper="Material de apoyo", top=False),
             ],
             "priority_sections": [
                 priority_section(
@@ -204,6 +209,7 @@ def home(request):
         return {
             "profile": {
                 "role": "coordinacion",
+                "role_label": "Coordinacion",
                 "eyebrow": "Panel de coordinacion",
                 "title": institution_name or "Coordinacion academica",
                 "subtitle": "Seguimiento de planificaciones enviadas, atrasos y clases sin docente asignado.",
@@ -272,6 +278,7 @@ def home(request):
         return {
             "profile": {
                 "role": "direccion",
+                "role_label": "Direccion",
                 "eyebrow": "Panel directivo",
                 "title": institution_name or "Direccion institucional",
                 "subtitle": "Pendientes academicos, financieros y operativos que requieren seguimiento.",
@@ -337,6 +344,7 @@ def home(request):
         return {
             "profile": {
                 "role": "institucional",
+                "role_label": "Administracion",
                 "eyebrow": "Panel institucional",
                 "title": institution_name or "Instituto",
                 "subtitle": "Resumen general de matriculas, cartera y modulos administrativos.",
@@ -416,5 +424,12 @@ def home(request):
         "dashboard_sections": [section for section in dashboard_sections if section["cards"]],
         "institution": institution,
         "active_period": PeriodoAcademico.objects.filter(estado="activo").first(),
+        "dashboard_greeting": (
+            "Buenos días"
+            if timezone.localtime().hour < 12
+            else "Buenas tardes"
+            if timezone.localtime().hour < 19
+            else "Buenas noches"
+        ),
     }
     return render(request, "dashboard/home.html", context)

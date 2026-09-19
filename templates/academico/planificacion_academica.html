@@ -7,7 +7,6 @@
   <link rel="stylesheet" href="{% static 'assets/css/lib/full-calendar.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
 {% endblock %}
 
 {% block content %}
@@ -273,8 +272,6 @@
   <script src="{% static 'assets/js/full-calendar.js' %}"></script>
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
-  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
   <script>
     (function () {
       if (window.flatpickr) {
@@ -321,7 +318,6 @@
       let periodSwitchery = null;
       let schedulePeriodSwitchery = null;
       let activePlanningEvent = null;
-      let suppressMateriaDropdown = false;
 
       if (window.Switchery) {
         const switchInput = document.querySelector("[data-planning-periodo-switch]");
@@ -371,35 +367,9 @@
         planningMateriaInput.addEventListener("change", handlePlanningMateriaChange);
       }
 
-      if (window.jQuery && jQuery.fn.select2 && planningMateriaInput) {
-        const materiaSelect = jQuery(planningMateriaInput);
-        materiaSelect.select2({
-          width: "100%",
-          dropdownParent: jQuery("#planificacionMateriaOffcanvas"),
-          placeholder: "Selecciona materia",
-          allowClear: true,
-          language: {
-            noResults: function () {
-              return "Sin resultados";
-            }
-          }
-        });
-        materiaSelect.on("select2:clearing select2:unselecting", function () {
-          suppressMateriaDropdown = true;
-          setPlanningDocenteControl("");
-        });
-        materiaSelect.on("select2:opening", function (event) {
-          if (!suppressMateriaDropdown) return;
-          event.preventDefault();
-          window.setTimeout(function () {
-            suppressMateriaDropdown = false;
-          }, 0);
-        });
-        materiaSelect.on("select2:clear", function () {
-          setPlanningDocenteControl("");
-        });
-        materiaSelect.on("change", handlePlanningMateriaChange);
-      }
+      // The native selector keeps the previous allowClear: true behavior without
+      // blocking page load on Select2. Clearing is handled by its change event;
+      // the former select2:clearing and select2:opening hooks are no longer needed.
 
       function resetPeriodSwitch(periodAvailable) {
         const switchInput = document.querySelector("[data-planning-periodo-switch]");
@@ -596,9 +566,6 @@
         }
         if (planningMateriaInput) {
           planningMateriaInput.value = event.materiaId || "";
-          if (window.jQuery && jQuery.fn.select2) {
-            jQuery(planningMateriaInput).trigger("change");
-          }
         }
         setPlanningDocenteControl(planningMateriaInput ? planningMateriaInput.value : event.materiaId || "", event.docenteId || "");
         document.querySelector("[data-planning-date]").textContent = formatDate(event.start);
@@ -611,43 +578,12 @@
       const editScheduleButton = document.querySelector("[data-edit-schedule-button]");
       const deleteScheduleForm = document.querySelector("[data-delete-schedule-form]");
       if (deleteScheduleForm) {
-        let confirmingDelete = false;
         deleteScheduleForm.addEventListener("submit", function (event) {
           event.preventDefault();
-          if (confirmingDelete) return;
-          if (!window.Swal) {
-            showCalendarNotice("No se pudo cargar la confirmación. Recarga la página e inténtalo de nuevo.");
-            return;
-          }
-          confirmingDelete = true;
-          const panelElement = document.getElementById("planificacionMateriaOffcanvas");
-          const panel = bootstrap.Offcanvas.getOrCreateInstance(panelElement);
-          panelElement.addEventListener("hidden.bs.offcanvas", async function () {
-            try {
-              const result = await Swal.fire({
-                title: "¿Eliminar horario?",
-                text: deleteScheduleForm.dataset.confirmMessage,
-                icon: "warning",
-                showCancelButton: true,
-                confirmButtonText: "Sí, eliminar horario",
-                cancelButtonText: "Cancelar",
-                confirmButtonColor: "#dc3545",
-                cancelButtonColor: "#64748b",
-                focusCancel: true,
-                reverseButtons: true
-              });
-              if (result.isConfirmed) {
-                deleteScheduleForm.querySelector("[data-delete-schedule-confirm]").value = deleteScheduleForm.dataset.classCount;
-                deleteScheduleForm.querySelector('button[type="submit"]').disabled = true;
-                HTMLFormElement.prototype.submit.call(deleteScheduleForm);
-              } else {
-                panel.show();
-              }
-            } finally {
-              confirmingDelete = false;
-            }
-          }, { once: true });
-          panel.hide();
+          if (!window.confirm(deleteScheduleForm.dataset.confirmMessage || "¿Eliminar este horario?")) return;
+          deleteScheduleForm.querySelector("[data-delete-schedule-confirm]").value = deleteScheduleForm.dataset.classCount;
+          deleteScheduleForm.querySelector('button[type="submit"]').disabled = true;
+          HTMLFormElement.prototype.submit.call(deleteScheduleForm);
         });
       }
       if (editScheduleButton) {
@@ -836,36 +772,6 @@
       color: #1f2937;
       cursor: pointer;
       margin: 0;
-    }
-
-    #planificacionMateriaOffcanvas .select2-container--default .select2-selection--single {
-      align-items: center;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-      display: flex;
-      min-height: 44px;
-      padding: 6px 36px 6px 12px;
-    }
-
-    #planificacionMateriaOffcanvas .select2-container--default.select2-container--open .select2-selection--single {
-      border-color: #0d6efd;
-      box-shadow: 0 0 0 1px #0d6efd;
-    }
-
-    #planificacionMateriaOffcanvas .select2-container--default .select2-selection--single .select2-selection__rendered {
-      color: #1f2937;
-      line-height: 1.35;
-      padding: 0;
-    }
-
-    #planificacionMateriaOffcanvas .select2-container--default .select2-selection--single .select2-selection__arrow {
-      height: 42px;
-      right: 8px;
-    }
-
-    .select2-container--open .select2-dropdown {
-      border-color: #d1d5db;
-      z-index: 1080;
     }
 
     #calendar .fc-event {

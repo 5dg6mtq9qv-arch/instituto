@@ -2,133 +2,198 @@
 {% load static %}
 
 {% block title %}Panel | {{ institution_brand.name }}{% endblock %}
+{% block body_class %}dashboard-page dashboard-role-{{ dashboard_profile.role }}{% endblock %}
+
+{% block extra_head %}
+  <link rel="stylesheet" href="{% static 'css/dashboard.css' %}?v=20260919-3">
+{% endblock %}
 
 {% block content %}
-  <header class="page-header">
-    <div>
-      <p class="eyebrow">{{ dashboard_profile.eyebrow }}</p>
-      <h1>{{ dashboard_profile.title }}</h1>
+  <section class="dashboard-welcome" aria-labelledby="dashboard-title">
+    <div class="dashboard-welcome-copy">
+      <span class="dashboard-role-kicker">{{ dashboard_profile.eyebrow }}</span>
+      <p>{{ dashboard_greeting }},</p>
+      <h1 id="dashboard-title">{{ dashboard_profile.title }}</h1>
+      <span>{{ dashboard_profile.subtitle }}</span>
     </div>
-    {% if active_period %}
-      <span class="period-pill">{{ active_period.nombre }}</span>
-    {% endif %}
-  </header>
 
-  <section class="panel dashboard-role-panel dashboard-role-{{ dashboard_profile.role }}">
-    <div>
-      <span>{{ dashboard_profile.eyebrow }}</span>
-      <strong>{{ dashboard_profile.subtitle }}</strong>
+    <div class="dashboard-brand-message">
+      <span class="dot-pattern" aria-hidden="true"></span>
+      <blockquote>“Conocimiento hoy,<br>más oportunidades mañana”</blockquote>
+      {% if active_period %}<small>{{ active_period.nombre }}</small>{% endif %}
     </div>
-    {% if dashboard_actions %}
-      <nav class="dashboard-role-actions" aria-label="Acciones principales">
-        {% for action in dashboard_actions %}
-          <a class="btn {% if action.variant == 'primary' %}btn-primary-600{% else %}btn-outline-primary{% endif %}" href="{{ action.url }}">
-            <i class="{{ action.icon }}"></i>
-            {{ action.label }}
-          </a>
-        {% endfor %}
-      </nav>
-    {% endif %}
   </section>
 
-  <section class="summary-grid dashboard-summary-grid" aria-label="Resumen">
+  {% if dashboard_actions %}
+    <nav class="dashboard-main-actions" aria-label="Acciones principales">
+      {% for action in dashboard_actions %}
+        {% if action.top %}
+          <a class="dashboard-action {% if action.variant == 'primary' %}is-primary{% endif %}" href="{{ action.url }}">
+            <i class="{{ action.icon }}"></i>
+            <span>{{ action.label }}</span>
+          </a>
+        {% endif %}
+      {% endfor %}
+    </nav>
+  {% endif %}
+
+  <section class="dashboard-metrics" aria-label="Resumen">
     {% for metric in metrics %}
-      <article class="metric-card metric-card-{{ forloop.counter }} dashboard-metric-card metric-accent-{{ metric.accent }}">
-        <div class="metric-heading">
-          <span class="metric-icon">
-            <i class="{{ metric.icon }}"></i>
-          </span>
-          <span class="metric-title">{{ metric.label }}</span>
+      <article class="dashboard-metric metric-accent-{{ metric.accent }}">
+        <span class="dashboard-metric-icon"><i class="{{ metric.icon }}"></i></span>
+        <div class="dashboard-metric-copy">
+          <h2>{{ metric.label }}</h2>
+          <strong>{{ metric.value }}</strong>
+          <p>{{ metric.helper }}</p>
         </div>
-        <strong>{{ metric.value }}</strong>
-        <p class="metric-trend">
-          <small>{{ metric.helper }}</small>
-        </p>
         {% if metric.url %}
-          <a class="metric-card-link" href="{{ metric.url }}" aria-label="Ver {{ metric.label }}"></a>
+          <a class="dashboard-metric-arrow" href="{{ metric.url }}" aria-label="Ver {{ metric.label }}">
+            <i class="ri-arrow-right-line"></i>
+          </a>
         {% endif %}
       </article>
     {% endfor %}
   </section>
 
-  {% if priority_sections %}
-    <section class="dashboard-priority-grid" aria-label="Pendientes">
-      {% for section in priority_sections %}
-        <article class="panel dashboard-priority-panel priority-accent-{{ section.accent }}">
-          <header>
-            <span class="priority-icon"><i class="{{ section.icon }}"></i></span>
+  <div class="dashboard-focus-grid{% if not priority_sections %} has-no-priorities{% endif %}">
+    {% if priority_sections %}
+      <section class="dashboard-priorities" aria-label="Pendientes principales">
+        {% for section in priority_sections %}
+          <article class="dashboard-content-card dashboard-priority priority-accent-{{ section.accent }}">
+            <header class="dashboard-card-header">
+              <div>
+                <i class="{{ section.icon }}"></i>
+                <h2>{{ section.title }}</h2>
+              </div>
+              {% if section.items.0.url %}
+                <a href="{{ section.items.0.url }}">Ver detalles <i class="ri-arrow-right-line"></i></a>
+              {% endif %}
+            </header>
+
+            <p class="dashboard-card-description">{{ section.description }}</p>
+            <div class="dashboard-priority-list">
+              {% for item in section.items %}
+                <a class="dashboard-priority-item priority-item-{{ item.accent }}" href="{{ item.url }}">
+                  <span class="priority-item-icon"><i class="{{ item.icon }}"></i></span>
+                  <span class="priority-item-copy">
+                    <strong>{{ item.title }}</strong>
+                    <small>{{ item.meta }}</small>
+                    {% if item.note %}<em>{{ item.note }}</em>{% endif %}
+                  </span>
+                  <b>{{ item.badge }}</b>
+                  <i class="ri-arrow-right-s-line priority-item-arrow"></i>
+                </a>
+              {% empty %}
+                <div class="dashboard-empty-state">
+                  <i class="ri-checkbox-circle-line"></i>
+                  <span>{{ section.empty_text }}</span>
+                </div>
+              {% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+
+        {% if priority_sections|length == 1 %}
+          <article class="dashboard-content-card dashboard-activity-summary">
+            <header class="dashboard-card-header">
+              <div>
+                <i class="ri-pulse-line"></i>
+                <h2>Actividades recientes</h2>
+              </div>
+            </header>
+            <div class="dashboard-activity-list">
+              {% for metric in metrics|slice:":3" %}
+                <a href="{{ metric.url|default:'#' }}" class="dashboard-activity-item activity-accent-{{ metric.accent }}">
+                  <span><i class="{{ metric.icon }}"></i></span>
+                  <span>
+                    <strong>{{ metric.label }}</strong>
+                    <small>{{ metric.helper }}</small>
+                  </span>
+                  <b>{{ metric.value }}</b>
+                </a>
+              {% endfor %}
+            </div>
+          </article>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <aside class="dashboard-side-column">
+      {% if dashboard_actions %}
+        <section class="dashboard-content-card dashboard-quick-access">
+          <header class="dashboard-card-header">
             <div>
-              <h2>{{ section.title }}</h2>
-              <p>{{ section.description }}</p>
+              <i class="ri-settings-3-line"></i>
+              <h2>Mis accesos rápidos</h2>
             </div>
           </header>
-
-          <div class="priority-list">
-            {% for item in section.items %}
-              <a class="priority-item priority-item-{{ item.accent }}" href="{{ item.url }}">
-                <span><i class="{{ item.icon }}"></i></span>
-                <div>
-                  <strong>{{ item.title }}</strong>
-                  <small>{{ item.meta }}</small>
-                  {% if item.note %}<em>{{ item.note }}</em>{% endif %}
-                </div>
-                <b>{{ item.badge }}</b>
+          <div class="quick-access-grid">
+            {% for action in dashboard_actions %}
+              <a class="quick-access-card quick-access-{{ forloop.counter }}" href="{{ action.url }}">
+                <span><i class="{{ action.icon }}"></i></span>
+                <span>
+                  <strong>{{ action.quick_label }}</strong>
+                  <small>{{ action.helper }}</small>
+                </span>
               </a>
-            {% empty %}
-              <div class="priority-empty">{{ section.empty_text }}</div>
-            {% endfor %}
-          </div>
-        </article>
-      {% endfor %}
-    </section>
-  {% endif %}
-
-  {% if dashboard_sections %}
-  <section class="dashboard-hub">
-    <aside class="hub-nav" aria-label="Areas del panel">
-      {% for section in dashboard_sections %}
-        <a href="#hub-{{ section.slug }}" class="{% if forloop.first %}active{% endif %}">
-          <span>{{ section.title }}</span>
-          <small>{{ section.cards|length }} modulos</small>
-        </a>
-      {% endfor %}
-    </aside>
-
-    <div class="hub-content">
-      {% for section in dashboard_sections %}
-        <section id="hub-{{ section.slug }}" class="hub-section">
-          <div class="hub-section-header">
-            <div>
-              <p class="eyebrow">{{ section.title }}</p>
-              <h2>{{ section.description }}</h2>
-            </div>
-          </div>
-
-          <div class="hub-card-grid">
-            {% for card in section.cards %}
-              <article class="hub-card hub-card-{{ card.accent }}">
-                <a class="hub-card-main" href="{{ card.url }}">
-                  <span class="hub-card-icon">
-                    <i class="{{ card.icon }}"></i>
-                  </span>
-                  <span class="hub-card-copy">
-                    <strong>{{ card.title }}</strong>
-                    <small>{{ card.description }}</small>
-                  </span>
-                  <span class="hub-card-count">{{ card.count }}</span>
-                </a>
-                <div class="hub-card-actions">
-                  <a href="{{ card.url }}">Ver</a>
-                  {% if card.action_url %}
-                    <a href="{{ card.action_url }}">{{ card.action_label }}</a>
-                  {% endif %}
-                </div>
-              </article>
             {% endfor %}
           </div>
         </section>
-      {% endfor %}
-    </div>
-  </section>
+      {% endif %}
+
+      <section class="dashboard-content-card dashboard-institutional-message">
+        <header class="dashboard-card-header">
+          <div>
+            <i class="ri-megaphone-line"></i>
+            <h2>Mensaje institucional</h2>
+          </div>
+        </header>
+        <div class="institutional-message-box">
+          <p>“Formamos mentes curiosas, responsables y capaces de transformar el mundo.”</p>
+          <small>{{ institution_brand.name }}</small>
+          <span aria-hidden="true"><i class="ri-lightbulb-flash-line"></i></span>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  {% if dashboard_sections %}
+    <section class="dashboard-modules" aria-labelledby="modules-title">
+      <header class="dashboard-section-title">
+        <div>
+          <p>Todo en un solo lugar</p>
+          <h2 id="modules-title">Herramientas y módulos</h2>
+        </div>
+        <i class="ri-layout-grid-line"></i>
+      </header>
+
+      <div class="dashboard-module-groups">
+        {% for section in dashboard_sections %}
+          <section class="dashboard-module-group">
+            <header>
+              <h3>{{ section.title }}</h3>
+              <p>{{ section.description }}</p>
+            </header>
+            <div class="dashboard-module-grid">
+              {% for card in section.cards %}
+                <article class="dashboard-module-card module-accent-{{ card.accent }}">
+                  <a class="dashboard-module-main" href="{{ card.url }}">
+                    <span class="dashboard-module-icon"><i class="{{ card.icon }}"></i></span>
+                    <span class="dashboard-module-copy">
+                      <strong>{{ card.title }}</strong>
+                      <small>{{ card.description }}</small>
+                    </span>
+                    <b>{{ card.count }}</b>
+                  </a>
+                  {% if card.action_url %}
+                    <a class="dashboard-module-action" href="{{ card.action_url }}">{{ card.action_label }} <i class="ri-add-line"></i></a>
+                  {% endif %}
+                </article>
+              {% endfor %}
+            </div>
+          </section>
+        {% endfor %}
+      </div>
+    </section>
   {% endif %}
 {% endblock %}
