@@ -4954,3 +4954,44 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIn(self.curso.nombre, export_content)
         self.assertIn(second_group.nombre, export_content)
         self.assertIn(second_classroom.nombre, export_content)
+
+    def test_general_schedule_without_weekday_shows_every_day_in_date_range(self):
+        permission = Permission.objects.get(
+            content_type__app_label="academico",
+            content_type__model="clase",
+            codename="view_general_clase",
+        )
+        self.user.user_permissions.add(permission)
+        next_day = self.pendiente.fecha + timedelta(days=1)
+        Clase.objects.create(
+            horario_aula_curso=self.horario_aula_curso,
+            materia_curso=self.materia_curso,
+            fecha=next_day,
+        )
+        self.client.force_login(self.user)
+        date_range = {
+            "vista": "semana",
+            "desde": self.pendiente.fecha.isoformat(),
+            "hasta": next_day.isoformat(),
+        }
+
+        response = self.client.get(
+            reverse("academico:horario_general"),
+            date_range,
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["selected_weekday"])
+        self.assertEqual(response.context["total_clases"], 2)
+        self.assertEqual(len(response.context["grouped_clases"]), 2)
+        self.assertContains(response, "Todos los días")
+
+        monday_response = self.client.get(
+            reverse("academico:horario_general"),
+            {**date_range, "dia": self.pendiente.fecha.weekday()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(monday_response.status_code, 200)
+        self.assertEqual(monday_response.context["total_clases"], 1)

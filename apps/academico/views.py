@@ -7678,11 +7678,12 @@ class HorarioGeneralView(LoginRequiredMixin, PermissionRequiredMixin, View):
         selected_date = self.parse_date(request.GET.get("fecha"), timezone.localdate())
         weekday = self.parse_id(request.GET.get("dia"))
         if weekday not in range(7):
-            weekday = 0
+            weekday = None
 
         if view_mode == "semana":
-            django_weekday = ((weekday + 1) % 7) + 1
-            queryset = queryset.filter(fecha__week_day=django_weekday)
+            if weekday is not None:
+                django_weekday = ((weekday + 1) % 7) + 1
+                queryset = queryset.filter(fecha__week_day=django_weekday)
             start_date = self.parse_date(request.GET.get("desde"))
             end_date = self.parse_date(request.GET.get("hasta"))
             if start_date and end_date and start_date > end_date:
@@ -7739,7 +7740,12 @@ class HorarioGeneralView(LoginRequiredMixin, PermissionRequiredMixin, View):
         return clases
 
     def export_csv(self, clases, view_mode, selected_date, weekday):
-        suffix = selected_date.isoformat() if view_mode == "fecha" else self.weekday_options[weekday][1].lower()
+        if view_mode == "fecha":
+            suffix = selected_date.isoformat()
+        elif weekday is None:
+            suffix = "todos_los_dias"
+        else:
+            suffix = self.weekday_options[weekday][1].lower()
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="horario_general_{suffix}.csv"'
         response.write("\ufeff")
@@ -7766,7 +7772,7 @@ class HorarioGeneralView(LoginRequiredMixin, PermissionRequiredMixin, View):
         selected_date = self.parse_date(request.GET.get("fecha"), timezone.localdate())
         weekday = self.parse_id(request.GET.get("dia"))
         if weekday not in range(7):
-            weekday = 0
+            weekday = None
         clases = self.prepare_clases(self.get_queryset(request))
 
         if request.GET.get("export") == "csv":

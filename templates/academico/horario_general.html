@@ -50,6 +50,7 @@
         <label>
           <span>Día de la semana</span>
           <select class="form-select" name="dia">
+            <option value=""{% if selected_weekday == None %} selected{% endif %}>Todos los días</option>
             {% for value, label in weekday_options %}
               <option value="{{ value }}"{% if selected_weekday == value %} selected{% endif %}>{{ label }}</option>
             {% endfor %}
