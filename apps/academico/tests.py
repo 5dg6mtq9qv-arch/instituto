@@ -4897,3 +4897,60 @@ class DocenteHorariosPanelTests(TestCase):
             self.revision.observaciones_revision,
             {"recursos": "Agregar un recurso verificable."},
         )
+
+    def test_general_schedule_requires_its_specific_permission(self):
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("academico:horario_general"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_general_schedule_combines_groups_and_exports_weekday(self):
+        permission = Permission.objects.get(
+            content_type__app_label="academico",
+            content_type__model="clase",
+            codename="view_general_clase",
+        )
+        self.user.user_permissions.add(permission)
+        second_group = Curso.objects.create(nombre="Grupo B", activo=True)
+        second_classroom = Aula.objects.create(nombre="Aula 2")
+        second_aula_curso = AulaCurso.objects.create(aula=second_classroom, curso=second_group)
+        second_schedule = HorarioAulaCurso.objects.create(
+            aula_curso=second_aula_curso,
+            horario_dia=self.horario_aula_curso.horario_dia,
+        )
+        second_subject_group = MateriaCurso.objects.create(materia=self.materia, grupo=second_group)
+        second_class = Clase.objects.create(
+            horario_aula_curso=second_schedule,
+            materia_curso=second_subject_group,
+            fecha=self.pendiente.fecha,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("academico:horario_general"),
+            {"vista": "fecha", "fecha": self.pendiente.fecha.isoformat()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["total_clases"], 2)
+        self.assertContains(response, self.curso.nombre)
+        self.assertContains(response, second_group.nombre)
+        self.assertContains(response, "Descargar CSV")
+        menu = permitted_menu_groups(self.user, "academico:horario_general")
+        schedule_items = [item for group in menu for item in group["items"] if item["url_name"] == "academico:horario_general"]
+        self.assertEqual(len(schedule_items), 1)
+        self.assertTrue(schedule_items[0]["active"])
+
+        export_response = self.client.get(
+            reverse("academico:horario_general"),
+            {"vista": "semana", "dia": self.pendiente.fecha.weekday(), "export": "csv"},
+            HTTP_HOST="localhost",
+        )
+        export_content = export_response.content.decode("utf-8-sig")
+        self.assertEqual(export_response.status_code, 200)
+        self.assertEqual(export_response["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn(self.curso.nombre, export_content)
+        self.assertIn(second_group.nombre, export_content)
+        self.assertIn(second_classroom.nombre, export_content)

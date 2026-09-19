@@ -1,4 +1,5 @@
 import calendar as calendar_module
+import csv
 import json
 import re
 import unicodedata
@@ -7617,6 +7618,206 @@ class TemarioUpdateView(InstitutoUpdateView):
     title = "Editar temario"
     success_url = reverse_lazy("academico:temario_list")
     cancel_url = reverse_lazy("academico:temario_list")
+
+
+class HorarioGeneralView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "academico.view_general_clase"
+    template_name = "academico/horario_general.html"
+    weekday_options = (
+        (0, "Lunes"),
+        (1, "Martes"),
+        (2, "Miercoles"),
+        (3, "Jueves"),
+        (4, "Viernes"),
+        (5, "Sabado"),
+        (6, "Domingo"),
+    )
+
+    def parse_date(self, value, default=None):
+        try:
+            return date.fromisoformat(value) if value else default
+        except (TypeError, ValueError):
+            return default
+
+    def parse_id(self, value):
+        return int(value) if str(value or "").isdigit() else None
+
+    def build_url(self, request, **changes):
+        params = request.GET.copy()
+        params.pop("export", None)
+        for key, value in changes.items():
+            if value in (None, ""):
+                params.pop(key, None)
+            else:
+                params[key] = value
+        encoded = params.urlencode()
+        return f"?{encoded}" if encoded else "?"
+
+    def get_queryset(self, request):
+        teacher_assignments = ProfesorMateriaCurso.objects.filter(
+            auto_generada_por_clases=False,
+        ).select_related("partner")
+        queryset = (
+            Clase.objects.select_related(
+                "materia_curso__materia",
+                "materia_curso__grupo",
+                "docente",
+                "horario_aula_curso__aula_curso__aula",
+                "horario_aula_curso__horario_dia__horario",
+            )
+            .prefetch_related(
+                Prefetch(
+                    "materia_curso__profesor_materia_cursos",
+                    queryset=teacher_assignments,
+                    to_attr="general_schedule_assignments",
+                )
+            )
+        )
+
+        view_mode = request.GET.get("vista") if request.GET.get("vista") in {"fecha", "semana"} else "fecha"
+        selected_date = self.parse_date(request.GET.get("fecha"), timezone.localdate())
+        weekday = self.parse_id(request.GET.get("dia"))
+        if weekday not in range(7):
+            weekday = 0
+
+        if view_mode == "semana":
+            django_weekday = ((weekday + 1) % 7) + 1
+            queryset = queryset.filter(fecha__week_day=django_weekday)
+            start_date = self.parse_date(request.GET.get("desde"))
+            end_date = self.parse_date(request.GET.get("hasta"))
+            if start_date and end_date and start_date > end_date:
+                start_date, end_date = end_date, start_date
+            if start_date:
+                queryset = queryset.filter(fecha__gte=start_date)
+            if end_date:
+                queryset = queryset.filter(fecha__lte=end_date)
+        else:
+            queryset = queryset.filter(fecha=selected_date)
+
+        group_id = self.parse_id(request.GET.get("grupo"))
+        classroom_id = self.parse_id(request.GET.get("aula"))
+        subject_id = self.parse_id(request.GET.get("materia"))
+        teacher_id = self.parse_id(request.GET.get("docente"))
+        if group_id:
+            queryset = queryset.filter(materia_curso__grupo_id=group_id)
+        if classroom_id:
+            queryset = queryset.filter(horario_aula_curso__aula_curso__aula_id=classroom_id)
+        if subject_id:
+            queryset = queryset.filter(materia_curso__materia_id=subject_id)
+        if teacher_id:
+            queryset = queryset.filter(
+                Q(docente_override=True, docente_id=teacher_id)
+                | Q(
+                    docente_override=False,
+                    materia_curso__profesor_materia_cursos__partner_id=teacher_id,
+                    materia_curso__profesor_materia_cursos__auto_generada_por_clases=False,
+                )
+            )
+        return queryset.distinct().order_by(
+            "fecha",
+            "horario_aula_curso__horario_dia__horario__hora_inicio",
+            "materia_curso__grupo__nombre",
+            "materia_curso__materia__nombre",
+        )
+
+    def prepare_clases(self, queryset):
+        clases = list(queryset)
+        for clase in clases:
+            horario = clase.horario_aula_curso.horario_dia.horario
+            if clase.docente_override:
+                docentes = [clase.docente] if clase.docente_id else []
+            else:
+                docentes = [
+                    assignment.partner
+                    for assignment in getattr(clase.materia_curso, "general_schedule_assignments", [])
+                ]
+            clase.horario_inicio = horario.hora_inicio
+            clase.horario_fin = horario.hora_fin
+            clase.aula_general = clase.horario_aula_curso.aula_curso.aula
+            clase.docentes_general = docentes
+            clase.docentes_label = ", ".join(docente.nombre_completo() for docente in docentes) or "Sin docente"
+        return clases
+
+    def export_csv(self, clases, view_mode, selected_date, weekday):
+        suffix = selected_date.isoformat() if view_mode == "fecha" else self.weekday_options[weekday][1].lower()
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="horario_general_{suffix}.csv"'
+        response.write("\ufeff")
+        writer = csv.writer(response)
+        writer.writerow(["Fecha", "Dia", "Hora inicio", "Hora fin", "Materia", "Grupo", "Aula", "Docente", "Estado"])
+        for clase in clases:
+            writer.writerow(
+                [
+                    clase.fecha.strftime("%d/%m/%Y"),
+                    self.weekday_options[clase.fecha.weekday()][1],
+                    clase.horario_inicio.strftime("%H:%M"),
+                    clase.horario_fin.strftime("%H:%M"),
+                    clase.materia_curso.materia.nombre,
+                    clase.materia_curso.grupo.nombre,
+                    str(clase.aula_general),
+                    clase.docentes_label,
+                    clase.get_estado_planificacion_display(),
+                ]
+            )
+        return response
+
+    def get(self, request):
+        view_mode = request.GET.get("vista") if request.GET.get("vista") in {"fecha", "semana"} else "fecha"
+        selected_date = self.parse_date(request.GET.get("fecha"), timezone.localdate())
+        weekday = self.parse_id(request.GET.get("dia"))
+        if weekday not in range(7):
+            weekday = 0
+        clases = self.prepare_clases(self.get_queryset(request))
+
+        if request.GET.get("export") == "csv":
+            return self.export_csv(clases, view_mode, selected_date, weekday)
+
+        grouped_clases = []
+        for clase in clases:
+            if not grouped_clases or grouped_clases[-1]["date"] != clase.fecha:
+                grouped_clases.append(
+                    {
+                        "date": clase.fecha,
+                        "label": f"{self.weekday_options[clase.fecha.weekday()][1]} {clase.fecha:%d/%m/%Y}",
+                        "clases": [],
+                    }
+                )
+            grouped_clases[-1]["clases"].append(clase)
+
+        group_ids = {clase.materia_curso.grupo_id for clase in clases}
+        classroom_ids = {clase.aula_general.pk for clase in clases}
+        teacher_ids = {docente.pk for clase in clases for docente in clase.docentes_general}
+        export_url = self.build_url(request, export="csv")
+        return render(
+            request,
+            self.template_name,
+            {
+                "title": "Horario general",
+                "view_mode": view_mode,
+                "selected_date": selected_date,
+                "selected_weekday": weekday,
+                "weekday_options": self.weekday_options,
+                "grouped_clases": grouped_clases,
+                "total_clases": len(clases),
+                "total_grupos": len(group_ids),
+                "total_aulas": len(classroom_ids),
+                "total_docentes": len(teacher_ids),
+                "grupos": Curso.objects.filter(materia_cursos__clases__isnull=False).distinct().order_by("nombre"),
+                "aulas": Aula.objects.filter(aula_cursos__horario_aula_cursos__clases__isnull=False).distinct().order_by("nombre"),
+                "materias": Materia.objects.filter(materia_cursos__clases__isnull=False).distinct().order_by("nombre"),
+                "docentes": Partner.objects.filter(es_docente=True, activo=True).order_by("nombre", "apellido"),
+                "selected_group": request.GET.get("grupo", ""),
+                "selected_classroom": request.GET.get("aula", ""),
+                "selected_subject": request.GET.get("materia", ""),
+                "selected_teacher": request.GET.get("docente", ""),
+                "date_view_url": self.build_url(request, vista="fecha", fecha=selected_date.isoformat(), dia=None, desde=None, hasta=None),
+                "weekday_view_url": self.build_url(request, vista="semana", dia=weekday, fecha=None),
+                "previous_day_url": self.build_url(request, vista="fecha", fecha=(selected_date - timedelta(days=1)).isoformat()),
+                "next_day_url": self.build_url(request, vista="fecha", fecha=(selected_date + timedelta(days=1)).isoformat()),
+                "today_url": self.build_url(request, vista="fecha", fecha=timezone.localdate().isoformat()),
+                "export_url": export_url,
+            },
+        )
 
 
 class HorarioClaseListView(InstitutoListView):

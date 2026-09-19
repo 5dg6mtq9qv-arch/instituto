@@ -1018,6 +1018,9 @@ class Clase(models.Model):
         db_table = '"academico"."clase"'
         unique_together = (("horario_aula_curso", "fecha"),)
         ordering = ["fecha", "horario_aula_curso"]
+        permissions = [
+            ("view_general_clase", "Puede ver el horario general"),
+        ]
 
     def __str__(self):
         return f"{self.fecha} - {self.horario_aula_curso} - {self.materia_curso}"

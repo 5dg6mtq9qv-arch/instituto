@@ -13,6 +13,7 @@ DIRECTOR_PERMISSIONS = (
     ("academico", "clase", "add"),
     ("academico", "clase", "change"),
     ("academico", "clase", "view"),
+    ("academico", "clase", "view_general"),
     ("academico", "curso", "view"),
     ("academico", "claseasistencia", "add"),
     ("academico", "claseasistencia", "change"),
