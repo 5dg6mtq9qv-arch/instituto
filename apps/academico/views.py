@@ -7404,6 +7404,99 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
         }
 
 
+class CoordinacionInformeDocenteView(CoordinacionRequiredMixin, View):
+    permission_required = "academico.view_informe_mensual_docente_clase"
+    template_name = "academico/coordinacion_informe_docente.html"
+    month_names = (
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    )
+
+    def get(self, request):
+        from .teacher_monthly_report import build_monthly_teacher_report, report_teachers
+
+        today = timezone.localdate()
+        start, end, month_value = self.get_month(request.GET.get("mes"), today)
+        cutoff = min(end, today)
+        teachers = report_teachers()
+        selected_teacher = self.get_selected_teacher(teachers, request.GET.get("docente"))
+        report = build_monthly_teacher_report(start, end, cutoff, selected_teacher)
+        month_label = f"{self.month_names[start.month - 1].capitalize()} {start.year}"
+        institution = Empresa.objects.filter(activa=True).order_by("pk").first() or Empresa.objects.order_by("pk").first()
+
+        export = request.GET.get("export")
+        if export in {"excel", "pdf"}:
+            from .teacher_report_exports import export_teacher_report_excel, export_teacher_report_pdf
+
+            if export == "excel":
+                return export_teacher_report_excel(
+                    report,
+                    institution.nombre_display() if institution else "Instituto",
+                    month_label,
+                )
+            return export_teacher_report_pdf(report, institution, month_label)
+
+        return render(request, self.template_name, {
+            "title": "Informe mensual docente",
+            "report": report,
+            "month_value": month_value,
+            "month_label": month_label,
+            "month_options": self.get_month_options(start, today),
+            "teachers": teachers,
+            "selected_teacher": selected_teacher,
+            "selected_teacher_id": str(selected_teacher.pk) if selected_teacher else "",
+            "excel_url": self.export_url(month_value, selected_teacher, "excel"),
+            "pdf_url": self.export_url(month_value, selected_teacher, "pdf"),
+        })
+
+    @staticmethod
+    def get_month(value, today):
+        try:
+            year, month = (int(part) for part in str(value or "").split("-", 1))
+            if not 1 <= month <= 12:
+                raise ValueError
+            start = date(year, month, 1)
+        except (TypeError, ValueError):
+            start = today.replace(day=1)
+        end = date(start.year, start.month, calendar_module.monthrange(start.year, start.month)[1])
+        return start, end, f"{start:%Y-%m}"
+
+    def get_month_options(self, selected_month, today):
+        limits = Clase.objects.aggregate(first=Min("fecha"), last=Max("fecha"))
+        first_date = limits["first"] or today
+        last_date = limits["last"] or today
+        first_month = date(first_date.year, first_date.month, 1)
+        last_month = date(last_date.year, last_date.month, 1)
+        current_month = date(today.year, today.month, 1)
+        first_month = min(first_month, selected_month)
+        last_month = max(last_month, current_month, selected_month)
+        options = []
+        cursor = last_month
+        while cursor >= first_month:
+            options.append({
+                "value": f"{cursor:%Y-%m}",
+                "label": f"{self.month_names[cursor.month - 1].capitalize()} {cursor.year}",
+            })
+            cursor = date(cursor.year - 1, 12, 1) if cursor.month == 1 else date(cursor.year, cursor.month - 1, 1)
+        return options
+
+    @staticmethod
+    def get_selected_teacher(teachers, value):
+        if not value:
+            return None
+        try:
+            return teachers.filter(pk=int(value)).first()
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def export_url(month_value, teacher, export):
+        params = {"mes": month_value, "export": export}
+        if teacher:
+            params["docente"] = teacher.pk
+        return f"{reverse_lazy('academico:coordinacion_informe_docente')}?{urlencode(params)}"
+
+
 class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, View):
     permission_required = "academico.review_planificacionclase"
     template_name = "academico/coordinacion_revision_planificacion_detalle.html"

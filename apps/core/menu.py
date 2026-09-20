@@ -120,6 +120,11 @@ MENU_GROUPS = [
                 "perm": "academico.view_claseasistencia",
             },
             {
+                "label": "Informe docente",
+                "url_name": "academico:coordinacion_informe_docente",
+                "perm": "academico.view_informe_mensual_docente_clase",
+            },
+            {
                 "label": "Horas docente",
                 "url_name": "academico:direccion_horas_docente",
                 "perm": "academico.access_clasehoradocente",

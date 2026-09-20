@@ -1,0 +1,249 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header teacher-performance-header">
+    <div>
+      <p class="eyebrow">Coordinación</p>
+      <h1>{{ title }}</h1>
+      <p>Indicadores académicos consolidados para {{ month_label|lower }}.</p>
+    </div>
+    <div class="teacher-performance-actions">
+      <a class="btn btn-outline-success" href="{{ excel_url }}">
+        <i class="ri-file-excel-2-line"></i> Excel
+      </a>
+      <a class="btn btn-outline-danger" href="{{ pdf_url }}">
+        <i class="ri-file-pdf-2-line"></i> PDF
+      </a>
+    </div>
+  </header>
+
+  <section class="panel teacher-performance-filter">
+    <form method="get">
+      <div>
+        <label class="form-label" for="report-month">Mes</label>
+        <select class="form-select" id="report-month" name="mes">
+          {% for option in month_options %}
+            <option value="{{ option.value }}"{% if option.value == month_value %} selected{% endif %}>{{ option.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="report-teacher">Docente</label>
+        <select class="form-select" id="report-teacher" name="docente">
+          <option value="">Todos los docentes</option>
+          {% for teacher in teachers %}
+            <option value="{{ teacher.pk }}"{% if selected_teacher_id == teacher.pk|stringformat:"s" %} selected{% endif %}>
+              {{ teacher.nombre_completo }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="teacher-performance-filter-actions">
+        <button class="btn btn-primary-600" type="submit"><i class="ri-search-line"></i> Consultar</button>
+        <a class="btn btn-outline-secondary" href="{% url 'academico:coordinacion_informe_docente' %}">Limpiar</a>
+      </div>
+    </form>
+    <span class="teacher-performance-cutoff">
+      <i class="ri-calendar-check-line"></i>
+      Corte al {{ report.cutoff|date:"d/m/Y" }}; no incluye clases futuras.
+    </span>
+  </section>
+
+  <section class="teacher-performance-summary" aria-label="Resumen del informe">
+    <article>
+      <span>Docentes</span>
+      <strong>{{ report.summary.teachers }}</strong>
+      <small>con actividad en el periodo</small>
+    </article>
+    <article>
+      <span>Clases transcurridas</span>
+      <strong>{{ report.summary.scheduled }}</strong>
+      <small>programadas hasta el corte</small>
+    </article>
+    <article>
+      <span>Asistencia docente</span>
+      <strong>{% if report.summary.teacher_attendance_percent is not None %}{{ report.summary.teacher_attendance_percent|floatformat:1 }}%{% else %}-{% endif %}</strong>
+      <small>clases impartidas personalmente</small>
+    </article>
+    <article>
+      <span>Aula virtual</span>
+      <strong>{% if report.summary.virtual_percent is not None %}{{ report.summary.virtual_percent|floatformat:1 }}%{% else %}-{% endif %}</strong>
+      <small>matrículas Moodle confirmadas</small>
+    </article>
+    <article>
+      <span>Asistencia estudiantes</span>
+      <strong>{% if report.summary.student_attendance_percent is not None %}{{ report.summary.student_attendance_percent|floatformat:1 }}%{% else %}-{% endif %}</strong>
+      <small>presentes y atrasos</small>
+    </article>
+    <article class="{% if report.summary.late_plans %}has-alert{% endif %}">
+      <span>Planificaciones tarde</span>
+      <strong>{{ report.summary.late_plans }}</strong>
+      <small>pendientes u observadas</small>
+    </article>
+  </section>
+
+  <section class="panel teacher-performance-table-panel">
+    <header>
+      <div>
+        <span>Comparativo mensual</span>
+        <h2>{% if selected_teacher %}{{ selected_teacher.nombre_completo }}{% else %}Todos los docentes{% endif %}</h2>
+      </div>
+      <small>Desplázate horizontalmente para ver todos los indicadores.</small>
+    </header>
+    <div class="table-responsive">
+      <table class="table teacher-performance-table">
+        <thead>
+          <tr>
+            <th>Docente</th>
+            <th>Clases</th>
+            <th>Asist. docente</th>
+            <th>Faltas</th>
+            <th>Reemplazadas</th>
+            <th>Pendientes</th>
+            <th>Aula virtual</th>
+            <th>Asist. alumnos</th>
+            <th>Promedio</th>
+            <th>Temario</th>
+            <th>Aprobadas</th>
+            <th>En revisión</th>
+            <th>Rechazadas</th>
+            <th>Tarde</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.rows %}
+            {% with m=row.metrics %}
+              <tr>
+                <td class="teacher-name-cell">
+                  <span>{{ row.teacher.nombre|first|upper }}</span>
+                  <div><strong>{{ row.teacher.nombre_completo }}</strong><small>{{ row.teacher.identificacion|default:"Sin identificación" }}</small></div>
+                </td>
+                <td><strong>{{ m.scheduled }}</strong></td>
+                <td><span class="metric-pill good">{% if m.teacher_attendance_percent is not None %}{{ m.teacher_attendance_percent|floatformat:1 }}%{% else %}-{% endif %}</span></td>
+                <td><span class="metric-pill {% if m.absent %}bad{% endif %}">{{ m.absent }}</span></td>
+                <td>{{ m.replaced }}</td>
+                <td><span class="metric-pill {% if m.teacher_pending %}warning{% endif %}">{{ m.teacher_pending }}</span></td>
+                <td>{% if m.virtual_percent is not None %}<strong>{{ m.virtual_percent|floatformat:1 }}%</strong><small>{{ m.virtual_confirmed }}/{{ m.virtual_expected }}</small>{% else %}-{% endif %}</td>
+                <td>{% if m.student_attendance_percent is not None %}<strong>{{ m.student_attendance_percent|floatformat:1 }}%</strong><small>{{ m.attendance_closed_classes }} clase(s) cerrada(s)</small>{% else %}-{% endif %}</td>
+                <td>{% if m.grade_average is not None %}<strong>{{ m.grade_average|floatformat:1 }}%</strong><small>{{ m.grade_students }}/{{ m.grade_expected_students }} estudiante(s)</small>{% else %}<span class="text-muted">Sin notas</span>{% endif %}</td>
+                <td>{% if m.topic_percent is not None %}<strong>{{ m.topic_percent|floatformat:1 }}%</strong><small>{{ m.covered_subtopics_count }}/{{ m.total_subtopics_count }} subtemas</small>{% else %}-{% endif %}</td>
+                <td><span class="metric-pill good">{{ m.plan.aprobada }}</span></td>
+                <td>{{ m.plan.revision }}</td>
+                <td><span class="metric-pill {% if m.plan.rechazada %}bad{% endif %}">{{ m.plan.rechazada }}</span></td>
+                <td><span class="metric-pill {% if m.plan_late %}bad{% endif %}">{{ m.plan_late }}</span></td>
+              </tr>
+            {% endwith %}
+          {% empty %}
+            <tr><td colspan="14" class="text-center text-muted py-5">No hay clases transcurridas para este filtro.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if selected_teacher and report.rows %}
+    {% for row in report.rows %}
+      <section class="panel teacher-performance-detail">
+        <header>
+          <div>
+            <span>Detalle por asignatura</span>
+            <h2>{{ row.teacher.nombre_completo }}</h2>
+          </div>
+          <span>{{ row.subjects|length }} asignatura(s)</span>
+        </header>
+        <div class="teacher-subject-grid">
+          {% for m in row.subjects %}
+            <article>
+              <div class="teacher-subject-heading">
+                <span class="subject-color" style="background: {{ m.materia.color }}"></span>
+                <div><h3>{{ m.materia.nombre }}</h3><p>{{ m.grupo.nombre }}</p></div>
+                <strong>{{ m.scheduled }} clase(s)</strong>
+              </div>
+              <div class="teacher-subject-metrics">
+                <div><span>Asistencia docente</span><strong>{% if m.teacher_attendance_percent is not None %}{{ m.teacher_attendance_percent|floatformat:1 }}%{% else %}-{% endif %}</strong></div>
+                <div><span>Aula virtual</span><strong>{% if m.virtual_percent is not None %}{{ m.virtual_percent|floatformat:1 }}%{% else %}-{% endif %}</strong><small>{{ m.virtual_confirmed }}/{{ m.virtual_expected }}</small></div>
+                <div><span>Asistencia alumnos</span><strong>{% if m.student_attendance_percent is not None %}{{ m.student_attendance_percent|floatformat:1 }}%{% else %}-{% endif %}</strong><small>{{ m.student_absent }} ausencia(s)</small></div>
+                <div><span>Promedio Moodle</span><strong>{% if m.grade_average is not None %}{{ m.grade_average|floatformat:1 }}%{% else %}-{% endif %}</strong><small>{{ m.grade_activities }} nota(s)</small></div>
+                <div><span>Avance temario</span><strong>{% if m.topic_percent is not None %}{{ m.topic_percent|floatformat:1 }}%{% else %}-{% endif %}</strong><small>{{ m.monthly_subtopics_count }} subtema(s) este mes</small></div>
+                <div><span>Planificaciones</span><strong>{{ m.plan.aprobada }} aprobada(s)</strong><small>{{ m.plan.rechazada }} rechazada(s) · {{ m.plan_late }} tarde</small></div>
+              </div>
+            </article>
+          {% empty %}
+            <p class="text-muted mb-0">El docente no tiene asignaturas con clases transcurridas en este mes.</p>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  {% endif %}
+
+  <section class="teacher-performance-notes">
+    <i class="ri-information-line"></i>
+    <div>
+      <strong>Criterios del informe</strong>
+      <p>La asistencia estudiantil usa listas cerradas y no penaliza justificativos. Las notas corresponden a actividades calificadas durante el mes, normalizadas sobre 100. El avance del temario es acumulado hasta la fecha de corte. “Tarde” refleja el estado actual de clases pasadas pendientes u observadas.</p>
+    </div>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .teacher-performance-header, .teacher-performance-actions, .teacher-performance-table-panel > header,
+    .teacher-performance-detail > header, .teacher-subject-heading { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+    .teacher-performance-header p:last-child { color: #667085; margin: 4px 0 0; }
+    .teacher-performance-filter { margin-bottom: 16px; padding: 16px; }
+    .teacher-performance-filter form { align-items: end; display: grid; gap: 12px; grid-template-columns: 180px minmax(260px, 1fr) auto; }
+    .teacher-performance-filter-actions { display: flex; gap: 8px; }
+    .teacher-performance-cutoff { color: #667085; display: block; font-size: 13px; margin-top: 12px; }
+    .teacher-performance-summary { display: grid; gap: 12px; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 16px; }
+    .teacher-performance-summary article { background: #fff; border: 1px solid #e4e7ec; border-radius: 12px; padding: 15px; }
+    .teacher-performance-summary article.has-alert { background: #fff7ed; border-color: #fed7aa; }
+    .teacher-performance-summary span, .teacher-performance-summary small { color: #667085; display: block; }
+    .teacher-performance-summary span { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+    .teacher-performance-summary strong { color: #172033; display: block; font-size: 25px; line-height: 1; margin: 9px 0 7px; }
+    .teacher-performance-summary small { font-size: 11px; }
+    .teacher-performance-table-panel { overflow: hidden; }
+    .teacher-performance-table-panel > header, .teacher-performance-detail > header { border-bottom: 1px solid #eaecf0; padding: 16px 18px; }
+    .teacher-performance-table-panel header span, .teacher-performance-detail header span { color: #667085; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .teacher-performance-table-panel h2, .teacher-performance-detail h2 { font-size: 18px; margin: 2px 0 0; }
+    .teacher-performance-table { margin: 0; min-width: 1500px; vertical-align: middle; }
+    .teacher-performance-table th { background: #f8fafc; color: #475467; font-size: 11px; letter-spacing: .02em; text-align: center; text-transform: uppercase; white-space: nowrap; }
+    .teacher-performance-table th:first-child, .teacher-performance-table td:first-child { text-align: left; }
+    .teacher-performance-table td { color: #344054; text-align: center; }
+    .teacher-performance-table td small { color: #667085; display: block; font-size: 11px; margin-top: 3px; }
+    .teacher-name-cell { align-items: center; display: flex; gap: 10px; min-width: 260px; }
+    .teacher-name-cell > span { align-items: center; background: #eaf1ff; border-radius: 50%; color: #2563eb; display: flex; flex: 0 0 36px; font-weight: 900; height: 36px; justify-content: center; }
+    .teacher-name-cell strong, .teacher-name-cell small { display: block; text-align: left; }
+    .metric-pill { border-radius: 999px; display: inline-block; font-weight: 800; min-width: 42px; padding: 5px 8px; }
+    .metric-pill.good { background: #ecfdf3; color: #027a48; }
+    .metric-pill.warning { background: #fffaeb; color: #b54708; }
+    .metric-pill.bad { background: #fef3f2; color: #b42318; }
+    .teacher-performance-detail { margin-top: 16px; }
+    .teacher-subject-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px; }
+    .teacher-subject-grid > article { border: 1px solid #e4e7ec; border-radius: 12px; overflow: hidden; }
+    .teacher-subject-heading { background: #f8fafc; padding: 14px; }
+    .teacher-subject-heading .subject-color { border-radius: 4px; flex: 0 0 6px; height: 42px; }
+    .teacher-subject-heading > div { flex: 1; }
+    .teacher-subject-heading h3 { font-size: 16px; margin: 0; }
+    .teacher-subject-heading p { color: #667085; margin: 2px 0 0; }
+    .teacher-subject-heading > strong { font-size: 12px; }
+    .teacher-subject-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .teacher-subject-metrics > div { border-right: 1px solid #eaecf0; border-top: 1px solid #eaecf0; padding: 12px; }
+    .teacher-subject-metrics > div:nth-child(3n) { border-right: 0; }
+    .teacher-subject-metrics span, .teacher-subject-metrics small { color: #667085; display: block; font-size: 11px; }
+    .teacher-subject-metrics strong { color: #172033; display: block; font-size: 17px; margin: 4px 0 2px; }
+    .teacher-performance-notes { align-items: flex-start; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; color: #1e3a8a; display: flex; gap: 10px; margin-top: 16px; padding: 14px; }
+    .teacher-performance-notes i { font-size: 20px; }
+    .teacher-performance-notes p { margin: 3px 0 0; }
+    @media (max-width: 1200px) { .teacher-performance-summary { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 760px) {
+      .teacher-performance-header { align-items: flex-start; flex-direction: column; }
+      .teacher-performance-filter form, .teacher-subject-grid { grid-template-columns: 1fr; }
+      .teacher-performance-summary { grid-template-columns: repeat(2, 1fr); }
+      .teacher-subject-metrics { grid-template-columns: repeat(2, 1fr); }
+      .teacher-subject-metrics > div:nth-child(3n) { border-right: 1px solid #eaecf0; }
+      .teacher-subject-metrics > div:nth-child(2n) { border-right: 0; }
+    }
+  </style>
+{% endblock %}

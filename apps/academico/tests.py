@@ -426,6 +426,92 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIn("1 matrícula(s) nueva(s)", detail)
         self.assertEqual(client.enrolled_users.call_count, 3)
 
+    def test_monthly_teacher_report_requires_its_own_permission_and_exports(self):
+        permission = Permission.objects.get(
+            codename="view_informe_mensual_docente_clase",
+            content_type__app_label="academico",
+        )
+        self.assertTrue(
+            Group.objects.get(name="Coordinacion").permissions.filter(pk=permission.pk).exists()
+        )
+        coordinator = self.create_coordinator()
+        coordination_menu = next(
+            group for group in permitted_menu_groups(coordinator) if group["label"] == "Coordinacion"
+        )
+        self.assertIn("Informe docente", [item["label"] for item in coordination_menu["items"]])
+        url = reverse("academico:coordinacion_informe_docente")
+        self.client.force_login(self.user)
+
+        self.assertEqual(self.client.get(url, HTTP_HOST="localhost").status_code, 403)
+
+        self.user.user_permissions.add(permission)
+        month = f"{self.pendiente.fecha:%Y-%m}"
+        response = self.client.get(url, {"mes": month}, HTTP_HOST="localhost")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Informe mensual docente")
+        self.assertContains(response, self.pendiente.fecha.year)
+        self.assertNotContains(response, 'type="month"')
+        self.assertContains(response, "Excel")
+        self.assertContains(response, "PDF")
+
+        excel = self.client.get(url, {"mes": month, "export": "excel"}, HTTP_HOST="localhost")
+        self.assertEqual(excel.status_code, 200)
+        self.assertEqual(
+            excel["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        workbook = load_workbook(BytesIO(excel.content))
+        self.assertEqual(workbook.sheetnames, ["Resumen docente", "Detalle por materia"])
+
+        pdf = self.client.get(url, {"mes": month, "export": "pdf"}, HTTP_HOST="localhost")
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf["Content-Type"], "application/pdf")
+        self.assertTrue(pdf.content.startswith(b"%PDF-"))
+
+    def test_monthly_teacher_report_calculates_attendance_planning_and_progress(self):
+        from apps.academico.teacher_monthly_report import build_monthly_teacher_report
+
+        report_date = timezone.localdate() - timedelta(days=1)
+        clase = self.atrasada
+        clase.estado_planificacion = "aprobada"
+        clase.subtema = self.subtema
+        clase.asistencia_cerrada = True
+        clase.save(
+            update_fields=["estado_planificacion", "subtema", "asistencia_cerrada"]
+        )
+        ClaseHoraDocente.objects.create(
+            clase=clase,
+            docente=self.docente,
+            estado="asistio",
+            horas=Decimal("1.00"),
+        )
+        students = [
+            Partner.objects.create(
+                tipo_identificacion=self.tipo_identificacion,
+                identificacion=f"REPORT-{number}",
+                nombre=f"Estudiante {number}",
+                es_estudiante=True,
+                activo=True,
+            )
+            for number in (1, 2)
+        ]
+        ClaseAsistencia.objects.create(clase=clase, estudiante=students[0], estado="presente")
+        ClaseAsistencia.objects.create(clase=clase, estudiante=students[1], estado="ausente")
+
+        report = build_monthly_teacher_report(
+            report_date,
+            report_date,
+            report_date,
+            self.docente,
+        )
+
+        metrics = report["rows"][0]["metrics"]
+        self.assertEqual(metrics["scheduled"], 1)
+        self.assertEqual(metrics["teacher_attendance_percent"], 100.0)
+        self.assertEqual(metrics["student_attendance_percent"], 50.0)
+        self.assertEqual(metrics["topic_percent"], 100.0)
+        self.assertEqual(metrics["plan"]["aprobada"], 1)
+
     def test_moodle_recovers_course_after_response_timeout(self):
         from unittest.mock import patch
         from apps.academico.models import MoodleCurso
