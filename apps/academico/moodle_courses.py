@@ -250,6 +250,22 @@ def sync_enrolments(client, link, data):
         try:
             client.enrol_users([enrolment])
         except MoodleError as exc:
+            # Algunos servidores aplican la matrícula y después fallan en un
+            # observador o complemento, por lo que el servicio web responde con
+            # una excepción aunque el usuario ya haya quedado matriculado.
+            # Reconcilia inmediatamente para no obligar a reintentar una vez por
+            # participante ni informar como fallida una operación ya aplicada.
+            try:
+                confirmed_after_error = {
+                    user["id"] for user in client.enrolled_users(link.curso_id)
+                }
+            except MoodleError:
+                confirmed_after_error = set()
+            if account.usuario_id in confirmed_after_error:
+                MoodleMatricula.objects.filter(curso=link, cuenta=account).update(confirmada=True)
+                enrolled.update(confirmed_after_error)
+                created += 1
+                continue
             raise MoodleError(
                 f"No se pudo matricular a {person}. {exc}",
                 retryable=exc.retryable,

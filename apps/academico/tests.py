@@ -381,6 +381,51 @@ class DocenteHorariosPanelTests(TestCase):
         link.refresh_from_db()
         self.assertFalse(link.completo)
 
+    def test_moodle_accepts_enrolment_confirmed_after_remote_error(self):
+        from unittest.mock import MagicMock
+
+        from apps.academico.moodle import MoodleError
+        from apps.academico.moodle_courses import sync_enrolments
+
+        alumno = Partner.objects.create(
+            tipo_identificacion=self.tipo_identificacion,
+            identificacion="ALU-MOODLE-004",
+            nombre="Alumno Confirmado Tras Error",
+            activo=True,
+        )
+        link = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=42,
+        )
+        account = MoodleCuenta.objects.create(
+            persona=alumno,
+            sitio=link.sitio,
+            usuario="alumno_11",
+            usuario_id=11,
+        )
+        MoodleMatricula.objects.create(curso=link, cuenta=account, rol="Alumno")
+        client = MagicMock(base_url=link.sitio)
+        client.enrolled_users.side_effect = [
+            [],
+            [{"id": 11}],
+            [{"id": 11}],
+        ]
+        client.enrol_users.side_effect = MoodleError("Moodle rechazó la operación.")
+
+        detail = sync_enrolments(
+            client,
+            link,
+            {"temas": [], "docentes": [], "alumnos": [alumno], "errors": []},
+        )
+
+        matricula = account.moodlematricula_set.get(curso=link)
+        self.assertTrue(matricula.confirmada)
+        link.refresh_from_db()
+        self.assertTrue(link.completo)
+        self.assertIn("1 matrícula(s) nueva(s)", detail)
+        self.assertEqual(client.enrolled_users.call_count, 3)
+
     def test_moodle_recovers_course_after_response_timeout(self):
         from unittest.mock import patch
         from apps.academico.models import MoodleCurso
