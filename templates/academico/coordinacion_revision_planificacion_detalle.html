@@ -586,14 +586,28 @@
       min-height: 80px;
     }
 
-    .review-chip-list,
+    .review-chip-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .review-chip-list span {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+      padding: 12px;
+    }
+
     .review-planning-steps {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
     }
 
-    .review-chip-list span,
     .review-planning-steps span {
       align-items: center;
       background: #eef6ff;
