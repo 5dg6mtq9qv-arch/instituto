@@ -6,7 +6,43 @@
 {% block extra_head %}
   <link rel="stylesheet" href="{% static 'assets/css/lib/flatpickr.min.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/lib/switchery.min.css' %}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
   <link rel="stylesheet" href="{% static 'css/instituto-datepicker.css' %}?v=20260904-3">
+  <style>
+    .matricula-process .select2-container--default .select2-selection--single {
+      align-items: center;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      display: flex;
+      min-height: 44px;
+      padding: 6px 42px 6px 12px;
+    }
+
+    .matricula-process .select2-container--default.select2-container--focus .select2-selection--single,
+    .matricula-process .select2-container--default.select2-container--open .select2-selection--single {
+      border-color: #14b8a6;
+      box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+    }
+
+    .matricula-process .select2-container--default .select2-selection--single .select2-selection__rendered {
+      color: #1f2937;
+      line-height: 1.35;
+      padding: 0;
+    }
+
+    .matricula-process .select2-container--default .select2-selection--single .select2-selection__placeholder {
+      color: #6b7280;
+    }
+
+    .matricula-process .select2-container--default .select2-selection--single .select2-selection__arrow {
+      height: 42px;
+      right: 8px;
+    }
+
+    .matricula-process .select2-container--default .select2-selection--single .select2-selection__clear {
+      margin-right: 10px;
+    }
+  </style>
 {% endblock %}
 
 {% block content %}
@@ -296,6 +332,8 @@
 {% endblock %}
 
 {% block extra_scripts %}
+  <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
   <script>
@@ -317,6 +355,23 @@
 
       function qsa(selector) {
         return Array.prototype.slice.call(document.querySelectorAll(selector));
+      }
+
+      const estudianteSelect = document.getElementById("id_estudiante_partner");
+      if (window.jQuery && jQuery.fn.select2 && estudianteSelect) {
+        jQuery(estudianteSelect).select2({
+          width: "100%",
+          placeholder: "Buscar estudiante por nombre o cédula",
+          allowClear: true,
+          language: {
+            noResults: function () {
+              return "Sin resultados";
+            },
+            searching: function () {
+              return "Buscando…";
+            }
+          }
+        });
       }
 
       const modeConfigs = [

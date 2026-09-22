@@ -579,7 +579,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
                 empresa=empresa,
                 es_estudiante=True,
                 activo=True,
-            ).order_by("nombre")
+            ).order_by("apellido", "nombre")
             representantes = Partner.objects.filter(
                 empresa=empresa,
                 es_representante=True,
@@ -590,7 +590,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             aulas = Aula.objects.filter(empresa=empresa, activo=True)
             self.fields["forma_pago_abono"].queryset = FormaPago.objects.filter(empresa=empresa, activo=True, es_pago=True)
         else:
-            estudiantes = Partner.objects.filter(es_estudiante=True, activo=True).order_by("nombre")
+            estudiantes = Partner.objects.filter(es_estudiante=True, activo=True).order_by("apellido", "nombre")
             representantes = Partner.objects.filter(es_representante=True, activo=True).order_by("nombre")
             periodos = PeriodoAcademico.objects.filter(activo=True)
             cursos = Curso.objects.filter(activo=True)
@@ -612,6 +612,17 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
         )
 
         self.fields["estudiante_partner"].empty_label = "Seleccione estudiante registrado"
+        self.fields["estudiante_partner"].label_from_instance = (
+            lambda partner: " - ".join(
+                filter(
+                    None,
+                    [
+                        " ".join(filter(None, [partner.apellido, partner.nombre])).strip(),
+                        partner.identificacion,
+                    ],
+                )
+            )
+        )
         self.fields["representante_partner"].empty_label = "Seleccione representante registrado"
         self.fields["periodo_academico"].empty_label = "Asignar luego"
         self.fields["curso"].empty_label = "Asignar luego"

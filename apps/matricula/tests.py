@@ -1102,6 +1102,26 @@ class MatriculaProcesoTests(TestCase):
         self.assertContains(response, "assets/js/flatpickr.js")
         self.assertContains(response, "js-date-picker")
 
+    def test_student_selector_uses_select2_and_searchable_identification_labels(self):
+        self.client.force_login(self.user)
+        estudiante = Partner.objects.create(
+            nombre="Anahi Camila",
+            apellido="Valverde Cuaspud",
+            identificacion="0402103741",
+            tipo_identificacion=self.tipo_identificacion,
+            empresa=self.empresa,
+            es_estudiante=True,
+            activo=True,
+        )
+
+        response = self.client.get(reverse("matricula:matricula_proceso"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "select2@4.1.0-rc.0/dist/css/select2.min.css")
+        self.assertContains(response, "select2@4.1.0-rc.0/dist/js/select2.min.js")
+        self.assertContains(response, 'jQuery(estudianteSelect).select2({', html=False)
+        self.assertContains(response, "Valverde Cuaspud Anahi Camila - 0402103741")
+
     @patch("django.utils.timezone.localdate", return_value=date(2026, 8, 28))
     def test_process_creates_ficha_without_academic_assignment_and_fixed_installments(self, _mock_localdate):
         self.client.force_login(self.user)
