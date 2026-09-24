@@ -18,6 +18,7 @@ from .models import (
     EvaluacionResultado,
     HorarioClase,
     GrupoEstudiante,
+    GrupoEstudianteTraslado,
     PlanificacionClase,
     PlanificacionCompetencia,
     PlanificacionDocente,
@@ -217,6 +218,28 @@ class GrupoEstudianteAdmin(admin.ModelAdmin):
     list_display = ("estudiante", "grupo", "ficha_inscripcion", "fecha_asignacion", "estado")
     list_filter = ("grupo", "estado", "fecha_asignacion")
     search_fields = ("estudiante__nombre", "estudiante__identificacion", "ficha_inscripcion__numero")
+
+
+@admin.register(GrupoEstudianteTraslado)
+class GrupoEstudianteTrasladoAdmin(admin.ModelAdmin):
+    list_display = (
+        "asignacion_origen",
+        "asignacion_destino",
+        "fecha_traslado",
+        "usuario",
+        "created_at",
+    )
+    list_filter = (
+        "fecha_traslado",
+        "asignacion_origen__grupo",
+        "asignacion_destino__grupo",
+    )
+    search_fields = (
+        "asignacion_origen__estudiante__nombre",
+        "asignacion_origen__estudiante__apellido",
+        "asignacion_origen__ficha_inscripcion__numero",
+        "usuario__username",
+    )
 
 
 @admin.register(ClaseEstudianteMovimiento)

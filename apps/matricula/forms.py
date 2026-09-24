@@ -579,6 +579,7 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
                 empresa=empresa,
                 es_estudiante=True,
                 activo=True,
+                fichas_estudiante__isnull=True,
             ).order_by("apellido", "nombre")
             representantes = Partner.objects.filter(
                 empresa=empresa,
@@ -590,7 +591,11 @@ class MatriculaProcesoForm(BootstrapFormMixin, forms.Form):
             aulas = Aula.objects.filter(empresa=empresa, activo=True)
             self.fields["forma_pago_abono"].queryset = FormaPago.objects.filter(empresa=empresa, activo=True, es_pago=True)
         else:
-            estudiantes = Partner.objects.filter(es_estudiante=True, activo=True).order_by("apellido", "nombre")
+            estudiantes = Partner.objects.filter(
+                es_estudiante=True,
+                activo=True,
+                fichas_estudiante__isnull=True,
+            ).order_by("apellido", "nombre")
             representantes = Partner.objects.filter(es_representante=True, activo=True).order_by("nombre")
             periodos = PeriodoAcademico.objects.filter(activo=True)
             cursos = Curso.objects.filter(activo=True)

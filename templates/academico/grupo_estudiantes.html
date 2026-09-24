@@ -227,6 +227,39 @@
   <section class="panel student-movements-list">
     <header class="section-header">
       <div>
+        <span>Auditoría</span>
+        <h2>Cambios de horario o grupo</h2>
+      </div>
+    </header>
+    {% if traslados %}
+      <div class="movement-stack">
+        {% for traslado in traslados %}
+          <div class="movement-row">
+            <div>
+              <strong>{{ traslado.asignacion_origen.estudiante.nombre }}</strong>
+              <span>Desde {{ traslado.fecha_traslado|date:"d/m/Y" }}</span>
+            </div>
+            <div>
+              <span>{{ traslado.asignacion_origen.grupo }}</span>
+              <i class="ri-arrow-right-line"></i>
+              <span>{{ traslado.asignacion_destino.grupo }}</span>
+            </div>
+            <div class="movement-actions">
+              <span class="status-badge status-activo">
+                {{ traslado.usuario.get_username|default:"Usuario no registrado" }}
+              </span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="academic-empty-state compact">Sin cambios de grupo registrados.</div>
+    {% endif %}
+  </section>
+
+  <section class="panel student-movements-list">
+    <header class="section-header">
+      <div>
         <span>Historial</span>
         <h2>Cambios permanentes</h2>
       </div>

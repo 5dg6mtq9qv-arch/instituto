@@ -76,6 +76,7 @@ from .models import (
     HorarioAulaCurso,
     HorarioClase,
     GrupoEstudiante,
+    GrupoEstudianteTraslado,
     HorarioDia,
     Materia,
     MateriaCurso,
@@ -2519,6 +2520,62 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             url = f"{url}?{urlencode({'grupo': group.pk})}"
         return redirect(url)
 
+    @staticmethod
+    def filter_assignment_period(queryset, period):
+        return queryset.filter(periodo=period) if period else queryset.filter(periodo__isnull=True)
+
+    def assign_student_to_group(self, *, ficha, grupo, periodo, fecha_asignacion, user):
+        assignment_queryset = GrupoEstudiante.objects.select_for_update().filter(
+            ficha_inscripcion=ficha,
+        ).order_by("pk")
+        assignment_queryset = self.filter_assignment_period(assignment_queryset, periodo)
+        active_assignment = assignment_queryset.filter(estado="activo").first()
+        if active_assignment and active_assignment.grupo_id == grupo.pk:
+            return active_assignment, None
+
+        source_assignment = active_assignment
+        if source_assignment is None:
+            source_assignment = (
+                assignment_queryset.filter(estado__in=("retirado", "trasladado"))
+                .exclude(grupo=grupo)
+                .order_by("-updated_at", "-pk")
+                .first()
+            )
+
+        if source_assignment:
+            previous_day = fecha_asignacion - timedelta(days=1)
+            source_assignment.fecha_fin = max(source_assignment.fecha_asignacion, previous_day)
+            source_assignment.estado = "trasladado"
+            source_assignment.usuario_updated = user
+            source_assignment.save(
+                update_fields=["fecha_fin", "estado", "usuario_updated", "updated_at"]
+            )
+
+        assignment = GrupoEstudiante(
+            ficha_inscripcion=ficha,
+            estudiante=ficha.estudiante,
+            grupo=grupo,
+            periodo=periodo,
+            fecha_asignacion=fecha_asignacion,
+            estado="activo",
+            usuario_updated=user,
+        )
+        assignment.full_clean()
+        assignment.save()
+
+        transfer = None
+        if source_assignment and source_assignment.grupo_id != grupo.pk:
+            transfer = GrupoEstudianteTraslado(
+                asignacion_origen=source_assignment,
+                asignacion_destino=assignment,
+                fecha_traslado=fecha_asignacion,
+                motivo="Cambio de horario o grupo académico.",
+                usuario=user,
+            )
+            transfer.full_clean()
+            transfer.save()
+        return assignment, transfer
+
     def handle_assign_students(self, request, selected_group):
         form = GrupoEstudianteBulkForm(request.POST, selected_group=selected_group)
         if form.is_valid():
@@ -2527,22 +2584,13 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             saved = 0
             with transaction.atomic():
                 for ficha in form.cleaned_data["fichas"]:
-                    lookup = {"ficha_inscripcion": ficha, "periodo": periodo}
-                    if periodo is None:
-                        asignacion = GrupoEstudiante.objects.filter(
-                            ficha_inscripcion=ficha,
-                            periodo__isnull=True,
-                        ).order_by("-pk").first() or GrupoEstudiante(**lookup)
-                    else:
-                        asignacion = GrupoEstudiante.objects.filter(**lookup).first() or GrupoEstudiante(**lookup)
-                    asignacion.estudiante = ficha.estudiante
-                    asignacion.grupo = grupo
-                    asignacion.fecha_asignacion = form.cleaned_data["fecha_asignacion"]
-                    asignacion.fecha_fin = None
-                    asignacion.estado = "activo"
-                    asignacion.usuario_updated = request.user
-                    asignacion.full_clean()
-                    asignacion.save()
+                    self.assign_student_to_group(
+                        ficha=ficha,
+                        grupo=grupo,
+                        periodo=periodo,
+                        fecha_asignacion=form.cleaned_data["fecha_asignacion"],
+                        user=request.user,
+                    )
                     saved += 1
             if saved:
                 messages.success(request, f"{saved} estudiante(s) asignado(s) al grupo.")
@@ -2575,22 +2623,13 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
                     updated_at=timezone.now(),
                 )
                 for ficha in form.cleaned_data["fichas"]:
-                    lookup = {"ficha_inscripcion": ficha, "periodo": periodo}
-                    if periodo is None:
-                        asignacion = GrupoEstudiante.objects.filter(
-                            ficha_inscripcion=ficha,
-                            periodo__isnull=True,
-                        ).order_by("-pk").first() or GrupoEstudiante(**lookup)
-                    else:
-                        asignacion = GrupoEstudiante.objects.filter(**lookup).first() or GrupoEstudiante(**lookup)
-                    asignacion.estudiante = ficha.estudiante
-                    asignacion.grupo = grupo
-                    asignacion.fecha_asignacion = form.cleaned_data["fecha_asignacion"]
-                    asignacion.fecha_fin = None
-                    asignacion.estado = "activo"
-                    asignacion.usuario_updated = request.user
-                    asignacion.full_clean()
-                    asignacion.save()
+                    self.assign_student_to_group(
+                        ficha=ficha,
+                        grupo=grupo,
+                        periodo=periodo,
+                        fecha_asignacion=form.cleaned_data["fecha_asignacion"],
+                        user=request.user,
+                    )
                     saved += 1
             if saved or removed:
                 messages.success(
@@ -2701,6 +2740,7 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         clases = list(self.get_group_classes(selected_group))
         movement_materia_cursos = list(self.get_movement_materia_cursos(selected_group))
         movimientos = self.get_group_movements(selected_group)
+        traslados = self.get_group_transfers(selected_group)
         return {
             "title": "Estudiantes por grupo",
             "group_tabs": self.get_group_tabs(cursos, selected_group, q),
@@ -2714,6 +2754,7 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             "clases": clases,
             "movement_materia_cursos": movement_materia_cursos,
             "movimientos": movimientos,
+            "traslados": traslados,
             "bulk_form": bulk_form,
             "movement_form": movement_form or ClaseEstudianteMovimientoForm(grupo=selected_group),
             "movement_materia_map_json": json.dumps(self.get_movement_materia_map(movement_materia_cursos)),
@@ -2799,6 +2840,23 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
                 asignacion__estudiante__activo=True,
             )
             .order_by("-fecha_inicio", "-created_at")[:20]
+        )
+
+    def get_group_transfers(self, selected_group):
+        if not selected_group:
+            return GrupoEstudianteTraslado.objects.none()
+        return (
+            GrupoEstudianteTraslado.objects.select_related(
+                "asignacion_origen__estudiante",
+                "asignacion_origen__grupo",
+                "asignacion_destino__grupo",
+                "usuario",
+            )
+            .filter(
+                Q(asignacion_origen__grupo=selected_group)
+                | Q(asignacion_destino__grupo=selected_group)
+            )
+            .order_by("-fecha_traslado", "-created_at")[:20]
         )
 
     def get_stats(self, selected_group, selected_period=None, available_count=0):
@@ -6082,7 +6140,10 @@ class CoordinacionReporteAsistenciaAlumnoView(CoordinacionRequiredMixin, View):
         group_ids = {assignment.grupo_id for assignment in assignments}
         movements = ClaseEstudianteMovimiento.objects.filter(asignacion__in=assignments, activo=True)
         destination_materia_curso_ids = set(movements.values_list("clase_destino__materia_curso_id", flat=True))
-        clase_filter = Q(materia_curso__grupo_id__in=group_ids)
+        recorded_attendance_filter = Q(asistencias_clase__estudiante=estudiante)
+        if selected_grupo:
+            recorded_attendance_filter &= Q(materia_curso__grupo=selected_grupo)
+        clase_filter = Q(materia_curso__grupo_id__in=group_ids) | recorded_attendance_filter
         if destination_materia_curso_ids:
             clase_filter |= Q(materia_curso_id__in=destination_materia_curso_ids)
 
@@ -6094,7 +6155,14 @@ class CoordinacionReporteAsistenciaAlumnoView(CoordinacionRequiredMixin, View):
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__horario",
             )
-            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
+            .prefetch_related(
+                "materia_curso__profesor_materia_cursos__partner",
+                Prefetch(
+                    "asistencias_clase",
+                    queryset=ClaseAsistencia.objects.filter(estudiante=estudiante),
+                    to_attr="selected_student_attendance",
+                ),
+            )
             .filter(clase_filter)
             .distinct()
         )
@@ -6108,10 +6176,16 @@ class CoordinacionReporteAsistenciaAlumnoView(CoordinacionRequiredMixin, View):
         for clase in clases.order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio", "materia_curso__materia__nombre"):
             roster_rows, _ = roster_view.get_roster_rows(clase)
             student_row = next((row for row in roster_rows if row["estudiante"].pk == estudiante.pk), None)
+            if not student_row and clase.selected_student_attendance:
+                student_row = {
+                    "asignacion": None,
+                    "attendance": clase.selected_student_attendance[0],
+                    "incoming": None,
+                }
             if not student_row:
                 continue
             asignacion = student_row["asignacion"]
-            if asignacion.fecha_asignacion and asignacion.fecha_asignacion > clase.fecha:
+            if asignacion and asignacion.fecha_asignacion and asignacion.fecha_asignacion > clase.fecha:
                 continue
             report_rows.append(self.build_attendance_row(clase, student_row))
         return report_rows
@@ -6417,7 +6491,9 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
         group_ids = {assignment.grupo_id for assignment in assignments}
         movements = ClaseEstudianteMovimiento.objects.filter(asignacion__in=assignments, activo=True)
         destination_materia_curso_ids = set(movements.values_list("clase_destino__materia_curso_id", flat=True))
-        clase_filter = Q(materia_curso__grupo_id__in=group_ids)
+        clase_filter = Q(materia_curso__grupo_id__in=group_ids) | Q(
+            asistencias_clase__estudiante=estudiante
+        )
         if destination_materia_curso_ids:
             clase_filter |= Q(materia_curso_id__in=destination_materia_curso_ids)
 
@@ -6429,7 +6505,14 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
                 "horario_aula_curso__aula_curso__aula",
                 "horario_aula_curso__horario_dia__horario",
             )
-            .prefetch_related("materia_curso__profesor_materia_cursos__partner")
+            .prefetch_related(
+                "materia_curso__profesor_materia_cursos__partner",
+                Prefetch(
+                    "asistencias_clase",
+                    queryset=ClaseAsistencia.objects.filter(estudiante=estudiante),
+                    to_attr="selected_student_attendance",
+                ),
+            )
             .filter(clase_filter, fecha__lte=report_date)
             .distinct()
             .order_by(
@@ -6444,10 +6527,16 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
         for clase in clases:
             roster_rows, _ = roster_view.get_roster_rows(clase)
             student_row = next((row for row in roster_rows if row["estudiante"].pk == estudiante.pk), None)
+            if not student_row and clase.selected_student_attendance:
+                student_row = {
+                    "asignacion": None,
+                    "attendance": clase.selected_student_attendance[0],
+                    "incoming": None,
+                }
             if not student_row:
                 continue
             asignacion = student_row["asignacion"]
-            if asignacion.fecha_asignacion and asignacion.fecha_asignacion > clase.fecha:
+            if asignacion and asignacion.fecha_asignacion and asignacion.fecha_asignacion > clase.fecha:
                 continue
             report_rows.append(self.build_attendance_row(clase, student_row))
         return report_rows, assignments

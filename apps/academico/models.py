@@ -1226,6 +1226,7 @@ class GrupoEstudiante(models.Model):
         ("activo", "Activo"),
         ("finalizado", "Finalizado"),
         ("retirado", "Retirado"),
+        ("trasladado", "Trasladado"),
     )
 
     id = models.BigAutoField(primary_key=True)
@@ -1276,8 +1277,13 @@ class GrupoEstudiante(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["ficha_inscripcion", "periodo"],
-                condition=models.Q(periodo__isnull=False),
-                name="uq_grupo_estudiante_ficha_periodo",
+                condition=models.Q(periodo__isnull=False, estado="activo"),
+                name="uq_grupo_estudiante_activo_periodo",
+            ),
+            models.UniqueConstraint(
+                fields=["ficha_inscripcion"],
+                condition=models.Q(periodo__isnull=True, estado="activo"),
+                name="uq_grupo_estudiante_activo_sin_periodo",
             ),
         ]
 
@@ -1317,6 +1323,60 @@ class GrupoEstudiante(models.Model):
 
     def __str__(self):
         return f"{self.estudiante} - {self.grupo}"
+
+
+class GrupoEstudianteTraslado(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    asignacion_origen = models.ForeignKey(
+        GrupoEstudiante,
+        db_column="id_asignacion_origen",
+        on_delete=models.PROTECT,
+        related_name="traslados_salida",
+    )
+    asignacion_destino = models.ForeignKey(
+        GrupoEstudiante,
+        db_column="id_asignacion_destino",
+        on_delete=models.PROTECT,
+        related_name="traslados_entrada",
+    )
+    fecha_traslado = models.DateField(default=timezone.localdate)
+    motivo = models.TextField(blank=True, null=True)
+    usuario = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="traslados_grupo_estudiante",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = '"academico"."grupo_estudiante_traslado"'
+        ordering = ["-fecha_traslado", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["asignacion_origen", "asignacion_destino"],
+                name="uq_grupo_estudiante_traslado",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if not self.asignacion_origen_id or not self.asignacion_destino_id:
+            return
+        if self.asignacion_origen_id == self.asignacion_destino_id:
+            raise ValidationError("Las asignaciones de origen y destino deben ser diferentes.")
+        if self.asignacion_origen.estudiante_id != self.asignacion_destino.estudiante_id:
+            raise ValidationError("El traslado debe pertenecer al mismo estudiante.")
+        if self.asignacion_origen.grupo_id == self.asignacion_destino.grupo_id:
+            raise ValidationError("El grupo destino debe ser diferente al grupo origen.")
+
+    def __str__(self):
+        return (
+            f"{self.asignacion_origen.estudiante}: "
+            f"{self.asignacion_origen.grupo} -> {self.asignacion_destino.grupo}"
+        )
 
 
 class ClaseEstudianteMovimiento(models.Model):

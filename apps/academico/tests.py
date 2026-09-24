@@ -34,6 +34,7 @@ from apps.academico.models import (
     Dia,
     Estrategia,
     GrupoEstudiante,
+    GrupoEstudianteTraslado,
     Horario,
     HorarioAulaCurso,
     HorarioDia,
@@ -54,7 +55,11 @@ from apps.academico.models import (
     Subtema,
     Tema,
 )
-from apps.academico.views import CoordinacionRevisionAsistenciaView, DocenteClaseAsistenciaView
+from apps.academico.views import (
+    CoordinacionReporteAsistenciaAlumnoView,
+    CoordinacionRevisionAsistenciaView,
+    DocenteClaseAsistenciaView,
+)
 from apps.academico.attendance_closure import close_overdue_attendances
 from apps.core.current_user import set_current_request
 from apps.core.menu import permitted_menu_groups
@@ -764,6 +769,107 @@ class DocenteHorariosPanelTests(TestCase):
         asignacion.refresh_from_db()
         self.assertEqual(asignacion.estado, "retirado")
         self.assertEqual(asignacion.fecha_fin, timezone.localdate())
+
+    def test_group_transfer_preserves_history_attendance_and_actor(self):
+        self.make_superuser()
+        today = timezone.localdate()
+        period = Periodo.objects.create(
+            nombre="Periodo traslado",
+            fecha_inicio=today - timedelta(days=30),
+            fecha_fin=today + timedelta(days=90),
+        )
+        CursoPeriodo.objects.create(curso=self.curso, periodo=period)
+        destination_group = Curso.objects.create(nombre="Grupo sabados", activo=True)
+        CursoPeriodo.objects.create(curso=destination_group, periodo=period)
+        destination_subject = MateriaCurso.objects.create(
+            materia=self.materia,
+            grupo=destination_group,
+        )
+        origin_class = self.create_class_for_date(
+            today - timedelta(days=2),
+            time(10, 0),
+            time(11, 0),
+            "Aula horario anterior",
+        )
+        destination_class = self.create_class_for_date(
+            today,
+            time(12, 0),
+            time(13, 0),
+            "Aula sabados",
+            materia_curso=destination_subject,
+            curso=destination_group,
+        )
+        estudiante, ficha = self.create_student_ficha()
+        source_assignment = GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+            periodo=period,
+            fecha_asignacion=today - timedelta(days=10),
+        )
+        ClaseAsistencia.objects.create(
+            clase=origin_class,
+            estudiante=estudiante,
+            estado="presente",
+            registrado_por=self.docente,
+        )
+        self.client.force_login(self.user)
+
+        remove_response = self.client.post(
+            reverse("academico:grupo_estudiantes"),
+            {
+                "assignment_action": "sync_students",
+                "grupo": self.curso.pk,
+                "fecha_asignacion": today.isoformat(),
+                "asignaciones_remover": [source_assignment.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+        transfer_response = self.client.post(
+            reverse("academico:grupo_estudiantes"),
+            {
+                "assignment_action": "sync_students",
+                "grupo": destination_group.pk,
+                "fecha_asignacion": today.isoformat(),
+                "fichas": [ficha.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(remove_response.status_code, 302)
+        self.assertEqual(transfer_response.status_code, 302)
+        assignments = GrupoEstudiante.objects.filter(ficha_inscripcion=ficha).order_by(
+            "fecha_asignacion", "pk"
+        )
+        self.assertEqual(assignments.count(), 2)
+        source_assignment.refresh_from_db()
+        destination_assignment = assignments.get(estado="activo")
+        self.assertEqual(source_assignment.estado, "trasladado")
+        self.assertEqual(source_assignment.fecha_fin, today - timedelta(days=1))
+        self.assertEqual(destination_assignment.grupo, destination_group)
+
+        transfer = GrupoEstudianteTraslado.objects.get(
+            asignacion_origen=source_assignment,
+            asignacion_destino=destination_assignment,
+        )
+        self.assertEqual(transfer.fecha_traslado, today)
+        self.assertEqual(transfer.usuario, self.user)
+
+        report_rows = CoordinacionReporteAsistenciaAlumnoView().get_attendance_rows(
+            estudiante,
+            fecha_hasta=today,
+        )
+        report_by_class = {row["clase"]: row["estado"] for row in report_rows}
+        self.assertEqual(report_by_class[origin_class], "presente")
+        self.assertEqual(report_by_class[destination_class], "pendiente")
+
+        page = self.client.get(
+            reverse("academico:grupo_estudiantes"),
+            {"grupo": destination_group.pk},
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(page, "Cambios de horario o grupo")
+        self.assertContains(page, self.user.username)
 
     def test_period_close_preserves_history_and_allows_same_ficha_in_next_period(self):
         self.make_superuser()

@@ -1104,7 +1104,7 @@ class MatriculaProcesoTests(TestCase):
 
     def test_student_selector_uses_select2_and_searchable_identification_labels(self):
         self.client.force_login(self.user)
-        estudiante = Partner.objects.create(
+        Partner.objects.create(
             nombre="Anahi Camila",
             apellido="Valverde Cuaspud",
             identificacion="0402103741",
@@ -1121,6 +1121,41 @@ class MatriculaProcesoTests(TestCase):
         self.assertContains(response, "select2@4.1.0-rc.0/dist/js/select2.min.js")
         self.assertContains(response, 'jQuery(estudianteSelect).select2({', html=False)
         self.assertContains(response, "Valverde Cuaspud Anahi Camila - 0402103741")
+
+    def test_student_selector_only_lists_students_without_enrollment_record(self):
+        self.client.force_login(self.user)
+        sin_ficha = self.create_partner(
+            "1002003040",
+            "Alumno Sin Ficha",
+            es_estudiante=True,
+        )
+        con_ficha = self.create_partner(
+            "1002003041",
+            "Alumno Con Ficha",
+            es_estudiante=True,
+        )
+        representante = self.create_partner(
+            "1002003042",
+            "Representante Ficha",
+            es_cliente=True,
+            es_representante=True,
+        )
+        FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="F-SELECT2",
+            fecha=date(2026, 9, 22),
+            cliente=representante,
+            estudiante=con_ficha,
+            representante=representante,
+            estado="activa",
+            activo=True,
+        )
+
+        response = self.client.get(reverse("matricula:matricula_proceso"), HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'<option value="{sin_ficha.pk}">', html=False)
+        self.assertNotContains(response, f'<option value="{con_ficha.pk}">', html=False)
 
     @patch("django.utils.timezone.localdate", return_value=date(2026, 8, 28))
     def test_process_creates_ficha_without_academic_assignment_and_fixed_installments(self, _mock_localdate):
