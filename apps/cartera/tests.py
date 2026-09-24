@@ -610,14 +610,83 @@ class FormaPagoFormTests(TestCase):
         cuota_atrasada.refresh_from_db()
         cuota_proxima.refresh_from_db()
         plan.refresh_from_db()
+        ficha.refresh_from_db()
         self.assertEqual(cuota_atrasada.valor_pagado, Decimal("250.00"))
         self.assertEqual(cuota_atrasada.estado, "pagada")
         self.assertEqual(cuota_proxima.valor_pagado, Decimal("20.00"))
         self.assertEqual(cuota_proxima.estado, "parcial")
         self.assertEqual(plan.abono, Decimal("320.00"))
         self.assertEqual(plan.saldo, Decimal("180.00"))
+        self.assertEqual(ficha.abono, Decimal("320.00"))
+        self.assertEqual(ficha.saldo, Decimal("180.00"))
+        self.assertEqual(ficha.fecha_proximo_pago, date(2026, 9, 1))
+        self.assertEqual(ficha.valor_proximo_pago, Decimal("180.00"))
         self.assertEqual(Cuota.objects.get(pk=cuota_atrasada.pk).pagos.first().valor, Decimal("200.00"))
         self.assertEqual(Cuota.objects.get(pk=cuota_proxima.pk).pagos.first().valor, Decimal("20.00"))
+
+    def test_only_user_with_permission_can_void_payment_and_restore_balances(self):
+        ficha, plan, cuota, _, forma_pago = self.create_payment_flow_data()
+        pago = Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.now(),
+            valor=Decimal("50.00"),
+            numero_documento="VOID-001",
+            usuario=self.user,
+            usuario_updated=self.user,
+        )
+        PagoAuditoria.objects.all().delete()
+        limited_user = get_user_model().objects.create_user(
+            username="sin_permiso_anular",
+            password="ClaveActual987!",
+        )
+        url = reverse("cartera:pago_anular", kwargs={"pk": pago.pk})
+
+        self.client.force_login(limited_user)
+        denied = self.client.post(url, HTTP_HOST="localhost")
+
+        self.assertEqual(denied.status_code, 403)
+        pago.refresh_from_db()
+        self.assertFalse(pago.anulado)
+
+        limited_user.user_permissions.add(
+            Permission.objects.get(content_type__app_label="cartera", codename="anular_pago")
+        )
+        self.client.force_login(limited_user)
+        response = self.client.post(
+            url,
+            {"motivo": "Comprobante registrado por error"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("cartera:pago_detalle", kwargs={"pk": pago.pk}),
+            fetch_redirect_response=False,
+        )
+        pago.refresh_from_db()
+        cuota.refresh_from_db()
+        plan.refresh_from_db()
+        ficha.refresh_from_db()
+        self.assertTrue(pago.anulado)
+        self.assertEqual(pago.usuario_anulacion, limited_user)
+        self.assertEqual(pago.motivo_anulacion, "Comprobante registrado por error")
+        self.assertEqual(cuota.valor_pagado, Decimal("0.00"))
+        self.assertIn(cuota.estado, {"pendiente", "vencida"})
+        self.assertEqual(plan.abono, Decimal("50.00"))
+        self.assertEqual(plan.saldo, Decimal("450.00"))
+        self.assertEqual(ficha.abono, Decimal("50.00"))
+        self.assertEqual(ficha.saldo, Decimal("450.00"))
+        audit = PagoAuditoria.objects.get(pago_id=pago.pk, accion="anular")
+        self.assertEqual(audit.usuario_accion_id, limited_user.pk)
+        self.assertEqual(audit.cambios["cuota_valor_pagado"], {"antes": "50.00", "despues": "0.00"})
+        self.assertEqual(audit.cambios["plan_saldo"], {"antes": "400.00", "despues": "450.00"})
+
+        repeated = self.client.post(url, HTTP_HOST="localhost")
+        self.assertEqual(repeated.status_code, 302)
+        plan.refresh_from_db()
+        self.assertEqual(plan.saldo, Decimal("450.00"))
 
     def test_student_payment_rejects_duplicate_receipt_number(self):
         self.client.force_login(self.user)
@@ -768,6 +837,9 @@ class FormaPagoFormTests(TestCase):
         self.assertContains(response, "Juan Estudiante")
         self.assertContains(response, "PAY-001")
         self.assertContains(response, "Pago revisado")
+        self.assertContains(response, "size: A4 portrait;")
+        self.assertContains(response, "page-break-inside: avoid;")
+        self.assertContains(response, ".d-footer,")
         self.assertNotContains(response, "Editar")
         self.assertNotContains(response, 'name="valor"')
 

@@ -87,8 +87,19 @@ class PagoAuditoriaDetailView(AdministratorOnlyMixin, DetailView):
         "numero_documento": "Número de documento",
         "comprobante": "Comprobante",
         "comentario": "Comentario",
+        "anulado": "Pago anulado",
+        "fecha_anulacion": "Fecha de anulación",
+        "motivo_anulacion": "Motivo de anulación",
         "usuario_id": "Usuario que registró el pago ID",
         "usuario_updated_id": "Último usuario del pago ID",
+        "usuario_anulacion_id": "Usuario que anuló el pago ID",
+        "cuota_valor_pagado": "Valor pagado de la cuota",
+        "cuota_estado": "Estado de la cuota",
+        "plan_abono": "Total abonado al plan",
+        "plan_saldo": "Saldo pendiente del plan",
+        "plan_estado": "Estado del plan",
+        "ficha_abono": "Total abonado de la ficha",
+        "ficha_saldo": "Saldo pendiente de la ficha",
     }
 
     def get_context_data(self, **kwargs):

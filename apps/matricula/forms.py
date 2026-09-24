@@ -10,6 +10,7 @@ from apps.core.forms import BootstrapFormMixin
 from apps.core.models import Partner
 from apps.cartera.forms import pago_comprobante_duplicado, pago_comprobante_duplicado_message
 from apps.cartera.models import Cuota, FormaPago, PlanPago
+from apps.auditoria.services import registrar_cambio_plan_cuotas
 
 from .models import Aula, Curso, FichaInscripcion, PeriodoAcademico
 from .payment_schedule import fecha_cuota
@@ -126,6 +127,7 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
+        self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
         self.current_installment_count = 0
         self.installment_plan = None
@@ -135,6 +137,11 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
                 activo=True,
             ).first()
             if self.installment_plan:
+                first_installment = (
+                    self.installment_plan.cuotas.filter(numero__gt=0, activo=True)
+                    .order_by("numero")
+                    .first()
+                )
                 self.current_installment_count = (
                     self.installment_plan.cuotas.filter(numero__gt=0, activo=True)
                     .order_by("-numero")
@@ -142,7 +149,18 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
                     .first()
                     or 0
                 )
-                self.initial.setdefault("numero_cuotas", self.current_installment_count or None)
+                self.initial["numero_cuotas"] = self.current_installment_count or None
+                self.initial["valor_matricula"] = self.installment_plan.valor_matricula
+                self.initial["abono"] = self.installment_plan.abono
+                self.initial["saldo"] = self.installment_plan.saldo
+                if first_installment:
+                    self.initial["fecha_proximo_pago"] = first_installment.fecha_pago_debito
+                    self.initial["valor_proximo_pago"] = first_installment.valor
+        self.payment_discount = (
+            self.installment_plan.descuento
+            if self.installment_plan
+            else self.instance.descuento or Decimal("0.00")
+        )
         self.fields["numero"].disabled = True
         self.fields["numero"].widget.attrs["readonly"] = "readonly"
         self.fields["numero"].widget.attrs["aria-readonly"] = "true"
@@ -163,25 +181,38 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["saldo"].help_text = "Se calcula automáticamente con los valores del convenio."
         if self.instance.pk and self.instance.estudiante_id:
             self.fields["estudiante_es_de_ibarra"].initial = self.instance.estudiante.es_de_ibarra
-        self.payment_fields_locked = self.has_registered_payments()
-        if self.payment_fields_locked:
+        self.regular_installments_locked = self.has_registered_payments(numero__gt=0)
+        self.matricula_locked = self.has_registered_payments(numero=Cuota.NUMERO_MATRICULA)
+        self.abono_locked = self.has_registered_payments(numero=Cuota.NUMERO_ABONO)
+        self.payment_fields_locked = (
+            self.regular_installments_locked or self.matricula_locked or self.abono_locked
+        )
+        if self.regular_installments_locked:
             for field_name in [
                 "forma_pago_convenio",
                 "fecha_proximo_pago",
                 "valor_proximo_pago",
-                "valor_matricula",
-                "abono",
-                "saldo",
+                "numero_cuotas",
             ]:
                 self.fields[field_name].disabled = True
                 self.fields[field_name].widget.attrs["readonly"] = "readonly"
-                self.fields[field_name].help_text = "Bloqueado porque esta ficha ya tiene pagos registrados."
+                self.fields[field_name].help_text = "Bloqueado porque ya existe un pago en una cuota regular."
+        if self.matricula_locked:
+            self.fields["valor_matricula"].disabled = True
+            self.fields["valor_matricula"].widget.attrs["readonly"] = "readonly"
+            self.fields["valor_matricula"].help_text = "Bloqueado porque la matrícula ya tiene un pago."
+        if self.payment_fields_locked:
+            self.fields["abono"].disabled = True
+            self.fields["abono"].widget.attrs["readonly"] = "readonly"
+            self.fields["abono"].help_text = "Bloqueado porque esta ficha ya tiene pagos registrados."
 
-    def has_registered_payments(self):
+    def has_registered_payments(self, **cuota_filters):
         if not self.instance.pk:
             return False
         try:
-            return self.instance.plan_pago.cuotas.filter(pagos__isnull=False).exists()
+            return self.instance.plan_pago.cuotas.filter(**cuota_filters).filter(
+                Q(pagos__anulado=False) | Q(valor_pagado__gt=0)
+            ).exists()
         except ObjectDoesNotExist:
             return False
 
@@ -207,7 +238,7 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
                 numero__gt=value,
                 activo=True,
             )
-            if cuotas_a_retirar.filter(Q(pagos__isnull=False) | Q(valor_pagado__gt=0)).exists():
+            if cuotas_a_retirar.filter(Q(pagos__anulado=False) | Q(valor_pagado__gt=0)).exists():
                 raise forms.ValidationError(
                     "No puedes reducir a ese número porque una de las últimas cuotas ya tiene pagos registrados."
                 )
@@ -235,12 +266,11 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
 
     def clean(self):
         data = super().clean()
-        if data.get("valor_matricula") != self.initial.get("valor_matricula", Decimal("0.00")) and not self.payment_fields_locked:
+        if data.get("valor_matricula") != self.initial.get("valor_matricula", Decimal("0.00")):
             if not self.instance.pk or not PlanPago.objects.filter(ficha_inscripcion=self.instance, activo=True).exists():
                 self.add_error("valor_matricula", "La ficha necesita un plan de pago activo para modificar la matrícula.")
         if (
             data.get("valor_proximo_pago") != self.initial.get("valor_proximo_pago")
-            and not self.payment_fields_locked
             and not self.installment_plan
         ):
             self.add_error(
@@ -269,7 +299,8 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             and numero_cuotas != self.current_installment_count
         )
         update_matricula = False
-        if commit and self.instance.pk and not self.payment_fields_locked:
+        audit_before = None
+        if commit and self.instance.pk:
             plan = PlanPago.objects.select_for_update().filter(ficha_inscripcion=self.instance, activo=True).first()
             if plan:
                 missing = self.cleaned_data["valor_matricula"] > 0 and not plan.cuotas.filter(
@@ -285,14 +316,19 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
                     plan = None
             if plan:
                 cuotas = list(plan.cuotas.select_for_update())
-                if (
-                    update_matricula or installment_value_changed or schedule_changed
-                ) and plan.cuotas.filter(pagos__isnull=False).exists():
-                    raise forms.ValidationError("Se registraron pagos mientras editabas. Recarga la ficha antes de guardar.")
-        elif commit and self.instance.pk and installments_changed:
-            plan = PlanPago.objects.select_for_update().filter(ficha_inscripcion=self.instance, activo=True).first()
-            if plan:
-                cuotas = list(plan.cuotas.select_for_update())
+                if update_matricula and plan.cuotas.filter(
+                    numero=Cuota.NUMERO_MATRICULA,
+                ).filter(Q(pagos__anulado=False) | Q(valor_pagado__gt=0)).exists():
+                    raise forms.ValidationError(
+                        "Se registró un pago de matrícula mientras editabas. Recarga la ficha antes de guardar."
+                    )
+                if (installment_value_changed or schedule_changed or installments_changed) and plan.cuotas.filter(
+                    numero__gt=0,
+                ).filter(Q(pagos__anulado=False) | Q(valor_pagado__gt=0)).exists():
+                    raise forms.ValidationError(
+                        "Se registró un pago en una cuota mientras editabas. Recarga la ficha antes de guardar."
+                    )
+                audit_before = self.payment_plan_snapshot(plan, self.instance)
         ficha = super().save(commit=commit)
         if plan and update_matricula:
             valor = ficha.valor_matricula
@@ -334,11 +370,37 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
                 if cuota.estado not in {"pagada", "anulada"}:
                     cuota.estado = "parcial" if cuota.valor_pagado > 0 else "pendiente"
                 cuota.save(update_fields=["fecha_pago_debito", "estado", "updated"])
+        if plan and audit_before and self.request:
+            plan.refresh_from_db()
+            ficha.refresh_from_db()
+            registrar_cambio_plan_cuotas(
+                request=self.request,
+                plan=plan,
+                ficha=ficha,
+                datos_anteriores=audit_before,
+                datos_nuevos=self.payment_plan_snapshot(plan, ficha),
+            )
         estudiante = self.cleaned_data.get("estudiante")
         if commit and estudiante:
             estudiante.es_de_ibarra = self.cleaned_data.get("estudiante_es_de_ibarra", False)
             estudiante.save(update_fields=["es_de_ibarra"])
         return ficha
+
+    @staticmethod
+    def payment_plan_snapshot(plan, ficha):
+        cuotas = plan.cuotas.filter(numero__gt=0, activo=True)
+        first_installment = cuotas.order_by("numero").first()
+        return {
+            "forma_pago_convenio": ficha.forma_pago_convenio or "",
+            "fecha_primera_cuota": ficha.fecha_proximo_pago.isoformat() if ficha.fecha_proximo_pago else None,
+            "numero_cuotas": cuotas.count(),
+            "valor_cuota": str(first_installment.valor if first_installment else Decimal("0.00")),
+            "valor_matricula": str(plan.valor_matricula),
+            "valor_total_plan": str(plan.valor_total),
+            "saldo_plan": str(plan.saldo),
+            "valor_total_curso": str(ficha.valor_total_curso),
+            "saldo_ficha": str(ficha.saldo),
+        }
 
     def update_installments(
         self,
@@ -413,7 +475,7 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             )
 
         cuotas_a_retirar = plan.cuotas.filter(numero__gt=numero_cuotas, activo=True)
-        if cuotas_a_retirar.filter(Q(pagos__isnull=False) | Q(valor_pagado__gt=0)).exists():
+        if cuotas_a_retirar.filter(Q(pagos__anulado=False) | Q(valor_pagado__gt=0)).exists():
             raise forms.ValidationError(
                 "Se registraron pagos en una cuota que intentabas retirar. Recarga la ficha antes de guardar."
             )

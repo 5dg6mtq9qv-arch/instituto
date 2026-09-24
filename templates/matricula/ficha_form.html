@@ -95,15 +95,18 @@
       <div
         class="panel ficha-edit-section"
         data-ficha-payment-section
-        data-ficha-discount="{{ object.descuento|stringformat:'f' }}"
+        data-ficha-discount="{{ form.payment_discount|stringformat:'f' }}"
       >
         <div class="section-heading">
           <h2>Convenio</h2>
         </div>
-        {% if form.payment_fields_locked %}
+        {% if form.regular_installments_locked or form.matricula_locked %}
           <div class="alert alert-warning ficha-payment-lock">
             <i class="ri-lock-line"></i>
-            <span>Los valores de pago estan bloqueados porque esta ficha ya tiene pagos registrados.</span>
+            <span>
+              {% if form.regular_installments_locked %}Las cuotas regulares están bloqueadas porque ya tienen pagos.{% endif %}
+              {% if form.matricula_locked %} El valor de matrícula está bloqueado porque ya fue pagado total o parcialmente.{% endif %}
+            </span>
           </div>
         {% endif %}
         <div class="row g-3">

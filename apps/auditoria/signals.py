@@ -16,8 +16,12 @@ AUDITED_FIELDS = (
     "numero_documento",
     "comprobante",
     "comentario",
+    "anulado",
+    "fecha_anulacion",
+    "motivo_anulacion",
     "usuario_id",
     "usuario_updated_id",
+    "usuario_anulacion_id",
 )
 
 
@@ -86,11 +90,13 @@ def audit_payment_save(sender, instance, created, raw=False, using=None, **kwarg
 
     previous = getattr(instance, "_audit_previous_snapshot", None)
     current = pago_snapshot(instance)
+    previous.update(getattr(instance, "_audit_extra_previous", {})) if previous is not None else None
+    current.update(getattr(instance, "_audit_extra_current", {}))
     changes = {}
     if previous is not None:
         changes = {
             field_name: {"antes": previous.get(field_name), "despues": current.get(field_name)}
-            for field_name in AUDITED_FIELDS
+            for field_name in previous.keys() | current.keys()
             if previous.get(field_name) != current.get(field_name)
         }
     if not created and not changes:
@@ -99,7 +105,13 @@ def audit_payment_save(sender, instance, created, raw=False, using=None, **kwarg
     context = payment_context(instance)
     PagoAuditoria.objects.using(using).create(
         tipo_evento="pago",
-        accion="crear" if created else "modificar",
+        accion=(
+            "crear"
+            if created
+            else "anular"
+            if not previous.get("anulado") and current.get("anulado")
+            else "modificar"
+        ),
         pago_id=instance.pk,
         empresa_id=instance.empresa_id,
         cuota_id=instance.cuota_id,

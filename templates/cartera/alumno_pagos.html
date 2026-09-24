@@ -51,11 +51,12 @@
     {% if pagos %}
       <div class="payment-ledger-list">
         {% for pago in pagos %}
-          <article class="payment-ledger-row">
+          <article class="payment-ledger-row{% if pago.anulado %} is-voided{% endif %}">
             <div class="payment-ledger-main">
               <span class="payment-ledger-icon"><i class="ri-bank-card-line"></i></span>
               <div>
                 <h3>${{ pago.valor|floatformat:2 }}</h3>
+                {% if pago.anulado %}<span class="badge bg-danger">Anulado</span>{% endif %}
                 <p>{{ pago.forma_pago }} · {{ pago.cuota.etiqueta }} · {{ pago.fecha_registro|date:"d/m/Y H:i" }}</p>
                 <small>No. comprobante: {{ pago.numero_documento|default:"-" }}</small>
               </div>

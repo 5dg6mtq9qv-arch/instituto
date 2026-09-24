@@ -293,12 +293,16 @@ class FichaInscripcionUpdateView(InstitutoUpdateView):
     title = "Editar ficha de inscripcion"
     cancel_url = reverse_lazy("matricula:ficha_list")
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["request"] = self.request
+        return kwargs
+
     def form_valid(self, form):
         try:
             return super().form_valid(form)
         except ValidationError as exc:
             form.add_error(None, exc)
-            return self.form_invalid(form)
             return self.form_invalid(form)
 
     def get_success_url(self):

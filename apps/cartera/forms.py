@@ -56,7 +56,7 @@ def pago_comprobante_duplicado(numero_documento, empresa=None, exclude_pk=None):
     pagos = Pago.objects.select_related(
         "cuota__plan_pago__ficha_inscripcion__estudiante",
         "forma_pago",
-    ).filter(numero_documento__iexact=numero_documento)
+    ).filter(numero_documento__iexact=numero_documento, anulado=False)
     if empresa:
         pagos = pagos.filter(empresa=empresa)
     if exclude_pk:

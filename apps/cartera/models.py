@@ -177,6 +177,9 @@ class Pago(models.Model):
     numero_documento = models.CharField(max_length=60, blank=True, null=True)
     comprobante = models.FileField(upload_to="cartera/comprobantes/", blank=True, null=True)
     comentario = models.TextField(blank=True, null=True)
+    anulado = models.BooleanField(default=False, db_index=True)
+    fecha_anulacion = models.DateTimeField(blank=True, null=True)
+    motivo_anulacion = models.TextField(blank=True)
     usuario = models.ForeignKey(
         "auth.User",
         db_column="id_usuario",
@@ -195,10 +198,21 @@ class Pago(models.Model):
         null=True,
         related_name="pagos_actualizados",
     )
+    usuario_anulacion = models.ForeignKey(
+        "auth.User",
+        db_column="id_usuario_anulacion",
+        on_delete=models.DO_NOTHING,
+        blank=True,
+        null=True,
+        related_name="pagos_anulados",
+    )
 
     class Meta:
         db_table = '"cartera"."pago"'
         ordering = ["-fecha_registro"]
+        permissions = (
+            ("anular_pago", "Puede anular pagos y revertir sus valores"),
+        )
 
     def __str__(self):
         return f"{self.valor} - {self.forma_pago}"

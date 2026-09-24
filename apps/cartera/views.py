@@ -28,6 +28,30 @@ from .forms import (
 from .models import Cuota, FormaPago, Pago, PlanPago
 
 
+def sync_ficha_payment_summary(ficha, plan, user):
+    proxima_cuota = next(
+        (
+            cuota
+            for cuota in plan.cuotas.filter(activo=True)
+            .exclude(estado="anulada")
+            .order_by("fecha_pago_debito", "numero")
+            if cuota.saldo() > 0
+        ),
+        None,
+    )
+    ficha.abono = plan.abono
+    ficha.saldo = plan.saldo
+    ficha.fecha_proximo_pago = proxima_cuota.fecha_pago_debito if proxima_cuota else None
+    ficha.valor_proximo_pago = proxima_cuota.saldo() if proxima_cuota else Decimal("0.00")
+    ficha.usuario_updated = user
+    ficha.save(
+        update_fields=[
+            "abono", "saldo", "fecha_proximo_pago", "valor_proximo_pago",
+            "usuario_updated", "updated",
+        ]
+    )
+
+
 class AlumnoCarteraListView(InstitutoListView):
     model = FichaInscripcion
     title = "Cobros por alumno"
@@ -195,7 +219,10 @@ class AlumnoCarteraListView(InstitutoListView):
         }
         if include_financial:
             total_saldo = queryset.filter(plan_pago__saldo__gt=0).aggregate(total=Sum("plan_pago__saldo"))["total"]
-            pagos = Pago.objects.filter(cuota__plan_pago__ficha_inscripcion_id__in=queryset.values("pk"))
+            pagos = Pago.objects.filter(
+                cuota__plan_pago__ficha_inscripcion_id__in=queryset.values("pk"),
+                anulado=False,
+            )
             summary.update(
                 {
                     "saldo": total_saldo or Decimal("0"),
@@ -357,14 +384,14 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     "can_change_amount": (
                         can_change_cuota_amount
                         and cuota.valor_pagado <= 0
-                        and not cuota.pagos.exists()
+                        and not cuota.pagos.filter(anulado=False).exists()
                     ),
                 }
             )
 
         pagos_recientes = (
             Pago.objects.select_related("cuota", "forma_pago")
-            .filter(cuota__plan_pago=ficha.plan_pago)
+            .filter(cuota__plan_pago=ficha.plan_pago, anulado=False)
             .order_by("-fecha_registro")[:5]
         )
 
@@ -464,6 +491,7 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     plan.estado = "cerrado"
                 plan.usuario_updated = request.user
                 plan.save(update_fields=["abono", "saldo", "estado", "usuario_updated", "updated"])
+                sync_ficha_payment_summary(ficha, plan, request.user)
             if form.cleaned_data.get("valor"):
                 messages.success(request, f"Abono registrado por {total_pagado:.2f} en {cuotas_afectadas} cuota(s).")
             else:
@@ -519,7 +547,7 @@ class CuotaValorUpdateView(LoginRequiredMixin, PermissionRequiredMixin, View):
         plan = PlanPago.objects.select_for_update().get(pk=cuota.plan_pago_id)
         ficha = FichaInscripcion.objects.select_for_update().get(pk=pk)
 
-        if cuota.estado in {"pagada", "anulada"} or cuota.valor_pagado > 0 or cuota.pagos.exists():
+        if cuota.estado in {"pagada", "anulada"} or cuota.valor_pagado > 0 or cuota.pagos.filter(anulado=False).exists():
             messages.error(request, "No puedes editar el valor de una cuota que ya tiene pagos realizados.")
             return redirect("cartera:alumno_pendientes", pk=pk)
 
@@ -619,14 +647,15 @@ class AlumnoPagosView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         ficha = self.get_ficha()
         pagos = self.object_list
-        total_pagado = pagos.aggregate(total=Sum("valor"))["total"] or Decimal("0")
-        ultimo_pago = pagos.first()
+        pagos_vigentes = pagos.filter(anulado=False)
+        total_pagado = pagos_vigentes.aggregate(total=Sum("valor"))["total"] or Decimal("0")
+        ultimo_pago = pagos_vigentes.first()
         context.update(
             {
                 "title": "Pagos realizados",
                 "ficha": ficha,
                 "total_pagado": total_pagado,
-                "pagos_count": pagos.count(),
+                "pagos_count": pagos_vigentes.count(),
                 "ultimo_pago": ultimo_pago,
             }
         )
@@ -808,6 +837,77 @@ class PagoDetailView(LoginRequiredMixin, PermissionRequiredMixin, DetailView):
             }
         )
         return context
+
+
+class PagoAnularView(LoginRequiredMixin, PermissionRequiredMixin, View):
+    permission_required = "cartera.anular_pago"
+
+    @transaction.atomic
+    def post(self, request, pk):
+        pago = get_object_or_404(
+            Pago.objects.select_for_update().select_related(
+                "cuota__plan_pago__ficha_inscripcion"
+            ),
+            pk=pk,
+        )
+        if pago.anulado:
+            messages.info(request, "Este pago ya se encuentra anulado.")
+            return redirect("cartera:pago_detalle", pk=pago.pk)
+
+        cuota = Cuota.objects.select_for_update().get(pk=pago.cuota_id)
+        plan = PlanPago.objects.select_for_update().get(pk=cuota.plan_pago_id)
+        ficha = FichaInscripcion.objects.select_for_update().get(pk=plan.ficha_inscripcion_id)
+        previous = {
+            "cuota_valor_pagado": str(cuota.valor_pagado),
+            "cuota_estado": cuota.estado,
+            "plan_abono": str(plan.abono),
+            "plan_saldo": str(plan.saldo),
+            "plan_estado": plan.estado,
+            "ficha_abono": str(ficha.abono),
+            "ficha_saldo": str(ficha.saldo),
+        }
+
+        cuota.valor_pagado = max(cuota.valor_pagado - pago.valor, Decimal("0.00"))
+        if cuota.valor_pagado >= cuota.valor:
+            cuota.estado = "pagada"
+        elif cuota.valor_pagado > 0:
+            cuota.estado = "parcial"
+        else:
+            cuota.estado = "vencida" if cuota.fecha_pago_debito < timezone.localdate() else "pendiente"
+        cuota.usuario_updated = request.user
+        cuota.save(update_fields=["valor_pagado", "estado", "usuario_updated", "updated"])
+
+        plan.abono = max(plan.abono - pago.valor, Decimal("0.00"))
+        plan.saldo = max(plan.valor_total - plan.descuento - plan.abono, Decimal("0.00"))
+        if plan.estado != "anulado":
+            plan.estado = "cerrado" if plan.saldo == 0 else "activo"
+        plan.usuario_updated = request.user
+        plan.save(update_fields=["abono", "saldo", "estado", "usuario_updated", "updated"])
+        sync_ficha_payment_summary(ficha, plan, request.user)
+
+        pago.anulado = True
+        pago.fecha_anulacion = timezone.now()
+        pago.motivo_anulacion = (request.POST.get("motivo") or "").strip()
+        pago.usuario_anulacion = request.user
+        pago.usuario_updated = request.user
+        pago._audit_extra_previous = previous
+        pago._audit_extra_current = {
+            "cuota_valor_pagado": str(cuota.valor_pagado),
+            "cuota_estado": cuota.estado,
+            "plan_abono": str(plan.abono),
+            "plan_saldo": str(plan.saldo),
+            "plan_estado": plan.estado,
+            "ficha_abono": str(ficha.abono),
+            "ficha_saldo": str(ficha.saldo),
+        }
+        pago.save(
+            update_fields=[
+                "anulado", "fecha_anulacion", "motivo_anulacion",
+                "usuario_anulacion", "usuario_updated", "updated",
+            ]
+        )
+        messages.success(request, f"Pago de ${pago.valor:.2f} anulado y saldos revertidos correctamente.")
+        return redirect("cartera:pago_detalle", pk=pago.pk)
 
 
 class PagoCreateView(LoginRequiredMixin, PermissionRequiredMixin, View):

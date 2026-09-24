@@ -52,6 +52,7 @@ class PagoAuditoria(models.Model):
     ACCION_CHOICES = (
         ("crear", "Creación"),
         ("modificar", "Modificación"),
+        ("anular", "Anulación"),
     )
 
     tipo_evento = models.CharField(max_length=20, choices=TIPO_EVENTO_CHOICES, default="pago", db_index=True)

@@ -17,6 +17,15 @@
         <i class="ri-secure-payment-line"></i>
         Cobrar
       </a>
+      {% if perms.cartera.anular_pago and not pago.anulado %}
+        <form method="post" action="{% url 'cartera:pago_anular' pago.pk %}" onsubmit="return window.confirm('¿Está seguro de anular este pago? Esta acción revertirá la cuota y los saldos relacionados.');">
+          {% csrf_token %}
+          <button class="btn btn-outline-danger" type="submit">
+            <i class="ri-close-circle-line"></i>
+            Anular pago
+          </button>
+        </form>
+      {% endif %}
       <button class="btn btn-primary-600" type="button" onclick="window.print()">
         <i class="ri-printer-line"></i>
         Imprimir
@@ -25,6 +34,13 @@
   </header>
 
   <section class="payment-receipt">
+    {% if pago.anulado %}
+      <div class="alert alert-danger">
+        <strong>Pago anulado</strong>
+        el {{ pago.fecha_anulacion|date:"d/m/Y H:i" }}
+        {% if pago.usuario_anulacion %}por {{ pago.usuario_anulacion.get_full_name|default:pago.usuario_anulacion.username }}{% endif %}.
+      </div>
+    {% endif %}
     <header class="payment-receipt-header">
       <div class="payment-receipt-brand">
         {% if pago.empresa.logo %}
@@ -317,28 +333,92 @@
       }
     }
 
+    @page {
+      size: A4 portrait;
+      margin: 10mm;
+    }
+
     @media print {
+      html,
       body {
         background: #ffffff;
+        height: auto !important;
+        min-height: 0 !important;
+      }
+
+      body {
+        margin: 0 !important;
+      }
+
+      body * {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
 
       .no-print,
       .sidebar,
-      .topbar,
-      .page-header {
+      .navbar-header,
+      .page-header,
+      .d-footer,
+      .message-stack,
+      .instituto-overlay {
         display: none !important;
       }
 
-      .main-content,
-      .content-wrapper {
+      .dashboard-main,
+      .dashboard-main-body {
+        height: auto !important;
         margin: 0 !important;
+        min-height: 0 !important;
         padding: 0 !important;
+        width: 100% !important;
       }
 
       .payment-receipt {
         border: 1px solid #111827;
         box-shadow: none;
+        break-inside: avoid-page;
+        gap: 4mm;
+        margin: 0 !important;
         max-width: none;
+        page-break-inside: avoid;
+        padding: 7mm;
+        width: 100%;
+      }
+
+      .payment-receipt-header {
+        padding-bottom: 4mm;
+      }
+
+      .payment-receipt-summary,
+      .payment-receipt-grid,
+      .payment-receipt-footer {
+        break-inside: avoid-page;
+        page-break-inside: avoid;
+      }
+
+      .payment-receipt-summary {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .payment-receipt-grid,
+      .payment-receipt-footer {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .payment-receipt-summary div,
+      .payment-receipt-block,
+      .payment-receipt-notes div,
+      .payment-receipt-footer div {
+        padding: 3mm;
+      }
+
+      .payment-receipt-header h2 {
+        font-size: 22px;
+      }
+
+      .payment-receipt-summary div:first-child strong {
+        font-size: 26px;
       }
     }
   </style>
