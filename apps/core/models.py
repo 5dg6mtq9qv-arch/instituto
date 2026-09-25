@@ -126,6 +126,9 @@ class Partner(models.Model):
     class Meta:
         db_table = '"core"."partner"'
         ordering = ["nombre"]
+        permissions = (
+            ("deactivate_student", "Puede desactivar estudiantes"),
+        )
 
     def __str__(self):
         return self.nombre_completo()

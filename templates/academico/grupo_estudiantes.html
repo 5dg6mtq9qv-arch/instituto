@@ -131,10 +131,15 @@
             </header>
             <div class="transfer-list" data-transfer-list="available">
               {% for row in available_students %}
-                <button class="transfer-item" type="button" data-transfer-item data-kind="ficha" data-id="{{ row.ficha.pk }}" data-origin="available" data-target="available" data-sort="{{ row.sort_key }}" data-search="{{ row.search_text }}" data-active="{{ row.active|yesno:'yes,no' }}" data-ibarra="{{ row.ibarra|yesno:'yes,no' }}">
+                <div class="transfer-item" role="button" tabindex="0" data-transfer-item data-kind="ficha" data-id="{{ row.ficha.pk }}" data-origin="available" data-target="available" data-sort="{{ row.sort_key }}" data-search="{{ row.search_text }}" data-active="{{ row.active|yesno:'yes,no' }}" data-ibarra="{{ row.ibarra|yesno:'yes,no' }}">
                   <span>{{ row.display_name }}</span>
                   <small>Ficha {{ row.ficha.numero }}{% if row.ficha.estudiante.identificacion %} - {{ row.ficha.estudiante.identificacion }}{% endif %} · {% if row.active %}Activo{% else %}Inactivo{% endif %} · {% if row.ibarra %}Ibarra{% else %}Fuera de Ibarra{% endif %}</small>
-                </button>
+                  {% if can_deactivate_students %}
+                    <button class="transfer-item-deactivate" type="button" data-deactivate-student data-ficha-id="{{ row.ficha.pk }}" data-student-name="{{ row.display_name }}" title="Desactivar estudiante" aria-label="Desactivar a {{ row.display_name }}">
+                      <i class="ri-close-line" aria-hidden="true"></i>
+                    </button>
+                  {% endif %}
+                </div>
               {% endfor %}
               <div class="transfer-empty" data-transfer-empty="available"{% if available_students %} hidden{% endif %}>Sin estudiantes que coincidan.</div>
             </div>
@@ -168,10 +173,15 @@
             </header>
             <div class="transfer-list" data-transfer-list="assigned">
               {% for row in assigned_students %}
-                <button class="transfer-item" type="button" data-transfer-item data-kind="assignment" data-id="{{ row.asignacion.pk }}" data-origin="assigned" data-target="assigned" data-sort="{{ row.sort_key }}" data-search="{{ row.search_text }}" data-active="{{ row.active|yesno:'yes,no' }}" data-ibarra="{{ row.ibarra|yesno:'yes,no' }}">
+                <div class="transfer-item" role="button" tabindex="0" data-transfer-item data-kind="assignment" data-id="{{ row.asignacion.pk }}" data-origin="assigned" data-target="assigned" data-sort="{{ row.sort_key }}" data-search="{{ row.search_text }}" data-active="{{ row.active|yesno:'yes,no' }}" data-ibarra="{{ row.ibarra|yesno:'yes,no' }}">
                   <span>{{ row.display_name }}</span>
                   <small>Ficha {{ row.ficha.numero }}{% if row.ficha.estudiante.identificacion %} - {{ row.ficha.estudiante.identificacion }}{% endif %} · {% if row.active %}Activo{% else %}Inactivo{% endif %} · {% if row.ibarra %}Ibarra{% else %}Fuera de Ibarra{% endif %}</small>
-                </button>
+                  {% if can_deactivate_students %}
+                    <button class="transfer-item-deactivate" type="button" data-deactivate-student data-ficha-id="{{ row.ficha.pk }}" data-student-name="{{ row.display_name }}" title="Desactivar estudiante" aria-label="Desactivar a {{ row.display_name }}">
+                      <i class="ri-close-line" aria-hidden="true"></i>
+                    </button>
+                  {% endif %}
+                </div>
               {% endfor %}
               <div class="transfer-empty" data-transfer-empty="assigned"{% if assigned_students %} hidden{% endif %}>Sin estudiantes que coincidan.</div>
             </div>
@@ -185,6 +195,14 @@
           </button>
         </div>
       </form>
+      {% if can_deactivate_students %}
+        <form method="post" data-deactivate-student-form>
+          {% csrf_token %}
+          <input type="hidden" name="assignment_action" value="deactivate_student">
+          <input type="hidden" name="grupo" value="{{ selected_group.pk }}">
+          <input type="hidden" name="ficha_id" value="">
+        </form>
+      {% endif %}
     </section>
   {% endif %}
 
@@ -306,6 +324,9 @@
 
 {% block extra_scripts %}
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
+  {% if can_deactivate_students %}
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+  {% endif %}
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.InstitutoDatePicker) {
@@ -344,6 +365,37 @@
         assigned: transferForm.querySelector('[data-transfer-list="assigned"]')
       };
       const hidden = transferForm.querySelector("[data-transfer-hidden]");
+
+      const deactivateForm = document.querySelector("[data-deactivate-student-form]");
+      document.querySelectorAll("[data-deactivate-student]").forEach(function (button) {
+        button.addEventListener("click", async function (event) {
+          event.stopPropagation();
+          const item = button.closest("[data-transfer-item]");
+          if (!item || item.dataset.target !== "available") return;
+          if (!deactivateForm || !window.Swal || button.disabled) return;
+
+          const result = await Swal.fire({
+            title: "¿Seguro de eliminar al usuario?",
+            text: button.dataset.studentName + " será desactivado y dejará de aparecer en la lista.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Sí, desactivar",
+            cancelButtonText: "Cancelar",
+            confirmButtonColor: "#dc3545",
+            cancelButtonColor: "#64748b",
+            focusCancel: true,
+            reverseButtons: true
+          });
+
+          if (!result.isConfirmed) return;
+          button.disabled = true;
+          deactivateForm.querySelector('[name="ficha_id"]').value = button.dataset.fichaId;
+          HTMLFormElement.prototype.submit.call(deactivateForm);
+        });
+        button.addEventListener("dblclick", function (event) {
+          event.stopPropagation();
+        });
+      });
 
       function itemsIn(listName) {
         return Array.prototype.slice.call(lists[listName].querySelectorAll("[data-transfer-item]"));
@@ -435,6 +487,11 @@
 
       transferForm.querySelectorAll("[data-transfer-item]").forEach(function (item) {
         item.addEventListener("click", function () {
+          item.classList.toggle("is-selected");
+        });
+        item.addEventListener("keydown", function (event) {
+          if (event.target !== item || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
           item.classList.toggle("is-selected");
         });
         item.addEventListener("dblclick", function () {
@@ -723,7 +780,8 @@
       cursor: pointer;
       display: block;
       min-height: 58px;
-      padding: 10px 12px;
+      padding: 10px 46px 10px 12px;
+      position: relative;
       text-align: left;
       width: 100%;
     }
@@ -757,6 +815,34 @@
       font-size: 12px;
       font-weight: 700;
       margin-top: 3px;
+    }
+
+    .transfer-item-deactivate {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      border-radius: 6px;
+      color: #dc3545;
+      display: flex;
+      font-size: 20px;
+      height: 30px;
+      justify-content: center;
+      padding: 0;
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      width: 30px;
+    }
+
+    .transfer-item-deactivate:hover,
+    .transfer-item-deactivate:focus-visible {
+      background: #fee2e2;
+      color: #b91c1c;
+      outline: none;
+    }
+
+    .transfer-list[data-transfer-list="assigned"] .transfer-item-deactivate {
+      display: none;
     }
 
     .transfer-empty {

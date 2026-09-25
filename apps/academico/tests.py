@@ -770,6 +770,99 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(asignacion.estado, "retirado")
         self.assertEqual(asignacion.fecha_fin, timezone.localdate())
 
+    def test_group_student_deactivation_requires_dedicated_permission(self):
+        estudiante, ficha = self.create_student_ficha(
+            nombre="Alumno",
+            apellido="Desactivable",
+            identificacion="EST-DEACTIVATE",
+            numero="F-DEACTIVATE",
+        )
+        estudiante_asignado, ficha_asignada = self.create_student_ficha(
+            nombre="Alumno",
+            apellido="Asignado",
+            identificacion="EST-ASSIGNED-1",
+            numero="F-ASSIGNED-NO-DEACTIVATE",
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha_asignada,
+            estudiante=estudiante_asignado,
+            grupo=self.curso,
+        )
+        permissions = Permission.objects.filter(
+            content_type__app_label="academico",
+            codename__in=("view_grupoestudiante", "change_grupoestudiante"),
+        )
+        self.user.user_permissions.add(*permissions)
+        self.client.force_login(self.user)
+        url = reverse("academico:grupo_estudiantes")
+
+        page_without_permission = self.client.get(
+            url,
+            {"grupo": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+        denied_response = self.client.post(
+            url,
+            {
+                "assignment_action": "deactivate_student",
+                "grupo": self.curso.pk,
+                "ficha_id": ficha.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        estudiante.refresh_from_db()
+
+        self.assertNotContains(page_without_permission, '<button class="transfer-item-deactivate"')
+        self.assertEqual(denied_response.status_code, 403)
+        self.assertTrue(estudiante.activo)
+
+        permission = Permission.objects.get(
+            content_type__app_label="core",
+            codename="deactivate_student",
+        )
+        self.user.user_permissions.add(permission)
+        self.user = get_user_model().objects.get(pk=self.user.pk)
+        self.client.force_login(self.user)
+        page_with_permission = self.client.get(
+            url,
+            {"grupo": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+        deactivate_response = self.client.post(
+            url,
+            {
+                "assignment_action": "deactivate_student",
+                "grupo": self.curso.pk,
+                "ficha_id": ficha.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        estudiante.refresh_from_db()
+
+        self.assertContains(page_with_permission, '<button class="transfer-item-deactivate"')
+        self.assertContains(page_with_permission, f'data-ficha-id="{ficha.pk}"')
+        self.assertContains(page_with_permission, f'data-ficha-id="{ficha_asignada.pk}"')
+        self.assertContains(page_with_permission, 'item.dataset.target !== "available"')
+        self.assertContains(
+            page_with_permission,
+            '.transfer-list[data-transfer-list="assigned"] .transfer-item-deactivate',
+        )
+        self.assertContains(page_with_permission, "sweetalert2@11")
+        self.assertContains(page_with_permission, "¿Seguro de eliminar al usuario?")
+
+        self.assertEqual(deactivate_response.status_code, 302)
+        self.assertFalse(estudiante.activo)
+        self.assertEqual(estudiante.usuario_updated, self.user)
+        estudiante_asignado.refresh_from_db()
+        self.assertTrue(estudiante_asignado.activo)
+
+        refreshed_page = self.client.get(
+            url,
+            {"grupo": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+        self.assertNotContains(refreshed_page, "Desactivable Alumno")
+
     def test_group_transfer_preserves_history_attendance_and_actor(self):
         self.make_superuser()
         today = timezone.localdate()

@@ -2413,6 +2413,10 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         return render(request, self.template_name, self.get_context(selected_group=selected_group))
 
     def post(self, request):
+        action = request.POST.get("assignment_action") or "assign_students"
+        if action == "deactivate_student":
+            return self.handle_deactivate_student(request)
+
         if not self.can_manage(request.user):
             return self.handle_no_permission()
 
@@ -2421,7 +2425,6 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         if selected_period and selected_period.estado == "cerrado":
             messages.error(request, "El periodo de este grupo esta cerrado y su historial no se puede modificar.")
             return self.redirect_to_group(selected_group)
-        action = request.POST.get("assignment_action") or "assign_students"
         if action == "sync_students":
             return self.handle_sync_students(request, selected_group)
         if action == "assign_students":
@@ -2431,6 +2434,37 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
         if action == "cancel_move":
             return self.handle_cancel_move(request, selected_group)
         messages.error(request, "Accion no valida.")
+        return self.redirect_to_group(selected_group)
+
+    def handle_deactivate_student(self, request):
+        if not request.user.has_perm("core.deactivate_student"):
+            return self.handle_no_permission()
+
+        selected_group = self.get_selected_group()
+        available_fichas = GrupoEstudianteBulkForm(
+            selected_group=selected_group,
+        ).fields["fichas"].queryset
+        ficha_id = request.POST.get("ficha_id")
+        ficha = available_fichas.filter(pk=ficha_id).first()
+        if ficha is None and selected_group:
+            selected_period = self.get_group_period(selected_group)
+            assignments = GrupoEstudiante.objects.filter(
+                ficha_inscripcion_id=ficha_id,
+                grupo=selected_group,
+                estado="finalizado" if selected_period and selected_period.estado == "cerrado" else "activo",
+                estudiante__activo=True,
+            )
+            assignments = self.filter_assignment_period(assignments, selected_period)
+            assignment = assignments.select_related("ficha_inscripcion__estudiante").first()
+            ficha = assignment.ficha_inscripcion if assignment else None
+        if ficha is None:
+            raise Http404
+
+        estudiante = ficha.estudiante
+        estudiante.activo = False
+        estudiante.usuario_updated = request.user
+        estudiante.save(update_fields=["activo", "usuario_updated", "actualizado"])
+        messages.success(request, f"El estudiante {estudiante.nombre_completo()} fue desactivado.")
         return self.redirect_to_group(selected_group)
 
     def can_manage(self, user):
@@ -2759,6 +2793,7 @@ class GrupoEstudianteListView(LoginRequiredMixin, PermissionRequiredMixin, View)
             "movement_form": movement_form or ClaseEstudianteMovimientoForm(grupo=selected_group),
             "movement_materia_map_json": json.dumps(self.get_movement_materia_map(movement_materia_cursos)),
             "can_manage": self.can_manage(self.request.user),
+            "can_deactivate_students": self.request.user.has_perm("core.deactivate_student"),
             "can_manage_selected_group": self.can_manage(self.request.user) and not (
                 selected_period and selected_period.estado == "cerrado"
             ),
