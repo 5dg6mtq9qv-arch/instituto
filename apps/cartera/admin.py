@@ -1,7 +1,9 @@
 from django.contrib import admin
+from django.db import transaction
 
 from .forms import FormaPagoForm, PagoForm
 from .models import Cuota, FormaPago, Pago, PlanPago
+from .services import move_payment_between_cuotas
 
 
 class CuotaInline(admin.TabularInline):
@@ -59,3 +61,10 @@ class PagoAdmin(admin.ModelAdmin):
     list_filter = ("empresa", "forma_pago", "fecha_registro")
     search_fields = ("numero_documento", "cuota__plan_pago__ficha_inscripcion__numero")
     date_hierarchy = "fecha_registro"
+
+    @transaction.atomic
+    def save_model(self, request, obj, form, change):
+        if change and obj.pk:
+            move_payment_between_cuotas(obj.pk, obj.cuota_id, request.user)
+        obj.usuario_updated = request.user
+        super().save_model(request, obj, form, change)

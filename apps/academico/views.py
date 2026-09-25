@@ -1683,6 +1683,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         clase.clase_subtemas.all().delete()
         clase.competencias.clear()
         clase.estrategias.clear()
+        clase.clase_estrategias_orden.all().delete()
         ClaseRecurso.objects.filter(clase=clase).delete()
         ClaseAsistencia.objects.filter(clase=clase).delete()
         ClaseEstudianteMovimiento.objects.filter(Q(clase_origen=clase) | Q(clase_destino=clase)).delete()
@@ -3949,7 +3950,7 @@ class DocenteHorariosView(LoginRequiredMixin, View):
     def build_planificacion_card(self, clase):
         horario = clase.horario_aula_curso.horario_dia.horario
         competencias = list(clase.competencias.all())
-        estrategias = list(clase.estrategias.all())
+        estrategias = clase.get_estrategias_planificadas()
         recursos = list(clase.recursos.all())
         subtemas = clase.get_subtemas_planificados()
         temas = clase.get_temas_planificados()
@@ -4785,11 +4786,11 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
         return bool(self.get_inline_selected_ids(request, prefix) or self.get_inline_new_names(request, prefix))
 
     def get_inline_selected_ids(self, request, prefix):
-        return {
-            int(value)
-            for value in request.POST.getlist(f"{prefix}_existentes")
-            if str(value).isdigit()
-        }
+        selected_ids = []
+        for value in request.POST.getlist(f"{prefix}_existentes"):
+            if str(value).isdigit() and int(value) not in selected_ids:
+                selected_ids.append(int(value))
+        return selected_ids
 
     def get_inline_new_names(self, request, prefix):
         raw_value = request.POST.get(f"{prefix}_nuevos") or ""
@@ -4839,14 +4840,21 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
 
     def sync_inline_tags(self, relation, model, prefix, materia):
         posted_ids = self.get_inline_selected_ids(self.request, prefix)
-        selected_items = list(planning_catalog_queryset(model, materia).filter(pk__in=posted_ids))
-        selected_ids = {item.pk for item in selected_items}
+        selected_by_id = {
+            item.pk: item
+            for item in planning_catalog_queryset(model, materia).filter(pk__in=posted_ids)
+        }
+        selected_items = [selected_by_id[item_id] for item_id in posted_ids if item_id in selected_by_id]
+        selected_ids = [item.pk for item in selected_items]
         for item in selected_items:
             item.materias.add(materia)
         for name in self.get_inline_new_names(self.request, prefix):
             obj = get_or_create_planning_catalog_item(model, materia, name)
-            selected_ids.add(obj.pk)
+            if obj.pk not in selected_ids:
+                selected_ids.append(obj.pk)
         relation.set(selected_ids)
+        if prefix == "estrategias":
+            relation.instance.sync_estrategias_orden(selected_ids)
 
     def get_topic_class(self, clase_id, docente, planificacion_tema):
         if not str(clase_id or "").isdigit():
@@ -4982,7 +4990,7 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
         tag_catalogs = tag_catalogs or self.get_inline_tag_catalogs(clase.materia_curso.materia)
         horario = clase.horario_aula_curso.horario_dia.horario
         competencias = list(clase.competencias.all())
-        estrategias = list(clase.estrategias.all())
+        estrategias = clase.get_estrategias_planificadas()
         recursos = list(clase.recursos.all())
         selected_subtemas = [
             subtema for subtema in clase.get_subtemas_planificados()
@@ -5033,19 +5041,29 @@ class DocenteTemaPlanificacionView(LoginRequiredMixin, View):
         }
 
     def build_inline_tag_groups(self, clase, tag_catalogs):
+        estrategia_ids = [item.pk for item in clase.get_estrategias_planificadas()]
         specs = (
             ("Competencias", "competencias", "ri-medal-line", set(clase.competencias.values_list("id", flat=True)), "Nueva competencia"),
-            ("Estrategias", "estrategias", "ri-route-line", set(clase.estrategias.values_list("id", flat=True)), "Nueva estrategia"),
+            ("Estrategias", "estrategias", "ri-route-line", estrategia_ids, "Nueva estrategia"),
             ("Recursos", "recursos", "ri-attachment-2", set(clase.recursos.values_list("id", flat=True)), "Nuevo recurso"),
         )
         groups = []
         for title, prefix, icon, selected_ids, placeholder in specs:
+            catalog_items = list(tag_catalogs[prefix])
+            if prefix == "estrategias":
+                strategy_order = {item_id: index for index, item_id in enumerate(selected_ids)}
+                catalog_items.sort(
+                    key=lambda item: (
+                        0 if item.pk in strategy_order else 1,
+                        strategy_order.get(item.pk, 0),
+                    )
+                )
             options = [
                 {
                     "obj": item,
                     "selected": item.pk in selected_ids,
                 }
-                for item in tag_catalogs[prefix]
+                for item in catalog_items
             ]
             groups.append(
                 {
@@ -6638,6 +6656,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                 "recursos",
                 "clase_temas__tema",
                 "clase_subtemas__subtema",
+                "clase_estrategias_orden__estrategia",
                 Prefetch("clase_recursos", queryset=ClaseRecurso.objects.select_related("recurso")),
             )
             .filter(docente_responsable_filter(docente))
@@ -6937,24 +6956,31 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
         return created
 
     def get_selected_tag_ids(self, prefix):
-        return {
-            int(value)
-            for value in self.request.POST.getlist(f"{prefix}_existentes")
-            if str(value).isdigit()
-        }
+        selected_ids = []
+        for value in self.request.POST.getlist(f"{prefix}_existentes"):
+            if str(value).isdigit() and int(value) not in selected_ids:
+                selected_ids.append(int(value))
+        return selected_ids
 
     def sync_tags(self, relation, model, prefix, materia):
         posted_ids = self.get_selected_tag_ids(prefix)
-        selected_items = list(planning_catalog_queryset(model, materia).filter(pk__in=posted_ids))
-        selected_ids = {item.pk for item in selected_items}
+        selected_by_id = {
+            item.pk: item
+            for item in planning_catalog_queryset(model, materia).filter(pk__in=posted_ids)
+        }
+        selected_items = [selected_by_id[item_id] for item_id in posted_ids if item_id in selected_by_id]
+        selected_ids = [item.pk for item in selected_items]
         for item in selected_items:
             item.materias.add(materia)
         new_items_by_index = {}
         for item in self.get_posted_new_tags(prefix):
             obj = get_or_create_planning_catalog_item(model, materia, item["nombre"])
-            selected_ids.add(obj.pk)
+            if obj.pk not in selected_ids:
+                selected_ids.append(obj.pk)
             new_items_by_index[item["index"]] = obj
         relation.set(selected_ids)
+        if prefix == "estrategias":
+            relation.instance.sync_estrategias_orden(selected_ids)
         return selected_ids, new_items_by_index
 
     def sync_resource_files(self, clase, recurso_ids, new_resources_by_index):
@@ -7038,7 +7064,7 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
                 "Estrategias",
                 "estrategias",
                 planning_catalog_queryset(Estrategia, clase.materia_curso.materia),
-                set(clase.estrategias.values_list("id", flat=True)),
+                [item.pk for item in clase.get_estrategias_planificadas()],
                 "Agregar estrategia",
                 "Nueva estrategia",
                 observaciones.get("estrategias", ""),
@@ -7143,6 +7169,15 @@ class DocenteClasePlanificacionView(LoginRequiredMixin, View):
     ):
         if self.request.method == "POST":
             selected_ids = self.get_selected_tag_ids(prefix)
+        queryset = list(queryset)
+        if prefix == "estrategias":
+            strategy_order = {item_id: index for index, item_id in enumerate(selected_ids)}
+            queryset.sort(
+                key=lambda item: (
+                    0 if item.pk in strategy_order else 1,
+                    strategy_order.get(item.pk, 0),
+                )
+            )
         items = []
         for obj in queryset:
             clase_recurso = (clase_recursos_by_id or {}).get(obj.pk)
@@ -7434,7 +7469,7 @@ class CoordinacionRevisionPlanificacionesView(CoordinacionRequiredMixin, View):
         docentes = get_clase_docentes(clase)
         metric_docente = selected_docente if selected_docente in docentes else None
         competencias = list(clase.competencias.all())
-        estrategias = list(clase.estrategias.all())
+        estrategias = clase.get_estrategias_planificadas()
         recursos = list(clase.recursos.all())
         subtemas = clase.get_subtemas_planificados()
         temas = clase.get_temas_planificados()
@@ -7641,6 +7676,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
                 "recursos",
                 "clase_temas__tema",
                 "clase_subtemas__subtema",
+                "clase_estrategias_orden__estrategia",
                 Prefetch("clase_recursos", queryset=ClaseRecurso.objects.select_related("recurso")),
                 "materia_curso__profesor_materia_cursos__partner",
             ),
@@ -7733,6 +7769,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
         metric_docente = docentes[0] if len(docentes) == 1 else None
         subtemas = clase.get_subtemas_planificados()
         temas = clase.get_temas_planificados()
+        estrategias = clase.get_estrategias_planificadas()
         selected_subtema_tema_ids = {subtema.tema_id for subtema in subtemas}
         observaciones = clase.observaciones_revision or {}
         review_items = [
@@ -7759,6 +7796,7 @@ class CoordinacionRevisionPlanificacionDetalleView(CoordinacionRequiredMixin, Vi
             "docentes": docentes,
             "subtemas": subtemas,
             "temas": temas,
+            "estrategias": estrategias,
             "tiene_docente": bool(docentes),
             "resource_items": self.get_resource_items(clase),
             "review_items": review_items,

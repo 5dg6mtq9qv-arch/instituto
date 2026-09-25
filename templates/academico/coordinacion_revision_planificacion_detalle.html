@@ -100,17 +100,23 @@
             <div class="review-content-grid">
               <div>
                 <span>Tema</span>
-                <strong>{{ clase.get_temas_label|default:"No seleccionado" }}</strong>
+                <div class="review-chip-list">
+                  {% for tema in temas %}
+                    <span>{{ tema }}</span>
+                  {% empty %}
+                    <span class="is-empty">No seleccionado</span>
+                  {% endfor %}
+                </div>
               </div>
               <div>
                 <span>Subtemas</span>
-                <strong>
+                <div class="review-chip-list">
                   {% for subtema in subtemas %}
-                    {{ subtema }}{% if not forloop.last %}, {% endif %}
+                    <span>{{ subtema }}</span>
                   {% empty %}
-                    No seleccionado
+                    <span class="is-empty">No seleccionado</span>
                   {% endfor %}
-                </strong>
+                </div>
               </div>
             </div>
             <div class="review-observation-panel" data-observation-panel>
@@ -143,7 +149,7 @@
               <span>Estrategias correctas</span>
             </label>
             <div class="review-chip-list">
-              {% for item in clase.estrategias.all %}
+              {% for item in estrategias %}
                 <span>{{ item }}</span>
               {% empty %}
                 <span class="is-empty">Sin estrategias registradas</span>
@@ -567,7 +573,7 @@
       padding: 12px;
     }
 
-    .review-content-grid span {
+    .review-content-grid > div > span {
       color: #667085;
       display: block;
       font-size: 12px;

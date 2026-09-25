@@ -2,10 +2,11 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from tempfile import TemporaryDirectory
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -28,6 +29,7 @@ from apps.matricula.models import FichaInscripcion
 
 from .forms import FormaPagoForm
 from .forms import PagoForm
+from .admin import PagoAdmin
 from .models import Cuota, FormaPago, Pago, PlanPago
 
 
@@ -451,6 +453,112 @@ class FormaPagoFormTests(TestCase):
         pago.refresh_from_db()
         self.assertEqual(pago.valor, Decimal("25.00"))
         self.assertEqual(pago.comentario, "Actualizacion permitida")
+
+    def test_editing_payment_quota_moves_value_and_refreshes_installments(self):
+        ficha, plan, cuota_atrasada, cuota_proxima, forma_pago = self.create_payment_flow_data()
+        pago = Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("25.00"),
+            numero_documento="MOVE-001",
+            usuario=self.user,
+            usuario_updated=self.user,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("cartera:pago_editar", kwargs={"pk": pago.pk}),
+            {
+                "empresa": self.empresa.pk,
+                "cuota": cuota_proxima.pk,
+                "forma_pago": forma_pago.pk,
+                "fecha_registro": "2026-08-30T10:15",
+                "valor": "999.00",
+                "numero_documento": "MOVE-001",
+                "comentario": "Pago relacionado con la cuota correcta",
+            },
+            HTTP_HOST="localhost",
+        )
+
+        pago.refresh_from_db()
+        cuota_atrasada.refresh_from_db()
+        cuota_proxima.refresh_from_db()
+        plan.refresh_from_db()
+        ficha.refresh_from_db()
+        self.assertRedirects(
+            response,
+            reverse("cartera:pago_detalle", kwargs={"pk": pago.pk}),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(pago.cuota, cuota_proxima)
+        self.assertEqual(pago.valor, Decimal("25.00"))
+        self.assertEqual(cuota_atrasada.valor_pagado, Decimal("25.00"))
+        self.assertEqual(cuota_atrasada.estado, "parcial")
+        self.assertEqual(cuota_proxima.valor_pagado, Decimal("25.00"))
+        self.assertEqual(cuota_proxima.estado, "parcial")
+        self.assertEqual(plan.abono, Decimal("100.00"))
+        self.assertEqual(plan.saldo, Decimal("400.00"))
+        self.assertEqual(ficha.abono, Decimal("100.00"))
+        self.assertEqual(ficha.saldo, Decimal("400.00"))
+
+    def test_admin_payment_edit_also_moves_value_between_installments(self):
+        _, _, cuota_atrasada, cuota_proxima, forma_pago = self.create_payment_flow_data()
+        pago = Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.now(),
+            valor=Decimal("25.00"),
+            usuario=self.user,
+        )
+        request = RequestFactory().post("/admin/cartera/pago/")
+        request.user = self.user
+        pago.cuota = cuota_proxima
+
+        PagoAdmin(Pago, admin.site).save_model(request, pago, form=None, change=True)
+
+        pago.refresh_from_db()
+        cuota_atrasada.refresh_from_db()
+        cuota_proxima.refresh_from_db()
+        self.assertEqual(pago.cuota, cuota_proxima)
+        self.assertEqual(cuota_atrasada.valor_pagado, Decimal("25.00"))
+        self.assertEqual(cuota_proxima.valor_pagado, Decimal("25.00"))
+
+    def test_inactive_student_is_removed_from_pending_totals_but_keeps_paid_history(self):
+        ficha, _, cuota_atrasada, _, forma_pago = self.create_payment_flow_data()
+        Pago.objects.create(
+            empresa=self.empresa,
+            cuota=cuota_atrasada,
+            forma_pago=forma_pago,
+            fecha_registro=timezone.make_aware(datetime(2026, 8, 30, 10, 15)),
+            valor=Decimal("40.00"),
+            numero_documento="INACTIVE-001",
+            usuario=self.user,
+        )
+        ficha.estudiante.activo = False
+        ficha.estudiante.save(update_fields=["activo", "actualizado"])
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("cartera:alumno_cartera_list"),
+            HTTP_HOST="localhost",
+        )
+        pending_response = self.client.get(
+            reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        summary = response.context["student_payment_summary"]
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(ficha, list(response.context["object_list"]))
+        self.assertEqual(summary["pendientes"], 0)
+        self.assertEqual(summary["vencidos"], 0)
+        self.assertEqual(summary["saldo"], Decimal("0.00"))
+        self.assertEqual(summary["pagos_realizados"], 1)
+        self.assertEqual(summary["total_pagado"], Decimal("40.00"))
+        self.assertEqual(pending_response.status_code, 404)
 
     def test_student_wallet_list_renders_status_filters_and_payment_links(self):
         self.client.force_login(self.user)

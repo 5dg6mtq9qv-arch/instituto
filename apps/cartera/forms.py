@@ -322,6 +322,10 @@ class PagoForm(BootstrapFormMixin, forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["fecha_registro"].input_formats = ["%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"]
+        self.fields["cuota"].queryset = Cuota.objects.select_related(
+            "plan_pago__ficha_inscripcion__estudiante",
+            "plan_pago__empresa",
+        ).order_by("plan_pago__ficha_inscripcion__numero", "fecha_pago_debito", "numero")
         if self.instance.pk:
             self.fields["valor"].disabled = True
             self.fields["valor"].widget.attrs["readonly"] = "readonly"
@@ -339,6 +343,24 @@ class PagoForm(BootstrapFormMixin, forms.ModelForm):
         )
         if pago_duplicado:
             self.add_error("numero_documento", pago_comprobante_duplicado_message(pago_duplicado))
+
+        cuota = cleaned_data.get("cuota")
+        empresa = cleaned_data.get("empresa")
+        if cuota and empresa and cuota.plan_pago.empresa_id != empresa.pk:
+            self.add_error("cuota", "La cuota seleccionada pertenece a otra empresa.")
+
+        if self.instance.pk and cuota and cuota.pk != self.instance.cuota_id:
+            if self.instance.anulado:
+                self.add_error("cuota", "No se puede cambiar la cuota de un pago anulado.")
+            elif not cuota.activo or cuota.estado == "anulada":
+                self.add_error("cuota", "Selecciona una cuota activa.")
+            elif not cuota.plan_pago.ficha_inscripcion.estudiante.activo:
+                self.add_error("cuota", "No se pueden asignar pagos a un estudiante inactivo.")
+            elif self.instance.valor > cuota.saldo():
+                self.add_error(
+                    "cuota",
+                    f"El pago supera el saldo disponible de la cuota: {cuota.saldo():.2f}.",
+                )
         return cleaned_data
 
     def save(self, commit=True):

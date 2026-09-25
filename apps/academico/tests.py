@@ -3731,6 +3731,55 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIn(self.estrategia, self.pendiente.estrategias.all())
         self.assertIn(self.recurso, self.pendiente.recursos.all())
 
+    def test_review_preserves_teacher_strategy_order_and_boxes_topics(self):
+        first = Estrategia.objects.create(nombre="Zeta primero")
+        second = Estrategia.objects.create(nombre="Beta segundo")
+        third = Estrategia.objects.create(nombre="Alfa tercero")
+        for estrategia in (first, second, third):
+            estrategia.materias.add(self.materia)
+        self.client.force_login(self.user)
+
+        save_response = self.client.post(
+            reverse("academico:docente_clase_planificar", args=[self.pendiente.pk]),
+            {
+                "plan_action": "send",
+                "tema": self.tema.pk,
+                "subtema": self.subtema.pk,
+                "competencias_existentes": [self.competencia.pk],
+                "estrategias_existentes": [first.pk, second.pk, third.pk],
+                "recursos_existentes": [self.recurso.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(save_response.status_code, 302)
+        self.assertEqual(
+            [item.pk for item in self.pendiente.get_estrategias_planificadas()],
+            [first.pk, second.pk, third.pk],
+        )
+
+        coordinator = self.create_coordinator()
+        self.client.force_login(coordinator)
+        review_response = self.client.get(
+            reverse("academico:coordinacion_revision_planificacion_detalle", args=[self.pendiente.pk]),
+            HTTP_HOST="localhost",
+        )
+        content = review_response.content.decode()
+        strategy_section = content.split("Estrategias correctas", 1)[1].split(
+            "Observacion para el docente",
+            1,
+        )[0]
+        topic_section = content.split("Tema y subtemas correctos", 1)[1].split(
+            "Observacion para el docente",
+            1,
+        )[0]
+
+        self.assertEqual(review_response.status_code, 200)
+        self.assertLess(strategy_section.index("Zeta primero"), strategy_section.index("Beta segundo"))
+        self.assertLess(strategy_section.index("Beta segundo"), strategy_section.index("Alfa tercero"))
+        self.assertIn('<div class="review-chip-list">', topic_section)
+        self.assertIn(f"<span>{self.tema.nombre}</span>", topic_section)
+        self.assertIn(f"<span>{self.subtema.nombre}</span>", topic_section)
+
     def test_docente_class_planning_saves_multiple_topics_and_their_subtopics(self):
         other_topic = Tema.objects.create(planificacion=self.planificacion, nombre="Geometria", orden=2)
         other_subtopic = Subtema.objects.create(tema=other_topic, nombre="Triangulos", orden=1)

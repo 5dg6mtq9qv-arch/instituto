@@ -26,30 +26,7 @@ from .forms import (
     prepare_pago_comprobante_file,
 )
 from .models import Cuota, FormaPago, Pago, PlanPago
-
-
-def sync_ficha_payment_summary(ficha, plan, user):
-    proxima_cuota = next(
-        (
-            cuota
-            for cuota in plan.cuotas.filter(activo=True)
-            .exclude(estado="anulada")
-            .order_by("fecha_pago_debito", "numero")
-            if cuota.saldo() > 0
-        ),
-        None,
-    )
-    ficha.abono = plan.abono
-    ficha.saldo = plan.saldo
-    ficha.fecha_proximo_pago = proxima_cuota.fecha_pago_debito if proxima_cuota else None
-    ficha.valor_proximo_pago = proxima_cuota.saldo() if proxima_cuota else Decimal("0.00")
-    ficha.usuario_updated = user
-    ficha.save(
-        update_fields=[
-            "abono", "saldo", "fecha_proximo_pago", "valor_proximo_pago",
-            "usuario_updated", "updated",
-        ]
-    )
+from .services import move_payment_between_cuotas, sync_ficha_payment_summary
 
 
 class AlumnoCarteraListView(InstitutoListView):
@@ -103,11 +80,11 @@ class AlumnoCarteraListView(InstitutoListView):
             | Q(plan_pago__cuotas__estado__in=["pendiente", "parcial"], plan_pago__cuotas__fecha_pago_debito__lt=today)
         )
 
-    def get_base_queryset(self):
+    def get_base_queryset(self, include_inactive_students=False):
         cuotas = Cuota.objects.filter(activo=True).order_by("fecha_pago_debito", "numero")
         if self.can_view_financial_summary():
             cuotas = cuotas.prefetch_related("pagos")
-        return (
+        queryset = (
             FichaInscripcion.objects.select_related("estudiante", "cliente", "representante", "aula", "plan_pago")
             .prefetch_related(
                 Prefetch("plan_pago__cuotas", queryset=cuotas),
@@ -120,6 +97,9 @@ class AlumnoCarteraListView(InstitutoListView):
             .filter(plan_pago__isnull=False, activo=True)
             .order_by("estudiante__nombre")
         )
+        if not include_inactive_students:
+            queryset = queryset.filter(estudiante__activo=True)
+        return queryset
 
     def apply_search(self, queryset):
         fields = (
@@ -209,7 +189,7 @@ class AlumnoCarteraListView(InstitutoListView):
             "cerrados": queryset.filter(Q(plan_pago__saldo__lte=0) | Q(plan_pago__estado="cerrado")).distinct().count(),
         }
 
-    def build_summary(self, queryset, counts, include_financial=False):
+    def build_summary(self, queryset, counts, include_financial=False, payment_history_queryset=None):
         summary = {
             "total": counts["todos"],
             "vencidos": counts["vencidos"],
@@ -219,8 +199,9 @@ class AlumnoCarteraListView(InstitutoListView):
         }
         if include_financial:
             total_saldo = queryset.filter(plan_pago__saldo__gt=0).aggregate(total=Sum("plan_pago__saldo"))["total"]
+            payment_history_queryset = payment_history_queryset if payment_history_queryset is not None else queryset
             pagos = Pago.objects.filter(
-                cuota__plan_pago__ficha_inscripcion_id__in=queryset.values("pk"),
+                cuota__plan_pago__ficha_inscripcion_id__in=payment_history_queryset.values("pk"),
                 anulado=False,
             )
             summary.update(
@@ -275,7 +256,7 @@ class AlumnoCarteraListView(InstitutoListView):
                 "url": self.get_update_url(ficha),
             }
             if include_financial:
-                pagos = [pago for cuota in cuotas for pago in cuota.pagos.all()]
+                pagos = [pago for cuota in cuotas for pago in cuota.pagos.all() if not pago.anulado]
                 card.update(
                     {
                         "payments_url": reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}),
@@ -290,6 +271,9 @@ class AlumnoCarteraListView(InstitutoListView):
         context = super().get_context_data(**kwargs)
         selected_estado = self.get_selected_estado()
         searched_queryset = self.apply_search(self.get_base_queryset())
+        payment_history_queryset = self.apply_search(
+            self.get_base_queryset(include_inactive_students=True)
+        )
         counts = self.get_status_counts(searched_queryset)
         can_view_financial_summary = self.can_view_financial_summary()
         can_view_payment_history = can_view_financial_summary and self.request.user.has_perm("cartera.view_pago")
@@ -301,6 +285,7 @@ class AlumnoCarteraListView(InstitutoListView):
             searched_queryset,
             counts,
             include_financial=can_view_financial_summary,
+            payment_history_queryset=payment_history_queryset,
         )
         if can_view_payment_history:
             payment_query = self.request.GET.copy()
@@ -347,6 +332,8 @@ class AlumnoCuotasPendientesView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             ),
             pk=pk,
             plan_pago__isnull=False,
+            activo=True,
+            estudiante__activo=True,
         )
 
     def get_cuotas(self, ficha):
@@ -927,3 +914,12 @@ class PagoUpdateView(InstitutoUpdateView):
     title = "Editar pago"
     success_url = reverse_lazy("cartera:pago_list")
     cancel_url = reverse_lazy("cartera:pago_list")
+
+    @transaction.atomic
+    def form_valid(self, form):
+        new_cuota = form.cleaned_data["cuota"]
+        move_payment_between_cuotas(self.object.pk, new_cuota.pk, self.request.user)
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse("cartera:pago_detalle", kwargs={"pk": self.object.pk})

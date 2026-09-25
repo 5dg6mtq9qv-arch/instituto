@@ -1114,6 +1114,45 @@ class Clase(models.Model):
             self.subtema_id = first_subtema_id
             self.save(update_fields=["subtema"])
 
+    def get_estrategias_planificadas(self):
+        if not self.pk:
+            return []
+        selected_by_id = {item.pk: item for item in self.estrategias.all()}
+        ordered = []
+        ordered_ids = set()
+        for relation in self.clase_estrategias_orden.select_related("estrategia").order_by(
+            "orden",
+            "pk",
+        ):
+            estrategia = selected_by_id.get(relation.estrategia_id)
+            if estrategia and estrategia.pk not in ordered_ids:
+                ordered.append(estrategia)
+                ordered_ids.add(estrategia.pk)
+        ordered.extend(
+            sorted(
+                (item for item in selected_by_id.values() if item.pk not in ordered_ids),
+                key=lambda item: (item.nombre.casefold(), item.pk),
+            )
+        )
+        return ordered
+
+    def sync_estrategias_orden(self, estrategia_ids):
+        ordered_ids = []
+        for value in estrategia_ids:
+            estrategia_id = getattr(value, "pk", value)
+            if estrategia_id and estrategia_id not in ordered_ids:
+                ordered_ids.append(estrategia_id)
+
+        self.clase_estrategias_orden.exclude(estrategia_id__in=ordered_ids).delete()
+        for order, estrategia_id in enumerate(ordered_ids, start=1):
+            relation, created = self.clase_estrategias_orden.get_or_create(
+                estrategia_id=estrategia_id,
+                defaults={"orden": order},
+            )
+            if not created and relation.orden != order:
+                relation.orden = order
+                relation.save(update_fields=["orden"])
+
 
 class ClaseSubtema(models.Model):
     id = models.BigAutoField(primary_key=True)
@@ -1163,6 +1202,31 @@ class ClaseTema(models.Model):
 
     def __str__(self):
         return f"{self.clase} - {self.tema}"
+
+
+class ClaseEstrategiaOrden(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    clase = models.ForeignKey(
+        Clase,
+        db_column="id_clase",
+        on_delete=models.CASCADE,
+        related_name="clase_estrategias_orden",
+    )
+    estrategia = models.ForeignKey(
+        "academico.Estrategia",
+        db_column="id_estrategia",
+        on_delete=models.CASCADE,
+        related_name="clase_estrategias_orden",
+    )
+    orden = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = '"academico"."clase_estrategia_orden"'
+        unique_together = (("clase", "estrategia"),)
+        ordering = ["clase", "orden", "pk"]
+
+    def __str__(self):
+        return f"{self.clase} - {self.estrategia} ({self.orden})"
 
 
 def clase_recurso_upload_path(instance, filename):
