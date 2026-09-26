@@ -63,12 +63,14 @@ class MoodleInactiveStudentsTests(TestCase):
 
     def test_single_account_is_revalidated_before_suspension(self):
         client = MagicMock(base_url="https://moodle.example")
+        client.users_by_field.return_value = [{"id": 101, "suspended": 1}]
         account = MoodleCuenta.objects.get(persona=self.inactive_student)
 
         result = suspend_inactive_student(account.pk, client=client)
 
         self.assertEqual(result, account)
         client.update_users.assert_called_once_with([{"id": 101, "suspended": 1}])
+        client.users_by_field.assert_called_once_with("id", [101])
 
     @patch("apps.academico.management.commands.sincronizar_estudiantes_inactivos_moodle.MoodleClient")
     def test_command_is_a_simulation_by_default(self, client_factory):

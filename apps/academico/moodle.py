@@ -257,14 +257,10 @@ class MoodleClient:
         return self._records("core_user_create_users", {"users": users})
 
     def update_users(self, users):
-        result = self.call("core_user_update_users", {"users": users})
-        # Dependiendo de la version/configuracion REST, una respuesta vacia
-        # correcta puede serializarse como null, [] o {}.
-        if result not in (None, [], {}):
-            raise MoodleError(
-                "Moodle devolvió una respuesta inesperada al actualizar el usuario.",
-                retryable=True,
-            )
+        # Moodle y algunos complementos serializan el exito de esta funcion de
+        # formas distintas. Los consumidores deben confirmar el estado remoto
+        # cuando el campo actualizado sea critico.
+        return self.call("core_user_update_users", {"users": users})
 
     def enrol_users(self, enrolments):
         result = self.call("enrol_manual_enrol_users", {"enrolments": enrolments})

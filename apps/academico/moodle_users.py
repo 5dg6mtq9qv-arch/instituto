@@ -1,7 +1,7 @@
 """Sincronizacion del estado de usuarios locales con Moodle."""
 
 from .models import MoodleCuenta
-from .moodle import MoodleClient
+from .moodle import MoodleClient, MoodleError
 
 
 DEFAULT_BATCH_SIZE = 100
@@ -57,4 +57,14 @@ def suspend_inactive_student(account_id, *, client=None):
     if account is None:
         return None
     client.update_users([{"id": account.usuario_id, "suspended": 1}])
+    remote_users = client.users_by_field("id", [account.usuario_id])
+    if (
+        len(remote_users) != 1
+        or remote_users[0].get("id") != account.usuario_id
+        or not remote_users[0].get("suspended")
+    ):
+        raise MoodleError(
+            f"Moodle no confirmó la suspensión de {account.persona.nombre_completo()}.",
+            retryable=True,
+        )
     return account
