@@ -2,6 +2,19 @@
 
 {% block list_table_class %}student-table{% endblock %}
 
+{% block page_actions %}
+  {% if can_sync_inactive_students_moodle %}
+    <form method="post" action="{% url 'core:sincronizar_estudiantes_inactivos_moodle' %}"
+          onsubmit="return confirm('¿Suspender en Moodle las cuentas de todos los estudiantes inactivos?');">
+      {% csrf_token %}
+      <button class="btn btn-primary-600" type="submit">
+        <i class="ri-user-unfollow-line"></i>
+        <span>Desactivar inactivos en Moodle</span>
+      </button>
+    </form>
+  {% endif %}
+{% endblock %}
+
 {% block list_filters %}
   <select class="form-select student-list-filter" name="estado" aria-label="Filtrar por estado">
     <option value="todos"{% if request.GET.estado == "todos" %} selected{% endif %}>Todos los estados</option>

@@ -235,6 +235,9 @@ class EstudianteListView(PartnerTypeListView):
 
         self.show_list_actions = self.request.user.has_perm("academico.view_claseasistencia")
         context = super().get_context_data(**kwargs)
+        context["can_sync_inactive_students_moodle"] = self.request.user.has_perm(
+            "core.deactivate_student"
+        )
         context["student_groups"] = Curso.objects.filter(activo=True).order_by("nombre")
         context["search_placeholder"] = (
             "Buscar por estudiante, ficha, representante, grupo, aula o usuario Moodle"
@@ -304,6 +307,34 @@ class EstudianteListView(PartnerTypeListView):
             if representante and representante.es_representante:
                 representantes.add(representante.nombre_completo())
         return ", ".join(sorted(representantes)) or "-"
+
+
+class MoodleInactiveStudentsSyncView(LoginRequiredMixin, UserPassesTestMixin, View):
+    raise_exception = True
+
+    def test_func(self):
+        return self.request.user.has_perm("core.deactivate_student")
+
+    def post(self, request, *args, **kwargs):
+        from apps.academico.moodle import MoodleError
+        from apps.academico.moodle_users import suspend_inactive_students
+
+        try:
+            accounts = suspend_inactive_students(apply=True)
+        except MoodleError as exc:
+            messages.error(request, f"No se pudo sincronizar con Moodle: {exc}")
+        else:
+            if accounts:
+                messages.success(
+                    request,
+                    f"Se desactivaron {len(accounts)} cuenta(s) de estudiantes en Moodle.",
+                )
+            else:
+                messages.info(
+                    request,
+                    "No hay estudiantes inactivos con una cuenta Moodle vinculada.",
+                )
+        return redirect("core:estudiante_list")
 
 
 class RepresentanteListView(PartnerTypeListView):

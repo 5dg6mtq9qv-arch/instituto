@@ -8,12 +8,14 @@
       <p class="eyebrow">Gestion</p>
       <h1>{{ title }}</h1>
     </div>
-    {% if create_url_name %}
-      <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
-        <i class="ri-add-line"></i>
-        <span>{{ create_label|default:"Nuevo" }}</span>
-      </a>
-    {% endif %}
+    {% block page_actions %}
+      {% if create_url_name %}
+        <a class="btn btn-primary-600 list-create-btn" href="{% url create_url_name %}">
+          <i class="ri-add-line"></i>
+          <span>{{ create_label|default:"Nuevo" }}</span>
+        </a>
+      {% endif %}
+    {% endblock %}
   </header>
 
   {% if security_active_tab %}

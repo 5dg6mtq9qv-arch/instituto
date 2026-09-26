@@ -10,6 +10,11 @@ urlpatterns = [
     path("empresas/nueva/", views.EmpresaCreateView.as_view(), name="empresa_nueva"),
     path("empresas/<int:pk>/editar/", views.EmpresaUpdateView.as_view(), name="empresa_editar"),
     path("estudiantes/", views.EstudianteListView.as_view(), name="estudiante_list"),
+    path(
+        "estudiantes/sincronizar-inactivos-moodle/",
+        views.MoodleInactiveStudentsSyncView.as_view(),
+        name="sincronizar_estudiantes_inactivos_moodle",
+    ),
     path("estudiantes/<int:pk>/editar/", views.EstudianteUpdateView.as_view(), name="estudiante_editar"),
     path("representantes/", views.RepresentanteListView.as_view(), name="representante_list"),
     path("representantes/<int:pk>/editar/", views.RepresentanteUpdateView.as_view(), name="representante_editar"),
