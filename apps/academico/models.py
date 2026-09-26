@@ -2003,7 +2003,13 @@ class MoodleCuenta(models.Model):
     class Meta:
         db_table = '"academico"."moodle_cuenta"'
         default_permissions = ()
-        permissions = (("exportar_moodlecuenta", "Descargar Excel de accesos iniciales Moodle"),)
+        permissions = (
+            ("exportar_moodlecuenta", "Descargar Excel de accesos iniciales Moodle"),
+            (
+                "suspender_inactivos_moodlecuenta",
+                "Puede suspender estudiantes inactivos en Moodle",
+            ),
+        )
         constraints = [
             models.UniqueConstraint(fields=["persona", "sitio"], name="moodle_cuenta_persona_sitio"),
             models.UniqueConstraint(fields=["usuario", "sitio"], name="moodle_cuenta_usuario_sitio"),

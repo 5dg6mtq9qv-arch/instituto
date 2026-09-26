@@ -236,7 +236,7 @@ class EstudianteListView(PartnerTypeListView):
         self.show_list_actions = self.request.user.has_perm("academico.view_claseasistencia")
         context = super().get_context_data(**kwargs)
         context["can_sync_inactive_students_moodle"] = self.request.user.has_perm(
-            "core.deactivate_student"
+            "academico.suspender_inactivos_moodlecuenta"
         )
         context["student_groups"] = Curso.objects.filter(activo=True).order_by("nombre")
         context["search_placeholder"] = (
@@ -313,7 +313,9 @@ class MoodleInactiveStudentsSyncView(LoginRequiredMixin, UserPassesTestMixin, Vi
     raise_exception = True
 
     def test_func(self):
-        return self.request.user.has_perm("core.deactivate_student")
+        return self.request.user.has_perm(
+            "academico.suspender_inactivos_moodlecuenta"
+        )
 
     def post(self, request, *args, **kwargs):
         from apps.academico.moodle import MoodleError

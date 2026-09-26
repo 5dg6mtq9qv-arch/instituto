@@ -5,7 +5,7 @@
 {% block page_actions %}
   {% if can_sync_inactive_students_moodle %}
     <form method="post" action="{% url 'core:sincronizar_estudiantes_inactivos_moodle' %}"
-          onsubmit="return confirm('¿Suspender en Moodle las cuentas de todos los estudiantes inactivos?');">
+          data-moodle-inactive-sync-form>
       {% csrf_token %}
       <button class="btn btn-primary-600" type="submit">
         <i class="ri-user-unfollow-line"></i>
@@ -49,6 +49,43 @@
 {% endblock %}
 
 {% block extra_scripts %}
+  {% if can_sync_inactive_students_moodle %}
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+    <script>
+      (function () {
+        const form = document.querySelector("[data-moodle-inactive-sync-form]");
+        if (!form) return;
+
+        form.addEventListener("submit", async function (event) {
+          event.preventDefault();
+          if (form.dataset.submitting === "true" || !window.Swal) return;
+
+          const result = await Swal.fire({
+            title: "¿Desactivar estudiantes en Moodle?",
+            text: "Se suspenderán en Moodle todas las cuentas vinculadas a estudiantes inactivos.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Sí, desactivar",
+            cancelButtonText: "Cancelar",
+            confirmButtonColor: "#dc3545",
+            cancelButtonColor: "#64748b",
+            focusCancel: true,
+            reverseButtons: true
+          });
+
+          if (!result.isConfirmed) return;
+
+          form.dataset.submitting = "true";
+          const button = form.querySelector('button[type="submit"]');
+          if (button) {
+            button.disabled = true;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Desactivando...';
+          }
+          HTMLFormElement.prototype.submit.call(form);
+        });
+      })();
+    </script>
+  {% endif %}
   <style>
     .list-toolbar {
       flex-wrap: wrap;

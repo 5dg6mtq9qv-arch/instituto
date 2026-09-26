@@ -78,7 +78,7 @@ class MoodleInactiveStudentsButtonTests(TestCase):
         self.list_url = reverse("core:estudiante_list")
         self.sync_url = reverse("core:sincronizar_estudiantes_inactivos_moodle")
 
-    def test_button_requires_student_deactivation_permission(self):
+    def test_button_requires_moodle_suspension_permission(self):
         self.client.force_login(self.user)
 
         response = self.client.get(self.list_url, HTTP_HOST="localhost")
@@ -93,8 +93,8 @@ class MoodleInactiveStudentsButtonTests(TestCase):
     def test_button_suspends_students_and_returns_to_list(self, suspend_students):
         self.user.user_permissions.add(
             Permission.objects.get(
-                content_type__app_label="core",
-                codename="deactivate_student",
+                content_type__app_label="academico",
+                codename="suspender_inactivos_moodlecuenta",
             )
         )
         self.client.force_login(self.user)
@@ -104,5 +104,7 @@ class MoodleInactiveStudentsButtonTests(TestCase):
         response = self.client.post(self.sync_url, HTTP_HOST="localhost")
 
         self.assertContains(page, "Desactivar inactivos en Moodle")
+        self.assertContains(page, "sweetalert2@11")
+        self.assertNotContains(page, "return confirm(")
         self.assertRedirects(response, self.list_url, fetch_redirect_response=False)
         suspend_students.assert_called_once_with(apply=True)
