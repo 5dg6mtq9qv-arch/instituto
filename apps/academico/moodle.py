@@ -258,7 +258,9 @@ class MoodleClient:
 
     def update_users(self, users):
         result = self.call("core_user_update_users", {"users": users})
-        if result is not None:
+        # Dependiendo de la version/configuracion REST, una respuesta vacia
+        # correcta puede serializarse como null, [] o {}.
+        if result not in (None, [], {}):
             raise MoodleError(
                 "Moodle devolvió una respuesta inesperada al actualizar el usuario.",
                 retryable=True,

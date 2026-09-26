@@ -8,7 +8,10 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.academico.models import MoodleCuenta
-from apps.academico.moodle_users import suspend_inactive_students
+from apps.academico.moodle_users import (
+    suspend_inactive_student,
+    suspend_inactive_students,
+)
 from apps.core.models import Partner, TipoIdentificacion
 
 
@@ -56,6 +59,15 @@ class MoodleInactiveStudentsTests(TestCase):
         accounts = suspend_inactive_students(client=client, apply=True)
 
         self.assertEqual([account.usuario_id for account in accounts], [101])
+        client.update_users.assert_called_once_with([{"id": 101, "suspended": 1}])
+
+    def test_single_account_is_revalidated_before_suspension(self):
+        client = MagicMock(base_url="https://moodle.example")
+        account = MoodleCuenta.objects.get(persona=self.inactive_student)
+
+        result = suspend_inactive_student(account.pk, client=client)
+
+        self.assertEqual(result, account)
         client.update_users.assert_called_once_with([{"id": 101, "suspended": 1}])
 
     @patch("apps.academico.management.commands.sincronizar_estudiantes_inactivos_moodle.MoodleClient")

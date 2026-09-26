@@ -38,3 +38,23 @@ def suspend_inactive_students(*, client=None, apply=False, batch_size=DEFAULT_BA
             )
 
     return accounts
+
+
+def suspend_inactive_student(account_id, *, client=None):
+    """Suspende una cuenta si aun pertenece a un estudiante inactivo."""
+    client = client or MoodleClient()
+    account = (
+        MoodleCuenta.objects.filter(
+            pk=account_id,
+            sitio=client.base_url,
+            usuario_id__isnull=False,
+            persona__es_estudiante=True,
+            persona__activo=False,
+        )
+        .select_related("persona")
+        .first()
+    )
+    if account is None:
+        return None
+    client.update_users([{"id": account.usuario_id, "suspended": 1}])
+    return account

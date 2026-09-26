@@ -6,6 +6,7 @@ from django.contrib.auth.models import Group
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db.models import Prefetch, Q
+from django.http import JsonResponse
 from django.urls import reverse, reverse_lazy
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views import View
@@ -319,7 +320,69 @@ class MoodleInactiveStudentsSyncView(LoginRequiredMixin, UserPassesTestMixin, Vi
 
     def post(self, request, *args, **kwargs):
         from apps.academico.moodle import MoodleError
-        from apps.academico.moodle_users import suspend_inactive_students
+        from apps.academico.moodle import MoodleClient
+        from apps.academico.moodle_users import (
+            inactive_student_accounts,
+            suspend_inactive_student,
+            suspend_inactive_students,
+        )
+
+        json_response = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        action = request.POST.get("action", "")
+
+        if json_response:
+            try:
+                client = MoodleClient()
+                if action == "prepare":
+                    accounts = inactive_student_accounts(client)
+                    return JsonResponse(
+                        {
+                            "ok": True,
+                            "accounts": [
+                                {
+                                    "id": account.pk,
+                                    "name": account.persona.nombre_completo(),
+                                    "username": account.usuario,
+                                }
+                                for account in accounts
+                            ],
+                        }
+                    )
+                if action == "suspend":
+                    account = suspend_inactive_student(
+                        request.POST.get("account_id"),
+                        client=client,
+                    )
+                    if account is None:
+                        return JsonResponse(
+                            {
+                                "ok": True,
+                                "skipped": True,
+                                "message": "La cuenta ya no corresponde a un estudiante inactivo.",
+                            }
+                        )
+                    return JsonResponse(
+                        {
+                            "ok": True,
+                            "message": (
+                                f"{account.persona.nombre_completo()} "
+                                f"({account.usuario}) fue desactivado en Moodle."
+                            ),
+                        }
+                    )
+                return JsonResponse(
+                    {"ok": False, "message": "Acción de sincronización no válida."},
+                    status=400,
+                )
+            except MoodleError as exc:
+                return JsonResponse(
+                    {
+                        "ok": False,
+                        "message": str(exc),
+                        "retryable": exc.retryable,
+                    },
+                    status=503 if exc.retryable else 400,
+                )
 
         try:
             accounts = suspend_inactive_students(apply=True)
