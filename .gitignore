@@ -7,3 +7,4 @@ media/
 private_media/
 staticfiles/
 legacy_generated/
+windows_scanner/scanner-agent.json

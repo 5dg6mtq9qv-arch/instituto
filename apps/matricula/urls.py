@@ -5,6 +5,7 @@ from . import views
 app_name = "matricula"
 
 urlpatterns = [
+    path("herramientas/agente-escaner/descargar/", views.scanner_agent_download, name="scanner_agent_download"),
     path("matricular/", views.MatriculaProcesoView.as_view(), name="matricula_proceso"),
     path("representantes/<int:pk>/prefill/", views.representante_prefill, name="representante_prefill"),
     path("periodos/", views.PeriodoAcademicoListView.as_view(), name="periodo_list"),

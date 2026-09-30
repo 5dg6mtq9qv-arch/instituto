@@ -119,6 +119,9 @@ class FichaInscripcionForm(BootstrapFormMixin, forms.ModelForm):
             "correo_estudiante": forms.Textarea(attrs={"rows": 2}),
             "correo_representante": forms.Textarea(attrs={"rows": 2}),
             "observacion": forms.Textarea(attrs={"rows": 3}),
+            "archivo_ficha_firmada": forms.ClearableFileInput(
+                attrs={"data-scanner-file-input": "true"}
+            ),
         }
         labels = {
             "fecha_proximo_pago": "Fecha primera cuota",

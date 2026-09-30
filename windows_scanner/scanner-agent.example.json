@@ -1,0 +1,12 @@
+{
+  "allowed_origins": [
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://sistema.ejemplo.com"
+  ],
+  "naps2_console": "C:\\Program Files\\NAPS2\\NAPS2.Console.exe",
+  "profile": "Instituto ES-60W",
+  "page_delay_ms": 10000,
+  "scan_timeout_seconds": 300,
+  "max_pages": 20
+}

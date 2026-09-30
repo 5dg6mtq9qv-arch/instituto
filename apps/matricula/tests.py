@@ -1,5 +1,7 @@
+import io
 import subprocess
 import tempfile
+import zipfile
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
@@ -8,7 +10,7 @@ from unittest.mock import patch
 from urllib.parse import unquote, urlparse
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -1089,6 +1091,69 @@ class MatriculaProcesoTests(TestCase):
         self.assertContains(response, "Ubicación académica")
         self.assertContains(response, reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}))
         self.assertContains(response, reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk}))
+
+    def test_ficha_edit_exposes_windows_scanner_and_pdf_input(self):
+        estudiante = self.create_partner("1002003080", "Alumno Escáner", es_estudiante=True)
+        representante = self.create_partner(
+            "1002003081",
+            "Representante Escáner",
+            es_cliente=True,
+            es_representante=True,
+        )
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000789",
+            fecha=date(2026, 9, 1),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            estado="activa",
+            activo=True,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Escanear ficha")
+        self.assertContains(response, "data-ficha-scanner")
+        self.assertContains(response, "data-scanner-file-input")
+        self.assertContains(response, "js/ficha-scanner.js")
+        self.assertContains(response, reverse("matricula:scanner_agent_download"))
+
+    def test_scanner_agent_download_is_limited_to_system_administrators(self):
+        url = reverse("matricula:scanner_agent_download")
+        regular_user = get_user_model().objects.create_user(
+            username="operador_escaner",
+            password="ClaveActual987!",
+        )
+        self.client.force_login(regular_user)
+
+        denied_response = self.client.get(url, HTTP_HOST="localhost")
+
+        self.assertEqual(denied_response.status_code, 403)
+
+        administrator = get_user_model().objects.create_user(
+            username="administrador_escaner",
+            password="ClaveActual987!",
+        )
+        administrator_group, _ = Group.objects.get_or_create(name="Administrador")
+        administrator.groups.add(administrator_group)
+        self.client.force_login(administrator)
+
+        response = self.client.get(url, HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/zip")
+        self.assertIn("instituto-scanner-windows.zip", response["Content-Disposition"])
+        with zipfile.ZipFile(io.BytesIO(response.content)) as package:
+            packaged_files = set(package.namelist())
+        self.assertIn("instituto-scanner-windows/agent.py", packaged_files)
+        self.assertIn("instituto-scanner-windows/instalar-agente.bat", packaged_files)
+        self.assertIn("instituto-scanner-windows/desinstalar-agente.bat", packaged_files)
 
     def test_ficha_list_uses_academic_group_and_classroom_assignment(self):
         estudiante = self.create_partner("1002003090", "Alumno Academico", es_estudiante=True)

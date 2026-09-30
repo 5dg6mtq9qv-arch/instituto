@@ -1,10 +1,13 @@
+import io
+import zipfile
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.http import HttpResponse
@@ -36,6 +39,42 @@ from .forms import (
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
 from .odt import build_contract_response_file, build_document_response_file
 from .payment_schedule import fecha_cuota
+
+
+SCANNER_AGENT_FILES = (
+    "README.md",
+    "agent.py",
+    "scanner-agent.example.json",
+    "instalar-agente.bat",
+    "instalar-agente.ps1",
+    "iniciar-agente.bat",
+    "desinstalar-agente.bat",
+    "desinstalar-agente.ps1",
+)
+
+
+def user_can_download_scanner_agent(user):
+    return user.is_authenticated and (
+        user.is_superuser or user.groups.filter(name="Administrador").exists()
+    )
+
+
+@login_required
+def scanner_agent_download(request):
+    if not user_can_download_scanner_agent(request.user):
+        raise PermissionDenied
+
+    package_dir = settings.BASE_DIR / "windows_scanner"
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as package:
+        for filename in SCANNER_AGENT_FILES:
+            file_path = package_dir / filename
+            package.write(file_path, arcname=f"instituto-scanner-windows/{filename}")
+
+    response = HttpResponse(archive.getvalue(), content_type="application/zip")
+    response["Content-Disposition"] = 'attachment; filename="instituto-scanner-windows.zip"'
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 def format_ficha_numero(sequence):
@@ -310,6 +349,7 @@ class FichaInscripcionUpdateView(InstitutoUpdateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["can_download_scanner_agent"] = user_can_download_scanner_agent(self.request.user)
         context["object_actions"] = [
             {
                 "label": "Ver documentos",

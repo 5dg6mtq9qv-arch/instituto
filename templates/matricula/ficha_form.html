@@ -16,6 +16,12 @@
       <h1>{{ title }}</h1>
     </div>
     <div class="topbar-actions">
+      {% if can_download_scanner_agent %}
+        <a class="btn btn-outline-primary ficha-edit-action" href="{% url 'matricula:scanner_agent_download' %}">
+          <i class="ri-download-cloud-2-line"></i>
+          Descargar agente Windows
+        </a>
+      {% endif %}
       <a class="btn btn-outline-primary ficha-edit-action" href="{% url 'matricula:ficha_documentos' object.pk %}">
         <i class="ri-folder-2-line"></i>
         Documentos
@@ -141,7 +147,27 @@
           {% include "web/form_field.html" with field=form.acepta_garantia cols="col-md-3" %}
           {% include "web/form_field.html" with field=form.acepta_no_devolucion cols="col-md-3" %}
           {% include "web/form_field.html" with field=form.archivo_contrato cols="col-md-6" %}
-          {% include "web/form_field.html" with field=form.archivo_ficha_firmada cols="col-md-6" %}
+          <div class="col-md-6 field-{{ form.archivo_ficha_firmada.name }}" data-ficha-scanner>
+            <label class="form-label" for="{{ form.archivo_ficha_firmada.id_for_label }}">
+              {{ form.archivo_ficha_firmada.label }}
+            </label>
+            {{ form.archivo_ficha_firmada }}
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+              <button class="btn btn-outline-primary btn-sm" type="button" data-scanner-start>
+                <i class="ri-scan-2-line"></i>
+                Escanear ficha
+              </button>
+              <span class="small text-muted" data-scanner-status aria-live="polite">
+                Epson ES-60W mediante el agente de Windows
+              </span>
+            </div>
+            <div class="form-text">
+              Coloca la hoja en el escáner. Para varias páginas, cambia cada hoja cuando lo indique la ventana de progreso.
+            </div>
+            {% for error in form.archivo_ficha_firmada.errors %}
+              <div class="invalid-feedback d-block">{{ error }}</div>
+            {% endfor %}
+          </div>
         </div>
       </div>
     </section>
@@ -161,6 +187,7 @@
 {% block extra_scripts %}
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
+  <script src="{% static 'js/ficha-scanner.js' %}?v=20260930-1"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.InstitutoDatePicker) {
