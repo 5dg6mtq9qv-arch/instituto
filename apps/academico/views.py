@@ -5315,8 +5315,14 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
 
     def get(self, request):
         context = self.get_context()
-        if request.GET.get("export") == "excel":
+        export = request.GET.get("export")
+        if export == "excel":
             return self.export_excel(context)
+        if export == "pdf":
+            from .teacher_report_exports import export_teacher_hours_pdf
+
+            institution = Empresa.objects.filter(activa=True).order_by("pk").first() or Empresa.objects.order_by("pk").first()
+            return export_teacher_hours_pdf(context, institution)
         return render(request, self.template_name, context)
 
     def get_context(self):
@@ -5330,6 +5336,8 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
         rows = self.get_rows(desde, hasta, selected_docente)
         return {
             "title": "Reporte horas docente",
+            "desde": desde,
+            "hasta": hasta,
             "desde_value": desde_value,
             "hasta_value": hasta_value,
             "selected_docente": selected_docente,
@@ -5337,7 +5345,8 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
             "docentes": Partner.objects.filter(es_docente=True, activo=True).order_by("nombre", "apellido"),
             "rows": rows,
             "stats": self.get_stats(rows),
-            "export_url": self.export_url(desde_value, hasta_value, selected_docente),
+            "excel_url": self.export_url(desde_value, hasta_value, selected_docente, "excel"),
+            "pdf_url": self.export_url(desde_value, hasta_value, selected_docente, "pdf"),
             "daily_url": reverse_lazy("academico:direccion_horas_docente"),
         }
 
@@ -5449,8 +5458,8 @@ class DireccionReporteHorasDocenteView(DireccionRequiredMixin, View):
         response["Content-Disposition"] = 'attachment; filename="reporte_horas_docente.xlsx"'
         return response
 
-    def export_url(self, desde_value, hasta_value, selected_docente):
-        params = {"desde": desde_value, "hasta": hasta_value, "export": "excel"}
+    def export_url(self, desde_value, hasta_value, selected_docente, export):
+        params = {"desde": desde_value, "hasta": hasta_value, "export": export}
         if selected_docente:
             params["docente"] = selected_docente.pk
         return f"{reverse_lazy('academico:direccion_horas_docente_reporte')}?{urlencode(params)}"

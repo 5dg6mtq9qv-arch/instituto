@@ -1,6 +1,7 @@
 """Exportaciones presentables del informe mensual docente."""
 
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from django.http import HttpResponse
 from openpyxl import Workbook
@@ -37,6 +38,160 @@ def metric_value(value, suffix="%"):
 
 def teacher_name(teacher):
     return teacher.nombre_completo()
+
+
+def export_teacher_hours_pdf(context, institution):
+    output = BytesIO()
+    document = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=13 * mm,
+        bottomMargin=14 * mm,
+        title="Reporte de horas docente",
+        author=institution.nombre_display() if institution else "Instituto",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "HoursReportTitle", parent=styles["Title"], fontName="Helvetica-Bold",
+        fontSize=18, leading=21, textColor=colors.HexColor(f"#{DARK}"), alignment=TA_LEFT,
+    )
+    subtitle_style = ParagraphStyle(
+        "HoursReportSubtitle", parent=styles["Normal"], fontSize=9.5, leading=13,
+        textColor=colors.HexColor(f"#{MUTED}"), alignment=TA_LEFT,
+    )
+    small_style = ParagraphStyle(
+        "HoursReportSmall", parent=styles["Normal"], fontSize=7, leading=8.5,
+        textColor=colors.HexColor(f"#{DARK}"), alignment=TA_CENTER,
+    )
+    small_left = ParagraphStyle("HoursReportSmallLeft", parent=small_style, alignment=TA_LEFT)
+
+    brand_name = institution.nombre_display() if institution else "Instituto"
+    period_label = f"{context['desde']:%d/%m/%Y} - {context['hasta']:%d/%m/%Y}"
+    teacher_label = (
+        context["selected_docente"].nombre_completo()
+        if context["selected_docente"] else "Todos los docentes"
+    )
+    header_items = []
+    if institution and institution.logo:
+        try:
+            header_items.append(Image(institution.logo.path, width=22 * mm, height=22 * mm))
+        except (OSError, ValueError):
+            pass
+    header_items.append([
+        Paragraph(escape(brand_name), title_style),
+        Paragraph("Reporte de horas docente", subtitle_style),
+        Paragraph(
+            f"Periodo: {period_label} - Docente: {escape(teacher_label)}",
+            subtitle_style,
+        ),
+    ])
+    header = Table(
+        [header_items],
+        colWidths=[26 * mm, 235 * mm] if len(header_items) == 2 else [261 * mm],
+    )
+    header.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(f"#{LIGHT}")),
+        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#CBD5E1")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+
+    stats = context["stats"]
+    summary_data = [[
+        Paragraph("<b>Registros</b><br/>%s" % stats["registros"], small_style),
+        Paragraph("<b>Total de horas</b><br/>%s" % stats["horas_label"], small_style),
+        Paragraph("<b>Docentes</b><br/>%s" % stats["docentes"], small_style),
+        Paragraph("<b>Reemplazos</b><br/>%s" % stats["reemplazos"], small_style),
+    ]]
+    summary = Table(summary_data, colWidths=[65.25 * mm] * 4)
+    summary.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D7DEE8")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D7DEE8")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+
+    headers = [
+        "Fecha", "Horario", "Grupo / aula", "Materia", "Docente", "Estado",
+        "Horas", "Reemplaza a", "Observacion",
+    ]
+    detail_data = [[Paragraph(f"<b>{label}</b>", small_style) for label in headers]]
+    for row in context["rows"]:
+        detail_data.append([
+            Paragraph(row["fecha"].strftime("%d/%m/%Y"), small_style),
+            Paragraph(row["hora"], small_style),
+            Paragraph(
+                f"{escape(str(row['grupo'].nombre))}<br/>{escape(str(row['aula']))}",
+                small_left,
+            ),
+            Paragraph(escape(str(row["materia"].nombre)), small_left),
+            Paragraph(
+                escape(row["docente"].nombre_completo()) if row["docente"] else "-",
+                small_left,
+            ),
+            Paragraph(escape(str(row["estado"])), small_style),
+            Paragraph(row["horas_label"], small_style),
+            Paragraph(
+                escape(row["docente_reemplazado"].nombre_completo())
+                if row["docente_reemplazado"] else "-",
+                small_left,
+            ),
+            Paragraph(escape(str(row["observacion"])) if row["observacion"] else "-", small_left),
+        ])
+    if not context["rows"]:
+        detail_data.append([Paragraph("Sin horas registradas para este filtro.", small_style)] + [""] * 8)
+
+    detail = Table(
+        detail_data,
+        repeatRows=1,
+        colWidths=[19 * mm, 24 * mm, 31 * mm, 31 * mm, 38 * mm, 22 * mm, 15 * mm, 36 * mm, 45 * mm],
+    )
+    detail.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(f"#{BLUE}")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ALIGN", (0, 1), (1, -1), "CENTER"),
+        ("ALIGN", (5, 1), (6, -1), "CENTER"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D7DEE8")),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    if not context["rows"]:
+        detail.setStyle(TableStyle([("SPAN", (0, 1), (-1, 1))]))
+
+    def footer(canvas, doc):
+        canvas.saveState()
+        canvas.setStrokeColor(colors.HexColor("#D7DEE8"))
+        canvas.line(12 * mm, 10 * mm, 285 * mm, 10 * mm)
+        canvas.setFillColor(colors.HexColor(f"#{MUTED}"))
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(12 * mm, 6 * mm, "Reporte de horas docente - sin valores monetarios")
+        canvas.drawRightString(285 * mm, 6 * mm, f"Pagina {doc.page}")
+        canvas.restoreState()
+
+    document.build(
+        [header, Spacer(1, 6 * mm), summary, Spacer(1, 6 * mm), detail],
+        onFirstPage=footer,
+        onLaterPages=footer,
+    )
+    output.seek(0)
+    response = HttpResponse(output.getvalue(), content_type="application/pdf")
+    response["Content-Disposition"] = (
+        f'attachment; filename="reporte_horas_docente_{context["desde"]:%Y%m%d}_'
+        f'{context["hasta"]:%Y%m%d}.pdf"'
+    )
+    return response
 
 
 def export_teacher_report_excel(report, institution_name, month_label):

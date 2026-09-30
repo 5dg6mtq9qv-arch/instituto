@@ -5148,7 +5148,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(post_response.status_code, 403)
         self.assertFalse(ClaseHoraDocente.objects.filter(clase=clase).exists())
 
-    def test_teacher_hours_report_renders_and_exports_excel(self):
+    def test_teacher_hours_report_renders_and_exports_excel_and_pdf(self):
         director = self.create_director()
         clase = self.create_class_for_date(timezone.localdate(), time(14, 0), time(16, 0), aula_nombre="Aula reporte")
         ClaseHoraDocente.objects.create(
@@ -5175,6 +5175,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Reporte horas docente")
         self.assertContains(response, "Docente Prueba")
+        self.assertContains(response, "PDF")
         self.assertEqual(response.context["stats"]["horas"], Decimal("2.00"))
 
         export_response = self.client.get(
@@ -5193,6 +5194,17 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertIn("Docente Prueba", values)
         self.assertIn("Matematicas", values)
         self.assertIn(2, values)
+
+        pdf_response = self.client.get(
+            reverse("academico:direccion_horas_docente_reporte"),
+            {**params, "export": "pdf"},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertIn("reporte_horas_docente_", pdf_response["Content-Disposition"])
+        self.assertTrue(pdf_response.content.startswith(b"%PDF-"))
 
     def test_coordinacion_review_detail_denies_user_without_review_permission(self):
         self.client.force_login(self.user)
