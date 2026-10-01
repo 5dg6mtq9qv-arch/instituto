@@ -1121,6 +1121,8 @@ class MatriculaProcesoTests(TestCase):
         self.assertContains(response, "Escanear ficha")
         self.assertContains(response, "data-ficha-scanner")
         self.assertContains(response, "data-scanner-file-input")
+        self.assertContains(response, "data-scanner-preview")
+        self.assertContains(response, "Vista previa de la ficha firmada")
         self.assertContains(response, "js/ficha-scanner.js")
         self.assertContains(response, reverse("matricula:scanner_agent_download"))
 

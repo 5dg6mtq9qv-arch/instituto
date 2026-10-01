@@ -15,7 +15,7 @@ El instalador registra una tarea de Windows para iniciar el agente automáticame
 
 ## Uso
 
-En la edición de una ficha, pulsa **Escanear ficha**, indica el número de páginas y alimenta el ES-60W. Cuando el campo muestre el nombre del PDF, pulsa **Guardar**.
+En la edición de una ficha, pulsa **Escanear ficha**, indica el número de páginas y alimenta el ES-60W. Al terminar aparecerá una vista previa del PDF; revísala y pulsa **Guardar**. La vista previa también funciona al escoger un archivo manualmente y al abrir una ficha que ya tiene un archivo guardado.
 
 Si son varias páginas, `page_delay_ms` define el tiempo para cambiar la hoja; el valor inicial es 10 segundos. Si se necesita más tiempo, por ejemplo 15 segundos, usa `15000`.
 

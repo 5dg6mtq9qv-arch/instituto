@@ -164,6 +164,42 @@
             <div class="form-text">
               Coloca la hoja en el escáner. Para varias páginas, cambia cada hoja cuando lo indique la ventana de progreso.
             </div>
+            <div
+              class="ficha-file-preview mt-3"
+              data-scanner-preview
+              {% if object.archivo_ficha_firmada %}
+                data-current-url="{{ object.archivo_ficha_firmada.url }}"
+                data-current-name="{{ object.archivo_ficha_firmada.name }}"
+              {% else %}
+                hidden
+              {% endif %}
+            >
+              <div class="ficha-file-preview__header">
+                <span class="small fw-semibold" data-scanner-preview-name>
+                  {% if object.archivo_ficha_firmada %}{{ object.archivo_ficha_firmada.name }}{% endif %}
+                </span>
+                <a
+                  class="btn btn-outline-secondary btn-sm"
+                  data-scanner-preview-open
+                  {% if object.archivo_ficha_firmada %}href="{{ object.archivo_ficha_firmada.url }}"{% endif %}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <i class="ri-external-link-line"></i>
+                  Abrir archivo
+                </a>
+              </div>
+              <iframe
+                class="ficha-file-preview__pdf"
+                data-scanner-preview-pdf
+                title="Vista previa de la ficha firmada"
+                {% if object.archivo_ficha_firmada %}src="{{ object.archivo_ficha_firmada.url }}"{% endif %}
+              ></iframe>
+              <img class="ficha-file-preview__image" data-scanner-preview-image alt="Vista previa de la ficha firmada" hidden>
+              <p class="ficha-file-preview__unsupported small text-muted" data-scanner-preview-unsupported hidden>
+                Este tipo de archivo no se puede mostrar aquí. Usa “Abrir archivo” para revisarlo.
+              </p>
+            </div>
             {% for error in form.archivo_ficha_firmada.errors %}
               <div class="invalid-feedback d-block">{{ error }}</div>
             {% endfor %}
@@ -187,7 +223,7 @@
 {% block extra_scripts %}
   <script src="{% static 'assets/js/flatpickr.js' %}"></script>
   <script src="{% static 'assets/js/lib/switchery.min.js' %}"></script>
-  <script src="{% static 'js/ficha-scanner.js' %}?v=20260930-1"></script>
+  <script src="{% static 'js/ficha-scanner.js' %}?v=20260930-2"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
       if (window.InstitutoDatePicker) {
