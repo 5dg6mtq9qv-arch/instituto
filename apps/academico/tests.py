@@ -3553,6 +3553,68 @@ class DocenteHorariosPanelTests(TestCase):
             ).exists()
         )
 
+    def test_academic_planning_adds_recurring_schedule_from_selected_date(self):
+        periodo = self.create_periodo_for_course()
+        self.make_superuser()
+        dia, _ = Dia.objects.get_or_create(dia="Jueves")
+        horario = Horario.objects.create(hora_inicio=time(15, 0), hora_fin=time(16, 30))
+        horario_dia = HorarioDia.objects.create(dia=dia, horario=horario)
+        aula_curso = self.horario_aula_curso.aula_curso
+        previous_date = self.date_for_weekday(periodo, 3)
+        selected_date = previous_date + timedelta(days=7)
+        previous_schedule = HorarioAulaCurso.objects.create(
+            aula_curso=aula_curso,
+            horario_dia=horario_dia,
+            fecha=previous_date,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "planning_action": "add_schedule",
+                "curso": self.curso.pk,
+                "generar_periodo": "on",
+                "schedule_fecha": selected_date.isoformat(),
+                "schedule-aula": self.aula.pk,
+                "schedule-dia": dia.pk,
+                "schedule-hora_inicio": "15:00",
+                "schedule-hora_fin": "16:30",
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+
+        recurring_schedule = HorarioAulaCurso.objects.get(
+            aula_curso=aula_curso,
+            horario_dia=horario_dia,
+            fecha__isnull=True,
+        )
+        self.assertContains(response, f"Horario agregado desde el {selected_date:%d/%m/%Y}")
+        self.assertTrue(HorarioAulaCurso.objects.filter(pk=previous_schedule.pk).exists())
+        self.assertTrue(
+            HorarioAulaCursoExclusion.objects.filter(
+                horario_aula_curso=recurring_schedule,
+                fecha=previous_date,
+            ).exists()
+        )
+
+        events = json.loads(response.context["calendar_events_json"])
+        self.assertFalse(
+            any(
+                item["horarioId"] == recurring_schedule.pk
+                and item["fecha"] == previous_date.isoformat()
+                for item in events
+            )
+        )
+        self.assertTrue(
+            any(
+                item["horarioId"] == recurring_schedule.pk
+                and item["fecha"] == selected_date.isoformat()
+                for item in events
+            )
+        )
+
     def test_academic_planning_adds_single_date_schedule_when_period_switch_off(self):
         periodo = self.create_periodo_for_course()
         self.make_superuser()

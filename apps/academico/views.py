@@ -1442,11 +1442,23 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                     schedule_form.add_error(None, "Selecciona un espacio del calendario para crear el horario puntual.")
                 elif fecha_horario and schedule_form.cleaned_data["dia"].dia != self.weekday_to_dia()[fecha_horario.weekday()]:
                     schedule_form.add_error("dia", "La fecha seleccionada no corresponde al dia del horario.")
-                elif self.has_schedule_overlap(schedule_form, generar_periodo, fecha_horario, curso_periodo):
+                elif self.has_schedule_overlap(
+                    schedule_form,
+                    generar_periodo,
+                    fecha_horario,
+                    curso_periodo,
+                    recurrence_start=fecha_horario if generar_periodo else None,
+                ):
                     pass
                 else:
                     fecha_base = None if generar_periodo else fecha_horario
-                    return self.save_schedule_block(request, curso, schedule_form, fecha_base)
+                    return self.save_schedule_block(
+                        request,
+                        curso,
+                        schedule_form,
+                        fecha_base,
+                        recurrence_start=fecha_horario if generar_periodo else None,
+                    )
         return render(request, self.template_name, self.get_context(schedule_form=schedule_form))
 
     def handle_update_schedule(self, request):
@@ -1534,19 +1546,62 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
         )
         return aula_curso, horario_dia
 
-    def save_schedule_block(self, request, curso, schedule_form, fecha_horario=None):
+    def save_schedule_block(
+        self,
+        request,
+        curso,
+        schedule_form,
+        fecha_horario=None,
+        recurrence_start=None,
+    ):
+        reactivated = False
         with transaction.atomic():
             aula_curso, horario_dia = self.get_schedule_parts(curso, schedule_form)
-            _, created = HorarioAulaCurso.objects.get_or_create(
+            horario_aula_curso, created = HorarioAulaCurso.objects.get_or_create(
                 aula_curso=aula_curso,
                 horario_dia=horario_dia,
                 fecha=fecha_horario,
             )
+            if fecha_horario is None and recurrence_start:
+                curso_periodo = self.get_schedule_period(curso, recurrence_start)
+                deleted_exclusions, _ = horario_aula_curso.exclusiones.filter(
+                    fecha__gte=recurrence_start,
+                    fecha__lte=curso_periodo.periodo.fecha_fin,
+                ).delete()
+                reactivated = bool(deleted_exclusions)
+                prior_dates = [
+                    item
+                    for item in self.period_dates_for_day(
+                        curso_periodo.periodo,
+                        horario_dia.dia.dia,
+                    )
+                    if item < recurrence_start
+                ]
+                HorarioAulaCursoExclusion.objects.bulk_create(
+                    [
+                        HorarioAulaCursoExclusion(
+                            horario_aula_curso=horario_aula_curso,
+                            fecha=item,
+                        )
+                        for item in prior_dates
+                    ],
+                    ignore_conflicts=True,
+                )
         if created:
             if fecha_horario:
                 messages.success(request, "Horario agregado solo para la fecha seleccionada.")
+            elif recurrence_start:
+                messages.success(
+                    request,
+                    f"Horario agregado desde el {recurrence_start:%d/%m/%Y} hasta el final del periodo.",
+                )
             else:
                 messages.success(request, "Horario agregado al calendario del grupo.")
+        elif reactivated:
+            messages.success(
+                request,
+                f"Horario reactivado desde el {recurrence_start:%d/%m/%Y} hasta el final del periodo.",
+            )
         else:
             messages.info(request, "Ese horario ya estaba agregado al grupo.")
         return self.redirect_to_planning(curso)
@@ -1609,7 +1664,15 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             return True
         return False
 
-    def has_schedule_overlap(self, schedule_form, generar_periodo, fecha_horario, curso_periodo, exclude_schedule=None):
+    def has_schedule_overlap(
+        self,
+        schedule_form,
+        generar_periodo,
+        fecha_horario,
+        curso_periodo,
+        exclude_schedule=None,
+        recurrence_start=None,
+    ):
         aula = schedule_form.cleaned_data["aula"]
         dia = schedule_form.cleaned_data["dia"]
         hora_inicio = schedule_form.cleaned_data["hora_inicio"]
@@ -1627,7 +1690,19 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
             conflicts = conflicts.exclude(pk=exclude_schedule.pk)
         if generar_periodo:
             period_dates = self.period_dates_for_day(curso_periodo.periodo, dia.dia)
-            conflicts = conflicts.filter(Q(fecha__isnull=True) | Q(fecha__in=period_dates))
+            if recurrence_start:
+                period_dates = [item for item in period_dates if item >= recurrence_start]
+            conflict = None
+            for candidate in conflicts.filter(Q(fecha__isnull=True) | Q(fecha__in=period_dates)):
+                if candidate.fecha:
+                    conflict = candidate
+                    break
+                excluded_dates = set(
+                    candidate.exclusiones.filter(fecha__in=period_dates).values_list("fecha", flat=True)
+                )
+                if any(item not in excluded_dates for item in period_dates):
+                    conflict = candidate
+                    break
         else:
             conflicts = conflicts.annotate(
                 excluded_on_date=Exists(
@@ -1640,8 +1715,7 @@ class PlanificacionAcademicaView(LoginRequiredMixin, PermissionRequiredMixin, Vi
                 Q(fecha=fecha_horario)
                 | Q(fecha__isnull=True, excluded_on_date=False)
             )
-
-        conflict = conflicts.first()
+            conflict = conflicts.first()
         if not conflict:
             return False
 
