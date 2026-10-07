@@ -3049,6 +3049,70 @@ class DocenteHorariosPanelTests(TestCase):
             ).exists()
         )
 
+    def test_user_with_delete_class_permission_removes_empty_schedule_occurrence(self):
+        self.create_periodo_for_course()
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="view_clase",
+            ),
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="delete_scheduled_clase",
+            ),
+        )
+        empty_date = self.rechazada.fecha + timedelta(days=7)
+        self.client.force_login(self.user)
+        url = reverse("academico:planificacion_academica")
+
+        page = self.client.get(url, {"curso": self.curso.pk}, HTTP_HOST="localhost")
+        event = next(
+            item
+            for item in json.loads(page.context["calendar_events_json"])
+            if item["horarioId"] == self.horario_aula_curso.pk
+            and item["fecha"] == empty_date.isoformat()
+        )
+
+        self.assertIsNone(event["claseId"])
+        self.assertTrue(event["canDeleteEmptyOccurrence"])
+        self.assertContains(page, "data-delete-empty-occurrence-form")
+        self.assertContains(page, "Eliminar esta fecha vacía del horario")
+
+        residual_class = Clase.objects.create(
+            horario_aula_curso=self.horario_aula_curso,
+            materia_curso=self.materia_curso,
+            fecha=empty_date,
+            estado_planificacion="aprobada",
+            descripcion="Planificacion residual",
+        )
+        residual_class.competencias.add(self.competencia)
+        ClaseAsistencia.objects.create(clase=residual_class, estudiante=self.docente)
+
+        response = self.client.post(
+            url,
+            {
+                "planning_action": "delete_schedule_occurrence",
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": empty_date.isoformat(),
+                "confirm_delete_occurrence": "1",
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+
+        self.assertContains(response, "cualquier planificacion residual fueron eliminadas")
+        self.assertFalse(Clase.objects.filter(pk=residual_class.pk).exists())
+        self.assertFalse(ClaseAsistencia.objects.filter(clase_id=residual_class.pk).exists())
+        self.assertTrue(HorarioAulaCurso.objects.filter(pk=self.horario_aula_curso.pk).exists())
+        self.assertTrue(
+            HorarioAulaCursoExclusion.objects.filter(
+                horario_aula_curso=self.horario_aula_curso,
+                fecha=empty_date,
+            ).exists()
+        )
+        self.assertTrue(Clase.objects.filter(pk=self.rechazada.pk).exists())
+
     def test_delete_following_classes_removes_recurrence_and_preserves_given_class(self):
         periodo = self.create_periodo_for_course()
         self.user.user_permissions.add(
@@ -3329,6 +3393,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertTrue(event["canDeleteSchedule"])
         self.assertEqual(event["scheduleClassCount"], 4)
         self.assertContains(page, "Eliminar clases definitivamente")
+        self.assertContains(page, "Eliminar este horario y crear otro")
         payload = {
             "planning_action": "delete_schedule", "curso": self.curso.pk,
             "schedule_horario_aula_curso": self.horario_aula_curso.pk,
@@ -3339,6 +3404,8 @@ class DocenteHorariosPanelTests(TestCase):
         payload["confirm_delete_classes"] = "4"
         response = self.client.post(url, payload, HTTP_HOST="localhost")
         self.assertEqual(response.status_code, 302)
+        response = self.client.get(response.url, follow=True, HTTP_HOST="localhost")
+        self.assertContains(response, "Ya puedes crear un horario nuevo")
         self.assertFalse(HorarioAulaCurso.objects.filter(pk=self.horario_aula_curso.pk).exists())
         self.assertFalse(Clase.objects.filter(horario_aula_curso_id=self.horario_aula_curso.pk).exists())
         self.assertFalse(ClaseAsistencia.objects.filter(clase_id=self.revision.pk).exists())

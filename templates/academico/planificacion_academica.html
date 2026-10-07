@@ -98,7 +98,27 @@
   <div class="offcanvas offcanvas-end schedule-offcanvas" tabindex="-1" id="planificacionMateriaOffcanvas" aria-labelledby="planificacionMateriaTitle">
     <div class="offcanvas-header">
       <h5 class="offcanvas-title" id="planificacionMateriaTitle">Asignar materia</h5>
-      <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+      <div class="d-flex align-items-center gap-2">
+        {% if can_delete_class and selected_curso %}
+          <form method="post" class="m-0" data-delete-empty-occurrence-form hidden>
+            {% csrf_token %}
+            <input type="hidden" name="planning_action" value="delete_schedule_occurrence">
+            <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
+            <input type="hidden" name="horario_aula_curso" data-delete-empty-occurrence-schedule>
+            <input type="hidden" name="fecha" data-delete-empty-occurrence-date>
+            <input type="hidden" name="confirm_delete_occurrence" value="1">
+            <button
+              class="btn btn-outline-danger btn-sm"
+              type="submit"
+              title="Eliminar esta fecha vacía del horario"
+              aria-label="Eliminar esta fecha vacía del horario"
+            >
+              <i class="ri-delete-bin-line"></i>
+            </button>
+          </form>
+        {% endif %}
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+      </div>
     </div>
     <div class="offcanvas-body">
       <div class="planning-selection-summary">
@@ -282,6 +302,15 @@
                 {% if schedule_action == "update_schedule" %}Actualizar horario{% else %}Guardar horario{% endif %}
               </span>
             </button>
+            {% if can_delete_schedule %}
+              <button class="btn btn-outline-danger w-100" type="button" data-delete-schedule-from-editor hidden>
+                <i class="ri-delete-bin-line"></i>
+                Eliminar este horario y crear otro
+              </button>
+              <small class="text-muted" data-delete-schedule-editor-help hidden>
+                Se borrarán sus clases, planificaciones y registros relacionados. Después podrás crear un horario nuevo y asignarle otra materia y otro docente.
+              </small>
+            {% endif %}
           </div>
         </form>
       {% else %}
@@ -499,10 +528,14 @@
         const actionInput = document.querySelector("[data-schedule-action]");
         const idInput = document.querySelector("[data-schedule-id]");
         const submitLabel = document.querySelector("[data-schedule-submit-label]");
+        const deleteFromEditorButton = document.querySelector("[data-delete-schedule-from-editor]");
+        const deleteFromEditorHelp = document.querySelector("[data-delete-schedule-editor-help]");
         if (titleTarget) titleTarget.textContent = isEdit ? "Editar horario" : "Crear horario";
         if (actionInput) actionInput.value = isEdit ? "update_schedule" : "add_schedule";
         if (idInput) idInput.value = isEdit && event ? event.horarioId : "";
         if (submitLabel) submitLabel.textContent = isEdit ? "Actualizar horario" : "Guardar horario";
+        if (deleteFromEditorButton) deleteFromEditorButton.hidden = !isEdit;
+        if (deleteFromEditorHelp) deleteFromEditorHelp.hidden = !isEdit;
       }
 
       function resetSchedulePeriodSwitch(checked) {
@@ -577,6 +610,12 @@
         }
         activePlanningEvent = event;
         hideCalendarNotice();
+        const deleteEmptyOccurrenceForm = document.querySelector("[data-delete-empty-occurrence-form]");
+        if (deleteEmptyOccurrenceForm) {
+          deleteEmptyOccurrenceForm.hidden = !event.canDeleteEmptyOccurrence;
+          deleteEmptyOccurrenceForm.querySelector("[data-delete-empty-occurrence-schedule]").value = event.horarioId || "";
+          deleteEmptyOccurrenceForm.querySelector("[data-delete-empty-occurrence-date]").value = event.fecha || "";
+        }
         const resetForm = document.querySelector("[data-reset-planning-form]");
         if (resetForm) {
           resetForm.reset();
@@ -631,6 +670,36 @@
       const editScheduleButton = document.querySelector("[data-edit-schedule-button]");
       const deleteClassForm = document.querySelector("[data-delete-class-form]");
       const deleteScheduleForm = document.querySelector("[data-delete-schedule-form]");
+      const deleteEmptyOccurrenceForm = document.querySelector("[data-delete-empty-occurrence-form]");
+      const deleteScheduleFromEditor = document.querySelector("[data-delete-schedule-from-editor]");
+      if (deleteEmptyOccurrenceForm) {
+        deleteEmptyOccurrenceForm.addEventListener("submit", async function (event) {
+          event.preventDefault();
+          const confirmationText = "Se eliminará únicamente esta fecha vacía del horario. Las demás semanas se conservarán. Si quedó algún registro residual de planificación en esta fecha, también se borrará. ¿Deseas continuar?";
+          const confirmed = window.Swal
+            ? (await Swal.fire({
+                title: "¿Eliminar esta fecha vacía?",
+                text: confirmationText,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "Sí, eliminar",
+                cancelButtonText: "Cancelar",
+                confirmButtonColor: "#dc3545",
+                cancelButtonColor: "#64748b",
+                focusCancel: true,
+                reverseButtons: true
+              })).isConfirmed
+            : window.confirm(confirmationText);
+          if (!confirmed) return;
+          deleteEmptyOccurrenceForm.querySelector('button[type="submit"]').disabled = true;
+          HTMLFormElement.prototype.submit.call(deleteEmptyOccurrenceForm);
+        });
+      }
+      if (deleteScheduleFromEditor && deleteScheduleForm) {
+        deleteScheduleFromEditor.addEventListener("click", function () {
+          deleteScheduleForm.requestSubmit();
+        });
+      }
       if (deleteClassForm) {
         deleteClassForm.addEventListener("submit", async function (event) {
           event.preventDefault();
