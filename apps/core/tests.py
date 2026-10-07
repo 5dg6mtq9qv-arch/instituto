@@ -339,6 +339,40 @@ class SecurityGroupViewTests(TestCase):
         self.assertContains(response, "Ver horario general")
         self.assertContains(response, f'value="{permission.pk}"')
 
+    def test_delete_scheduled_class_permission_can_be_assigned_from_group_form(self):
+        self.admin_group.permissions.clear()
+        user = get_user_model().objects.create_user(username="admin_eliminar_clases", password="ClaveActual987!")
+        member = get_user_model().objects.create_user(username="operador_horarios", password="ClaveActual987!")
+        member.groups.add(self.target_group)
+        user.groups.add(self.admin_group)
+        permission = Permission.objects.get(
+            content_type__app_label="academico",
+            codename="delete_scheduled_clase",
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Eliminar clases del horario")
+        self.assertContains(response, f'value="{permission.pk}"')
+
+        response = self.client.post(
+            reverse("core:grupo_editar", kwargs={"pk": self.target_group.pk}),
+            {
+                "name": self.target_group.name,
+                "permissions": [permission.pk],
+            },
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(response, reverse("core:grupo_list"), fetch_redirect_response=False)
+        self.assertTrue(self.target_group.permissions.filter(pk=permission.pk).exists())
+        self.assertTrue(member.has_perm("academico.delete_scheduled_clase"))
+
     def test_administrador_group_can_assign_groups_from_user_form(self):
         self.admin_group.permissions.clear()
         user = get_user_model().objects.create_user(username="admin_users", password="ClaveActual987!")

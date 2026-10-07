@@ -122,7 +122,32 @@
           <input type="hidden" name="schedule_horario_aula_curso" data-delete-schedule-id>
           <input type="hidden" name="confirm_delete_classes" data-delete-schedule-confirm>
           <p class="text-muted" data-delete-schedule-scope></p>
-          <button class="btn btn-outline-danger w-100 mb-3" type="submit">Eliminar horario</button>
+          <button class="btn btn-outline-danger w-100 mb-3" type="submit">Eliminar clases definitivamente</button>
+        </form>
+      {% endif %}
+
+      {% if can_delete_class and selected_curso %}
+        <form method="post" data-delete-class-form hidden>
+          {% csrf_token %}
+          <input type="hidden" name="planning_action" value="delete_class">
+          <input type="hidden" name="curso" value="{{ selected_curso.pk }}">
+          <input type="hidden" name="clase" data-delete-class-id>
+          <input type="hidden" name="confirm_delete_class" value="1">
+          <div class="planning-period-switch mb-3" data-delete-following-container hidden>
+            <input
+              class="js-switch"
+              id="deleteFollowingClasses"
+              type="checkbox"
+              name="delete_following_classes"
+              data-delete-following-switch
+            >
+            <label for="deleteFollowingClasses">Eliminar también todas las clases siguientes de este horario</label>
+            <small class="text-muted d-block mt-2">Se aplicará desde esta fecha hasta el final del período. Las clases ya dictadas se conservarán.</small>
+          </div>
+          <button class="btn btn-outline-danger w-100 mb-3" type="submit">
+            <i class="ri-delete-bin-line"></i>
+            Eliminar clase y horario de este día
+          </button>
         </form>
       {% endif %}
 
@@ -267,6 +292,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
   <script src="{% static 'assets/js/lib/jquery-3.7.1.min.js' %}"></script>
   <script src="{% static 'assets/js/lib/jquery-ui.min.js' %}"></script>
   <script src="{% static 'assets/js/full-calendar.js' %}"></script>
@@ -297,6 +323,7 @@
       const defaultDate = new Date("{{ calendar_default_date }}T00:00:00");
       const hasCalendar = document.getElementById("calendar");
       const canDeleteSchedule = {{ can_delete_schedule|yesno:"true,false" }};
+      const canDeleteClass = {{ can_delete_class|yesno:"true,false" }};
       const canSave = {{ can_save|yesno:"true,false" }};
       const canAddSchedule = {{ can_add_schedule|yesno:"true,false" }};
       const weekdayDiaIds = {{ weekday_dia_ids_json|safe }};
@@ -317,6 +344,7 @@
       }
       let periodSwitchery = null;
       let schedulePeriodSwitchery = null;
+      let deleteFollowingSwitchery = null;
       let activePlanningEvent = null;
 
       if (window.Switchery) {
@@ -333,6 +361,15 @@
         if (scheduleSwitchInput && scheduleSwitchInput.dataset.switchery !== "true") {
           schedulePeriodSwitchery = new Switchery(scheduleSwitchInput, {
             color: "#0f766e",
+            secondaryColor: "#d1d5db",
+            jackColor: "#ffffff",
+            size: "small"
+          });
+        }
+        const deleteFollowingInput = document.querySelector("[data-delete-following-switch]");
+        if (deleteFollowingInput && deleteFollowingInput.dataset.switchery !== "true") {
+          deleteFollowingSwitchery = new Switchery(deleteFollowingInput, {
+            color: "#dc3545",
             secondaryColor: "#d1d5db",
             jackColor: "#ffffff",
             size: "small"
@@ -533,8 +570,8 @@
       }
 
       function openMateriaPanel(event) {
-        if (!canSave && !canDeleteSchedule) return;
-        if (event.lockedReason && !event.canDeleteSchedule && !event.canResetPlanning) {
+        if (!canSave && !canDeleteSchedule && !canDeleteClass) return;
+        if (event.lockedReason && !event.canDeleteSchedule && !event.canDeleteClass && !event.canResetPlanning) {
           showCalendarNotice(event.lockedReason);
           return;
         }
@@ -564,6 +601,22 @@
           deleteForm.querySelector("[data-delete-schedule-scope]").textContent = scope;
           deleteForm.dataset.confirmMessage = scope + " ¿Deseas continuar?";
         }
+        const deleteClassForm = document.querySelector("[data-delete-class-form]");
+        if (deleteClassForm) {
+          deleteClassForm.hidden = !event.canDeleteClass;
+          deleteClassForm.querySelector("[data-delete-class-id]").value = event.claseId || "";
+          const deleteFollowingContainer = deleteClassForm.querySelector("[data-delete-following-container]");
+          const deleteFollowingInput = deleteClassForm.querySelector("[data-delete-following-switch]");
+          if (deleteFollowingInput) {
+            deleteFollowingInput.checked = false;
+            deleteFollowingInput.disabled = Boolean(event.singleDate);
+            deleteFollowingInput.dispatchEvent(new Event("change"));
+          }
+          if (deleteFollowingContainer) {
+            deleteFollowingContainer.hidden = Boolean(event.singleDate);
+          }
+          deleteClassForm.dataset.confirmMessage = "Se eliminarán esta clase y el bloque del horario solamente para este día. El docente la perderá de sus planificaciones y se borrarán definitivamente su planificación, revisión, asistencias, horas docentes y movimientos relacionados. Las demás fechas del horario se conservarán. ¿Deseas continuar?";
+        }
         if (planningMateriaInput) {
           planningMateriaInput.value = event.materiaId || "";
         }
@@ -576,11 +629,54 @@
       }
 
       const editScheduleButton = document.querySelector("[data-edit-schedule-button]");
+      const deleteClassForm = document.querySelector("[data-delete-class-form]");
       const deleteScheduleForm = document.querySelector("[data-delete-schedule-form]");
-      if (deleteScheduleForm) {
-        deleteScheduleForm.addEventListener("submit", function (event) {
+      if (deleteClassForm) {
+        deleteClassForm.addEventListener("submit", async function (event) {
           event.preventDefault();
-          if (!window.confirm(deleteScheduleForm.dataset.confirmMessage || "¿Eliminar este horario?")) return;
+          const deleteFollowingInput = deleteClassForm.querySelector("[data-delete-following-switch]");
+          const deleteFollowing = Boolean(deleteFollowingInput && deleteFollowingInput.checked);
+          const confirmationText = deleteFollowing
+            ? "Se eliminarán esta clase y todas las siguientes del mismo horario hasta el final del período. También desaparecerán sus planificaciones y registros relacionados. Las clases ya dictadas se conservarán."
+            : deleteClassForm.dataset.confirmMessage || "Se eliminarán esta clase y el horario solamente para este día.";
+          const confirmed = window.Swal
+            ? (await Swal.fire({
+                title: deleteFollowing ? "¿Eliminar las clases siguientes?" : "¿Eliminar esta clase?",
+                text: confirmationText,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: deleteFollowing ? "Sí, eliminar siguientes" : "Sí, eliminar este día",
+                cancelButtonText: "Cancelar",
+                confirmButtonColor: "#dc3545",
+                cancelButtonColor: "#64748b",
+                focusCancel: true,
+                reverseButtons: true
+              })).isConfirmed
+            : window.confirm(confirmationText);
+          if (!confirmed) return;
+          deleteClassForm.querySelector('button[type="submit"]').disabled = true;
+          HTMLFormElement.prototype.submit.call(deleteClassForm);
+        });
+      }
+      if (deleteScheduleForm) {
+        deleteScheduleForm.addEventListener("submit", async function (event) {
+          event.preventDefault();
+          const confirmationText = deleteScheduleForm.dataset.confirmMessage || "Se eliminarán definitivamente todas las clases de este horario.";
+          const confirmed = window.Swal
+            ? (await Swal.fire({
+                title: "¿Eliminar las clases definitivamente?",
+                text: confirmationText,
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "Sí, eliminar definitivamente",
+                cancelButtonText: "Cancelar",
+                confirmButtonColor: "#dc3545",
+                cancelButtonColor: "#64748b",
+                focusCancel: true,
+                reverseButtons: true
+              })).isConfirmed
+            : window.confirm(confirmationText);
+          if (!confirmed) return;
           deleteScheduleForm.querySelector("[data-delete-schedule-confirm]").value = deleteScheduleForm.dataset.classCount;
           deleteScheduleForm.querySelector('button[type="submit"]').disabled = true;
           HTMLFormElement.prototype.submit.call(deleteScheduleForm);

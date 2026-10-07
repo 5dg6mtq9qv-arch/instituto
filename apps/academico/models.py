@@ -784,6 +784,30 @@ class HorarioAulaCurso(models.Model):
         return f"{self.aula_curso} - {self.horario_dia}"
 
 
+class HorarioAulaCursoExclusion(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    horario_aula_curso = models.ForeignKey(
+        HorarioAulaCurso,
+        db_column="id_horario_aula_curso",
+        on_delete=models.CASCADE,
+        related_name="exclusiones",
+    )
+    fecha = models.DateField()
+
+    class Meta:
+        db_table = '"academico"."horario_aula_curso_exclusion"'
+        ordering = ["horario_aula_curso", "fecha"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["horario_aula_curso", "fecha"],
+                name="uq_horario_aula_curso_exclusion_fecha",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.horario_aula_curso} - excluido {self.fecha}"
+
+
 class Materia(models.Model):
     id = models.BigAutoField(primary_key=True)
     nombre = models.CharField(max_length=150)
@@ -1019,6 +1043,7 @@ class Clase(models.Model):
         unique_together = (("horario_aula_curso", "fecha"),)
         ordering = ["fecha", "horario_aula_curso"]
         permissions = [
+            ("delete_scheduled_clase", "Puede eliminar una clase del horario y sus datos relacionados"),
             ("view_general_clase", "Puede ver el horario general"),
             ("view_informe_mensual_docente_clase", "Puede ver el informe mensual docente"),
         ]

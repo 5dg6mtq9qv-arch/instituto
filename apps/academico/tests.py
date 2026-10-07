@@ -37,6 +37,7 @@ from apps.academico.models import (
     GrupoEstudianteTraslado,
     Horario,
     HorarioAulaCurso,
+    HorarioAulaCursoExclusion,
     HorarioDia,
     Materia,
     MateriaCurso,
@@ -2821,6 +2822,379 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertFalse(self.revision.docente_override)
         self.assertContains(response, "La clase no se puede modificar porque tiene una planificacion enviada o aprobada.")
 
+    def test_user_with_permission_deletes_only_selected_upcoming_class(self):
+        self.create_periodo_for_course()
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="view_clase",
+            ),
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="delete_scheduled_clase",
+            ),
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="change_clase",
+            ),
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="add_horarioaulacurso",
+            ),
+        )
+        self.revision.competencias.add(self.competencia)
+        self.revision.estrategias.add(self.estrategia)
+        self.revision.recursos.add(self.recurso)
+        ClaseAsistencia.objects.create(clase=self.revision, estudiante=self.docente)
+        deleted_class_id = self.revision.pk
+        self.client.force_login(self.user)
+        url = reverse("academico:planificacion_academica")
+
+        page = self.client.get(url, {"curso": self.curso.pk}, HTTP_HOST="localhost")
+        event = next(
+            item
+            for item in json.loads(page.context["calendar_events_json"])
+            if item["claseId"] == deleted_class_id
+        )
+        self.assertTrue(event["canDeleteClass"])
+        self.assertContains(page, "Eliminar clase y horario de este día")
+        self.assertContains(page, "sweetalert2@11")
+        self.assertContains(page, "delete_following_classes")
+        self.assertContains(page, "Eliminar también todas las clases siguientes")
+
+        response = self.client.post(
+            url,
+            {
+                "planning_action": "delete_class",
+                "curso": self.curso.pk,
+                "clase": deleted_class_id,
+                "confirm_delete_class": "1",
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+
+        self.assertContains(response, "Clase y horario de ese dia eliminados correctamente")
+        self.assertFalse(Clase.objects.filter(pk=deleted_class_id).exists())
+        self.assertTrue(HorarioAulaCurso.objects.filter(pk=self.horario_aula_curso.pk).exists())
+        self.assertTrue(
+            HorarioAulaCursoExclusion.objects.filter(
+                horario_aula_curso=self.horario_aula_curso,
+                fecha=self.revision.fecha,
+            ).exists()
+        )
+        self.assertTrue(Clase.objects.filter(pk=self.pendiente.pk).exists())
+        self.assertTrue(Clase.objects.filter(pk=self.rechazada.pk).exists())
+        self.assertFalse(ClaseAsistencia.objects.filter(clase_id=deleted_class_id).exists())
+        self.assertTrue(Recurso.objects.filter(pk=self.recurso.pk).exists())
+        teacher_page = self.client.get(
+            reverse("academico:docente_clase_planificar", args=[deleted_class_id]),
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(teacher_page.status_code, 404)
+
+        page_after_delete = self.client.get(url, {"curso": self.curso.pk}, HTTP_HOST="localhost")
+        events_after_delete = json.loads(page_after_delete.context["calendar_events_json"])
+        self.assertFalse(
+            any(
+                item["horarioId"] == self.horario_aula_curso.pk
+                and item["fecha"] == self.revision.fecha.isoformat()
+                for item in events_after_delete
+            )
+        )
+        self.assertTrue(
+            any(
+                item["horarioId"] == self.horario_aula_curso.pk
+                and item["fecha"] == self.pendiente.fecha.isoformat()
+                for item in events_after_delete
+            )
+        )
+
+        recreate_response = self.client.post(
+            url,
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.revision.fecha.isoformat(),
+                "materia": self.materia.pk,
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+        self.assertContains(recreate_response, "El horario fue eliminado para esta fecha")
+        self.assertFalse(
+            Clase.objects.filter(
+                horario_aula_curso=self.horario_aula_curso,
+                fecha=self.revision.fecha,
+            ).exists()
+        )
+
+        adjusted_schedule_response = self.client.post(
+            url,
+            {
+                "planning_action": "add_schedule",
+                "curso": self.curso.pk,
+                "generar_periodo": "off",
+                "schedule_fecha": self.revision.fecha.isoformat(),
+                "schedule-aula": self.aula.pk,
+                "schedule-dia": self.horario_aula_curso.horario_dia.dia_id,
+                "schedule-hora_inicio": "08:30",
+                "schedule-hora_fin": "09:30",
+            },
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(adjusted_schedule_response.status_code, 302)
+        adjusted_schedule = HorarioAulaCurso.objects.get(
+            aula_curso__curso=self.curso,
+            aula_curso__aula=self.aula,
+            fecha=self.revision.fecha,
+            horario_dia__horario__hora_inicio=time(8, 30),
+            horario_dia__horario__hora_fin=time(9, 30),
+        )
+        replacement_subject = Materia.objects.create(
+            nombre="Fisica",
+            nombre_corto="FIS",
+        )
+        replacement_teacher, _ = self.create_docente()
+        assignment_response = self.client.post(
+            url,
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": adjusted_schedule.pk,
+                "fecha": self.revision.fecha.isoformat(),
+                "materia": replacement_subject.pk,
+                "docente": replacement_teacher.pk,
+            },
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(assignment_response.status_code, 302)
+        replacement_class = Clase.objects.get(
+            horario_aula_curso=adjusted_schedule,
+            fecha=self.revision.fecha,
+        )
+        self.assertEqual(replacement_class.materia_curso.materia, replacement_subject)
+        self.assertEqual(replacement_class.docente, replacement_teacher)
+        self.assertTrue(replacement_class.docente_override)
+
+        final_page = self.client.get(url, {"curso": self.curso.pk}, HTTP_HOST="localhost")
+        final_events = json.loads(final_page.context["calendar_events_json"])
+        replacement_event = next(
+            item for item in final_events if item["claseId"] == replacement_class.pk
+        )
+        self.assertEqual(replacement_event["horarioId"], adjusted_schedule.pk)
+        self.assertEqual(replacement_event["hora"], "08:30 - 09:30")
+        self.assertEqual(replacement_event["materiaId"], replacement_subject.pk)
+
+        bulk_response = self.client.post(
+            url,
+            {
+                "curso": self.curso.pk,
+                "horario_aula_curso": self.horario_aula_curso.pk,
+                "fecha": self.pendiente.fecha.isoformat(),
+                "materia": self.materia.pk,
+                "asignar_periodo": "on",
+            },
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(bulk_response.status_code, 302)
+        self.assertFalse(
+            Clase.objects.filter(
+                horario_aula_curso=self.horario_aula_curso,
+                fecha=self.revision.fecha,
+            ).exists()
+        )
+
+    def test_delete_upcoming_class_removes_a_single_date_schedule(self):
+        self.create_periodo_for_course()
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="view_clase",
+            ),
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="delete_scheduled_clase",
+            ),
+        )
+        horario_puntual = HorarioAulaCurso.objects.create(
+            aula_curso=self.horario_aula_curso.aula_curso,
+            horario_dia=self.horario_aula_curso.horario_dia,
+            fecha=self.revision.fecha,
+        )
+        clase_puntual = Clase.objects.create(
+            horario_aula_curso=horario_puntual,
+            materia_curso=self.materia_curso,
+            fecha=self.revision.fecha,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "planning_action": "delete_class",
+                "curso": self.curso.pk,
+                "clase": clase_puntual.pk,
+                "confirm_delete_class": "1",
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+
+        self.assertContains(response, "Clase y horario de ese dia eliminados correctamente")
+        self.assertFalse(Clase.objects.filter(pk=clase_puntual.pk).exists())
+        self.assertFalse(HorarioAulaCurso.objects.filter(pk=horario_puntual.pk).exists())
+        self.assertFalse(
+            HorarioAulaCursoExclusion.objects.filter(
+                horario_aula_curso_id=horario_puntual.pk,
+            ).exists()
+        )
+
+    def test_delete_following_classes_removes_recurrence_and_preserves_given_class(self):
+        periodo = self.create_periodo_for_course()
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="view_clase",
+            ),
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="delete_scheduled_clase",
+            ),
+        )
+        self.revision.asistencia_cerrada = True
+        self.revision.save(update_fields=["asistencia_cerrada"])
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("academico:planificacion_academica"),
+            {
+                "planning_action": "delete_class",
+                "curso": self.curso.pk,
+                "clase": self.pendiente.pk,
+                "confirm_delete_class": "1",
+                "delete_following_classes": "on",
+            },
+            follow=True,
+            HTTP_HOST="localhost",
+        )
+
+        self.assertContains(response, "Se eliminaron 2 clase(s)")
+        self.assertContains(response, "Se conservaron 1 clase(s) ya dictadas")
+        self.assertFalse(Clase.objects.filter(pk=self.pendiente.pk).exists())
+        self.assertTrue(Clase.objects.filter(pk=self.revision.pk).exists())
+        self.assertFalse(Clase.objects.filter(pk=self.rechazada.pk).exists())
+        self.assertTrue(Clase.objects.filter(pk=self.atrasada.pk).exists())
+        self.assertTrue(HorarioAulaCurso.objects.filter(pk=self.horario_aula_curso.pk).exists())
+
+        excluded_dates = set(
+            HorarioAulaCursoExclusion.objects.filter(
+                horario_aula_curso=self.horario_aula_curso,
+            ).values_list("fecha", flat=True)
+        )
+        expected_dates = {
+            periodo.fecha_inicio + timedelta(days=offset)
+            for offset in range((periodo.fecha_fin - periodo.fecha_inicio).days + 1)
+            for item in [periodo.fecha_inicio + timedelta(days=offset)]
+            if (
+                item >= self.pendiente.fecha
+                and item.weekday() == self.pendiente.fecha.weekday()
+                and item != self.revision.fecha
+            )
+        }
+        self.assertEqual(excluded_dates, expected_dates)
+
+        page = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+        events = json.loads(page.context["calendar_events_json"])
+        recurring_events = [
+            item
+            for item in events
+            if item["horarioId"] == self.horario_aula_curso.pk
+            and item["fecha"] >= self.pendiente.fecha.isoformat()
+        ]
+        self.assertEqual([item["claseId"] for item in recurring_events], [self.revision.pk])
+
+    def test_delete_upcoming_class_requires_specific_permission_and_confirmation(self):
+        self.create_periodo_for_course()
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="view_clase",
+            )
+        )
+        self.client.force_login(self.user)
+        url = reverse("academico:planificacion_academica")
+        payload = {
+            "planning_action": "delete_class",
+            "curso": self.curso.pk,
+            "clase": self.revision.pk,
+            "confirm_delete_class": "1",
+        }
+
+        self.assertEqual(self.client.post(url, payload, HTTP_HOST="localhost").status_code, 403)
+        self.assertTrue(Clase.objects.filter(pk=self.revision.pk).exists())
+
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="delete_scheduled_clase",
+            )
+        )
+        payload.pop("confirm_delete_class")
+        response = self.client.post(url, payload, follow=True, HTTP_HOST="localhost")
+        self.assertContains(response, "Confirma el borrado definitivo")
+        self.assertTrue(Clase.objects.filter(pk=self.revision.pk).exists())
+
+    def test_delete_class_permission_does_not_delete_given_classes(self):
+        self.create_periodo_for_course()
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="view_clase",
+            ),
+            Permission.objects.get(
+                content_type__app_label="academico",
+                codename="delete_scheduled_clase",
+            ),
+        )
+        self.client.force_login(self.user)
+        url = reverse("academico:planificacion_academica")
+        self.revision.asistencia_cerrada = True
+        self.revision.save(update_fields=["asistencia_cerrada"])
+        ClaseHoraDocente.objects.create(
+            clase=self.rechazada,
+            docente=self.docente,
+            estado="asistio",
+            horas=1,
+        )
+
+        for clase in (self.atrasada, self.revision, self.rechazada):
+            response = self.client.post(
+                url,
+                {
+                    "planning_action": "delete_class",
+                    "curso": self.curso.pk,
+                    "clase": clase.pk,
+                    "confirm_delete_class": "1",
+                },
+                follow=True,
+                HTTP_HOST="localhost",
+            )
+            self.assertContains(response, "No se puede eliminar una clase que ya fue dictada")
+            self.assertTrue(Clase.objects.filter(pk=clase.pk).exists())
+
+        page = self.client.get(url, {"curso": self.curso.pk}, HTTP_HOST="localhost")
+        events_by_class = {
+            item["claseId"]: item
+            for item in json.loads(page.context["calendar_events_json"])
+            if item["claseId"]
+        }
+        self.assertFalse(events_by_class[self.revision.pk]["canDeleteClass"])
+        self.assertFalse(events_by_class[self.rechazada.pk]["canDeleteClass"])
+
     def test_academic_planning_deletes_empty_schedule(self):
         self.create_periodo_for_course()
         self.make_superuser()
@@ -2935,11 +3309,11 @@ class DocenteHorariosPanelTests(TestCase):
             "planning_action": "delete_schedule", "curso": self.curso.pk,
             "schedule_horario_aula_curso": self.horario_aula_curso.pk,
         }, follow=True, HTTP_HOST="localhost")
-        self.assertContains(response, "ya tiene clases asignadas o planificadas")
+        self.assertContains(response, "Confirma la eliminacion definitiva")
         self.assertTrue(HorarioAulaCurso.objects.filter(pk=self.horario_aula_curso.pk).exists())
         self.assertEqual(Clase.objects.filter(horario_aula_curso=self.horario_aula_curso).count(), 4)
 
-    def test_superuser_deletes_schedule_with_classes_after_confirmation(self):
+    def test_superuser_deletes_complete_schedule_with_classes_after_confirmation(self):
         self.create_periodo_for_course()
         self.make_superuser()
         self.client.force_login(self.user)
@@ -2954,6 +3328,7 @@ class DocenteHorariosPanelTests(TestCase):
         event = next(item for item in json.loads(page.context["calendar_events_json"]) if item["horarioId"] == self.horario_aula_curso.pk)
         self.assertTrue(event["canDeleteSchedule"])
         self.assertEqual(event["scheduleClassCount"], 4)
+        self.assertContains(page, "Eliminar clases definitivamente")
         payload = {
             "planning_action": "delete_schedule", "curso": self.curso.pk,
             "schedule_horario_aula_curso": self.horario_aula_curso.pk,
@@ -2972,10 +3347,23 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertTrue(Horario.objects.filter(pk=self.horario.pk).exists())
 
     def test_staff_with_all_permissions_cannot_delete_occupied_schedule(self):
+        self.create_periodo_for_course()
         self.user.is_staff = True
         self.user.save(update_fields=["is_staff"])
         self.user.user_permissions.add(*Permission.objects.filter(content_type__app_label="academico"))
         self.client.force_login(self.user)
+        page = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+        event = next(
+            item
+            for item in json.loads(page.context["calendar_events_json"])
+            if item["horarioId"] == self.horario_aula_curso.pk
+        )
+        self.assertFalse(event["canDeleteSchedule"])
+        self.assertNotContains(page, "Eliminar clases definitivamente")
         response = self.client.post(reverse("academico:planificacion_academica"), {
             "planning_action": "delete_schedule", "curso": self.curso.pk,
             "schedule_horario_aula_curso": self.horario_aula_curso.pk,
@@ -2983,6 +3371,26 @@ class DocenteHorariosPanelTests(TestCase):
         }, HTTP_HOST="localhost")
         self.assertEqual(response.status_code, 403)
         self.assertEqual(Clase.objects.filter(horario_aula_curso=self.horario_aula_curso).count(), 4)
+
+    def test_administrator_group_can_see_definitive_schedule_deletion(self):
+        self.create_periodo_for_course()
+        self.user.groups.add(Group.objects.get(name="Administrador"))
+        self.client.force_login(self.user)
+
+        page = self.client.get(
+            reverse("academico:planificacion_academica"),
+            {"curso": self.curso.pk},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(page.status_code, 200)
+        event = next(
+            item
+            for item in json.loads(page.context["calendar_events_json"])
+            if item["horarioId"] == self.horario_aula_curso.pk
+        )
+        self.assertTrue(event["canDeleteSchedule"])
+        self.assertContains(page, "Eliminar clases definitivamente")
 
     def test_academic_planning_delete_schedule_checks_permission_and_group(self):
         self.user.user_permissions.add(Permission.objects.get(content_type__app_label="academico", codename="view_clase"))
