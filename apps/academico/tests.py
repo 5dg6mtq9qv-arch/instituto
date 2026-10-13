@@ -164,13 +164,64 @@ class DocenteHorariosPanelTests(TestCase):
     def test_moodle_permission_and_button_for_coordinator(self):
         user = self.create_coordinator()
         self.assertTrue(user.has_perm("academico.crear_moodlecurso"))
+        self.assertTrue(user.has_perm("academico.sincronizar_todos_moodlecurso"))
         self.client.force_login(user)
         response = self.client.get(reverse("academico:coordinacion_planificacion_list"), HTTP_HOST="localhost")
         self.assertContains(response, "Crear curso en Moodle")
+        self.assertContains(response, "Sincronizar todas con Moodle")
+        self.assertContains(
+            response,
+            reverse("academico:coordinacion_moodle_curso_masivo", args=[self.materia_curso.pk]),
+        )
         user.groups.clear()
         self.client.force_login(user)
         response = self.client.post(reverse("academico:coordinacion_moodle_curso", args=[self.materia_curso.pk]), HTTP_HOST="localhost")
         self.assertEqual(response.status_code, 403)
+
+    def test_moodle_bulk_sync_requires_its_specific_permission(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        user = get_user_model().objects.create_user(username="moodle_individual", password="ClaveActual987!")
+        user.user_permissions.add(*Permission.objects.filter(
+            content_type__app_label="academico",
+            codename__in=["view_tema", "crear_moodlecurso"],
+        ))
+        self.client.force_login(user)
+        list_response = self.client.get(
+            reverse("academico:coordinacion_planificacion_list"),
+            HTTP_HOST="localhost",
+        )
+        self.assertNotContains(list_response, "Sincronizar todas con Moodle")
+
+        url = reverse("academico:coordinacion_moodle_curso_masivo", args=[self.materia_curso.pk])
+        response = self.client.post(
+            url,
+            {"step": "connection"},
+            HTTP_HOST="localhost",
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+        self.assertEqual(response.status_code, 403)
+
+        user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="academico",
+            codename="sincronizar_todos_moodlecurso",
+        ))
+        with patch(
+            "apps.academico.moodle_courses.sync_moodle_course_step",
+            return_value={
+                "link": SimpleNamespace(url="https://moodle.example/course/view.php?id=42"),
+                "detail": "Conexión confirmada.",
+            },
+        ):
+            response = self.client.post(
+                url,
+                {"step": "connection"},
+                HTTP_HOST="localhost",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
 
     def test_moodle_permission_respects_assigned_subject_restriction(self):
         permission = Permission.objects.get(codename="crear_moodlecurso", content_type__app_label="academico")

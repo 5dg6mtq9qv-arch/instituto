@@ -57,6 +57,7 @@ DIRECCION_SPECIAL_PERMISSIONS = (
 
 COORDINACION_SPECIAL_PERMISSIONS = (
     ("academico", "moodlecurso", "crear"),
+    ("academico", "moodlecurso", "sincronizar_todos"),
     ("academico", "planificacionclase", "review"),
 )
 

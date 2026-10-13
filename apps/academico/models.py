@@ -1972,7 +1972,10 @@ class MoodleCurso(models.Model):
     class Meta:
         db_table = '\"academico\".\"moodle_curso\"'
         default_permissions = ()
-        permissions = (("crear_moodlecurso", "Crear curso en Moodle con docentes y alumnos"),)
+        permissions = (
+            ("crear_moodlecurso", "Crear curso en Moodle con docentes y alumnos"),
+            ("sincronizar_todos_moodlecurso", "Sincronizar todos los cursos con Moodle"),
+        )
 
     @property
     def url(self):

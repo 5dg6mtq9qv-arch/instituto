@@ -3412,6 +3412,9 @@ class CoordinacionPlanificacionListView(TemasAsignadosMixin, CoordinacionRequire
             {
                 "title": "Temas y subtemas",
                 "asignaciones": asignaciones,
+                "moodle_bulk_items": self.get_materias_curso_permitidas()
+                .select_related("materia", "grupo")
+                .order_by("grupo__nombre", "materia__nombre"),
             },
         )
 
@@ -3623,6 +3626,18 @@ class CoordinacionMoodleCursoView(TemasAsignadosMixin, CoordinacionRequiredMixin
             )
         messages.success(request, "Curso Moodle, temario y participantes sincronizados.")
         return redirect("academico:coordinacion_planificacion_list")
+
+
+class CoordinacionMoodleCursoMasivoView(CoordinacionMoodleCursoView):
+    """Ejecuta una etapa del recorrido masivo con autorización independiente."""
+
+    permission_required = (
+        "academico.crear_moodlecurso",
+        "academico.sincronizar_todos_moodlecurso",
+    )
+
+    def get(self, request, *args, **kwargs):
+        return HttpResponse(status=405)
 
 
 class CoordinacionPlanificacionEditorView(TemasAsignadosMixin, CoordinacionRequiredMixin, View):

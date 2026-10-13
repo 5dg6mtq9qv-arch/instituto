@@ -36,6 +36,12 @@
       overflow-wrap: normal;
       line-height: 1.3;
     }
+    .topic-header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
   </style>
 {% endblock %}
 
@@ -45,11 +51,34 @@
       <p class="eyebrow">Coordinacion</p>
       <h1>{{ title }}</h1>
     </div>
-    <a class="btn btn-primary-600 list-create-btn" href="{% url 'academico:coordinacion_planificacion_nueva' %}">
-      <i class="ri-add-line"></i>
-      <span>Nuevo tema</span>
-    </a>
+    <div class="topic-header-actions">
+      {% if perms.academico.crear_moodlecurso and perms.academico.sincronizar_todos_moodlecurso %}
+        <form method="post" data-moodle-bulk-sync>
+          {% csrf_token %}
+          <button class="btn btn-outline-primary" type="submit" data-moodle-bulk-button>
+            <i class="ri-refresh-line"></i>
+            <span>Sincronizar todas con Moodle</span>
+          </button>
+        </form>
+      {% endif %}
+      <a class="btn btn-primary-600 list-create-btn" href="{% url 'academico:coordinacion_planificacion_nueva' %}">
+        <i class="ri-add-line"></i>
+        <span>Nuevo tema</span>
+      </a>
+    </div>
   </header>
+
+  {% if perms.academico.crear_moodlecurso and perms.academico.sincronizar_todos_moodlecurso %}
+    <div class="d-none" data-moodle-bulk-items>
+      {% for item in moodle_bulk_items %}
+        <span
+          data-moodle-bulk-item
+          data-url="{% url 'academico:coordinacion_moodle_curso_masivo' item.pk %}"
+          data-label="{{ item.materia }} – {{ item.grupo }}"
+        ></span>
+      {% endfor %}
+    </div>
+  {% endif %}
 
   <section class="panel list-panel topic-list-panel">
     <form class="list-toolbar" method="get">
@@ -114,4 +143,226 @@
       </table>
     </div>
   </section>
+{% endblock %}
+
+{% block extra_scripts %}
+  {% if perms.academico.crear_moodlecurso and perms.academico.sincronizar_todos_moodlecurso %}
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.all.min.js"></script>
+    <script>
+      (function () {
+        const form = document.querySelector('[data-moodle-bulk-sync]');
+        if (!form) return;
+
+        const button = form.querySelector('[data-moodle-bulk-button]');
+        const items = Array.from(document.querySelectorAll('[data-moodle-bulk-item]')).map(function (element) {
+          return { url: element.dataset.url, label: element.dataset.label };
+        });
+        const stages = [
+          { key: 'connection', label: 'Conexión y permisos' },
+          { key: 'course', label: 'Creación o recuperación del aula' },
+          { key: 'structure', label: 'Temas y subtemas' },
+          { key: 'accounts', label: 'Cuentas de participantes' },
+          { key: 'enrolments', label: 'Matrículas y comprobación final' }
+        ];
+        const maximumAttempts = 3;
+        const wait = milliseconds => new Promise(resolve => window.setTimeout(resolve, milliseconds));
+        const results = { completed: [], failed: [] };
+        let synchronizationRunning = false;
+
+        window.addEventListener('beforeunload', function (event) {
+          if (!synchronizationRunning) return;
+          event.preventDefault();
+          event.returnValue = '';
+        });
+
+        function escapeHtml(value) {
+          const element = document.createElement('div');
+          element.textContent = value || '';
+          return element.innerHTML;
+        }
+
+        function progressHtml(courseIndex, stageIndex, message, errorMessage) {
+          const completedUnits = (courseIndex * stages.length) + stageIndex;
+          const totalUnits = Math.max(items.length * stages.length, 1);
+          const percentage = Math.round((completedUnits / totalUnits) * 100);
+          const current = items[courseIndex];
+          return `
+            <div class="text-start">
+              <div class="d-flex justify-content-between mb-1">
+                <strong>Progreso general</strong>
+                <strong>${percentage}%</strong>
+              </div>
+              <div class="progress mb-3" role="progressbar" aria-valuenow="${percentage}" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" style="width: ${percentage}%"></div>
+              </div>
+              <p class="mb-1"><strong>Aula ${Math.min(courseIndex + 1, items.length)} de ${items.length}</strong></p>
+              <p class="mb-2">${current ? escapeHtml(current.label) : 'Finalizando…'}</p>
+              ${current && stageIndex < stages.length ? `<p class="small text-primary mb-2"><span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>${escapeHtml(stages[stageIndex].label)}</p>` : ''}
+              ${errorMessage ? `<div class="alert alert-danger py-2 mb-2">${escapeHtml(errorMessage)}</div>` : ''}
+              <p class="small text-muted mb-2">${escapeHtml(message)}</p>
+              <div class="d-flex gap-3 border-top pt-2 small">
+                <span class="text-success"><i class="ri-checkbox-circle-line"></i> ${results.completed.length} completada(s)</span>
+                <span class="text-danger"><i class="ri-error-warning-line"></i> ${results.failed.length} con error</span>
+              </div>
+            </div>`;
+        }
+
+        function updateProgress(courseIndex, stageIndex, message, errorMessage) {
+          Swal.update({
+            title: 'Sincronizando aulas con Moodle',
+            html: progressHtml(courseIndex, stageIndex, message, errorMessage || ''),
+            showConfirmButton: false
+          });
+        }
+
+        async function requestStage(item, courseIndex, stageIndex) {
+          const stage = stages[stageIndex];
+          let lastError = '';
+          for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+            updateProgress(
+              courseIndex,
+              stageIndex,
+              `Ejecutando la etapa. Intento ${attempt} de ${maximumAttempts}.`,
+              lastError
+            );
+            const formData = new FormData(form);
+            formData.set('step', stage.key);
+            let response;
+            let payload;
+            try {
+              response = await fetch(item.url, {
+                method: 'POST',
+                body: formData,
+                credentials: 'same-origin',
+                headers: {
+                  'Accept': 'application/json',
+                  'X-Requested-With': 'XMLHttpRequest'
+                }
+              });
+              try {
+                payload = await response.json();
+              } catch (_error) {
+                payload = {
+                  ok: false,
+                  retryable: response.status >= 500,
+                  message: response.status === 403
+                    ? 'No tienes permiso para ejecutar la sincronización masiva.'
+                    : `El servidor respondió con el estado ${response.status}.`
+                };
+              }
+            } catch (error) {
+              payload = {
+                ok: false,
+                retryable: true,
+                message: error.message || 'La conexión con el servidor se interrumpió.'
+              };
+            }
+
+            if (response && response.ok && payload.ok) {
+              updateProgress(courseIndex, stageIndex + 1, payload.message || 'Etapa confirmada.', '');
+              await wait(250);
+              return { ok: true };
+            }
+
+            lastError = payload.message || 'Moodle no devolvió una respuesta válida.';
+            if (!payload.retryable || attempt === maximumAttempts) {
+              return { ok: false, message: `${stage.label}: ${lastError}` };
+            }
+
+            const delay = Math.min(3 + ((attempt - 1) * 2), 7);
+            for (let remaining = delay; remaining > 0; remaining -= 1) {
+              updateProgress(
+                courseIndex,
+                stageIndex,
+                `Reintentando esta etapa en ${remaining} segundo(s).`,
+                lastError
+              );
+              await wait(1000);
+            }
+          }
+          return { ok: false, message: lastError };
+        }
+
+        async function synchronizeAll() {
+          synchronizationRunning = true;
+          button.disabled = true;
+          Swal.fire({
+            title: 'Sincronizando aulas con Moodle',
+            html: progressHtml(0, 0, 'Iniciando el recorrido…', ''),
+            allowEscapeKey: false,
+            allowOutsideClick: false,
+            showConfirmButton: false
+          });
+
+          for (let courseIndex = 0; courseIndex < items.length; courseIndex += 1) {
+            const item = items[courseIndex];
+            let failure = null;
+            for (let stageIndex = 0; stageIndex < stages.length; stageIndex += 1) {
+              const result = await requestStage(item, courseIndex, stageIndex);
+              if (!result.ok) {
+                failure = result.message;
+                break;
+              }
+            }
+            if (failure) {
+              results.failed.push({ label: item.label, message: failure });
+              updateProgress(courseIndex + 1, 0, 'Se registró el error y se continuará con la siguiente aula.', failure);
+            } else {
+              results.completed.push(item.label);
+              updateProgress(courseIndex + 1, 0, 'Aula sincronizada completamente.', '');
+            }
+            await wait(350);
+          }
+
+          synchronizationRunning = false;
+          button.disabled = false;
+          const failedItems = results.failed.map(function (result) {
+            return `<li class="mb-2"><strong>${escapeHtml(result.label)}</strong><br><span class="text-muted">${escapeHtml(result.message)}</span></li>`;
+          }).join('');
+          await Swal.fire({
+            title: results.failed.length ? 'Sincronización finalizada con observaciones' : 'Sincronización completada',
+            html: `
+              <div class="text-start">
+                <p><strong>${results.completed.length}</strong> aula(s) sincronizada(s) correctamente.</p>
+                <p><strong>${results.failed.length}</strong> aula(s) no pudieron completarse.</p>
+                ${failedItems ? `<div class="alert alert-warning"><ul class="mb-0 ps-3">${failedItems}</ul></div>` : ''}
+              </div>`,
+            icon: results.failed.length ? 'warning' : 'success',
+            confirmButtonText: 'Aceptar',
+            confirmButtonColor: '#0f766e',
+            allowEscapeKey: false,
+            allowOutsideClick: false
+          });
+          window.location.reload();
+        }
+
+        form.addEventListener('submit', async function (event) {
+          event.preventDefault();
+          if (button.disabled) return;
+          if (!window.Swal) {
+            window.alert('No se pudo cargar la ventana de progreso. Recarga la página e inténtalo nuevamente.');
+            return;
+          }
+          if (!items.length) {
+            await Swal.fire({
+              title: 'No hay aulas para sincronizar',
+              icon: 'info',
+              confirmButtonColor: '#0f766e'
+            });
+            return;
+          }
+          const confirmation = await Swal.fire({
+            title: '¿Sincronizar todas las aulas?',
+            text: `Se procesarán ${items.length} aula(s), una por una. El proceso puede tardar varios minutos.`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'Iniciar sincronización',
+            cancelButtonText: 'Cancelar',
+            confirmButtonColor: '#0f766e'
+          });
+          if (confirmation.isConfirmed) await synchronizeAll();
+        });
+      }());
+    </script>
+  {% endif %}
 {% endblock %}
