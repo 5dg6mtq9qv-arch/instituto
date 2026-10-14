@@ -1641,7 +1641,7 @@ class DocenteHorariosPanelTests(TestCase):
             clase=past_class, estudiante=estudiante, estado="atraso", registrado_por=self.docente
         )
 
-        overdue_count = Clase.objects.filter(fecha__lt=today, asistencia_cerrada=False).count()
+        overdue_count = Clase.objects.filter(fecha__lte=today, asistencia_cerrada=False).count()
         output = StringIO()
         call_command("cerrar_asistencias_vencidas", stdout=output)
         past_class.refresh_from_db()
@@ -1657,7 +1657,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(asistencia.estado, "atraso")
         self.assertTrue(unmarked_class.asistencia_cerrada)
         self.assertFalse(ClaseAsistencia.objects.filter(clase=unmarked_class).exists())
-        self.assertFalse(today_class.asistencia_cerrada)
+        self.assertTrue(today_class.asistencia_cerrada)
         self.assertEqual(close_overdue_attendances(), 0)
 
     def test_permission_holder_can_edit_closed_attendance_from_review(self):
