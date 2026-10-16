@@ -627,6 +627,24 @@ class FormaPagoFormTests(TestCase):
         self.assertNotContains(response, "Aula 4")
         self.assertContains(response, group.nombre)
         self.assertNotContains(response, "Sin aula")
+        self.assertEqual(response.context["course_options"], [group.nombre])
+
+        filtered_response = self.client.get(
+            reverse("cartera:alumno_cartera_list"),
+            {"curso": group.nombre, "estado": "pendientes"},
+            HTTP_HOST="localhost",
+        )
+        self.assertEqual(filtered_response.status_code, 200)
+        self.assertEqual(filtered_response.context["selected_curso"], group.nombre)
+        self.assertEqual(list(filtered_response.context["object_list"]), [ficha])
+        self.assertContains(
+            filtered_response,
+            f'<option value="{group.nombre}" selected>',
+            html=False,
+        )
+        self.assertTrue(
+            all("curso=" in tab["url"] for tab in filtered_response.context["status_tabs"])
+        )
 
         pending_response = self.client.get(
             reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}),

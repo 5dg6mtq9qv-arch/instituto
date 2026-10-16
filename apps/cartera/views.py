@@ -118,6 +118,24 @@ class AlumnoCarteraListView(InstitutoListView):
             queryset = queryset.filter(matches)
         return queryset
 
+    def get_selected_curso(self):
+        return self.request.GET.get("curso", "").strip()
+
+    def apply_course_filter(self, queryset):
+        selected = self.get_selected_curso()
+        if not selected:
+            return queryset
+        return queryset.filter(
+            asignaciones_grupo__estado__in=("activo", "finalizado"),
+            asignaciones_grupo__grupo__nombre=selected,
+        ).distinct()
+
+    def get_course_options(self, queryset):
+        names = queryset.filter(
+            asignaciones_grupo__estado__in=("activo", "finalizado"),
+        ).values_list("asignaciones_grupo__grupo__nombre", flat=True)
+        return sorted(set(names), key=str.casefold)
+
     @staticmethod
     def get_academic_location(ficha):
         assignments = getattr(ficha, "cartera_asignaciones", ())
@@ -155,7 +173,8 @@ class AlumnoCarteraListView(InstitutoListView):
         return queryset
 
     def get_queryset(self):
-        return self.apply_status_filter(self.apply_search(self.get_base_queryset()))
+        queryset = self.apply_search(self.get_base_queryset())
+        return self.apply_status_filter(self.apply_course_filter(queryset))
 
     def get_action_label(self, obj):
         return "Cobrar"
@@ -270,14 +289,17 @@ class AlumnoCarteraListView(InstitutoListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         selected_estado = self.get_selected_estado()
-        searched_queryset = self.apply_search(self.get_base_queryset())
-        payment_history_queryset = self.apply_search(
-            self.get_base_queryset(include_inactive_students=True)
+        base_searched_queryset = self.apply_search(self.get_base_queryset())
+        searched_queryset = self.apply_course_filter(base_searched_queryset)
+        payment_history_queryset = self.apply_course_filter(
+            self.apply_search(self.get_base_queryset(include_inactive_students=True))
         )
         counts = self.get_status_counts(searched_queryset)
         can_view_financial_summary = self.can_view_financial_summary()
         can_view_payment_history = can_view_financial_summary and self.request.user.has_perm("cartera.view_pago")
         context["selected_estado"] = selected_estado
+        context["selected_curso"] = self.get_selected_curso()
+        context["course_options"] = self.get_course_options(base_searched_queryset)
         context["selected_estado_label"] = dict((key, label) for key, label, _ in self.STATUS_TABS)[selected_estado]
         context["can_view_financial_summary"] = can_view_financial_summary
         context["can_view_payment_history"] = can_view_payment_history
@@ -774,6 +796,12 @@ class PagoListView(InstitutoListView):
         ficha_id = self.request.GET.get("ficha")
         if ficha_id:
             queryset = queryset.filter(cuota__plan_pago__ficha_inscripcion_id=ficha_id)
+        curso = self.request.GET.get("curso", "").strip()
+        if curso:
+            queryset = queryset.filter(
+                cuota__plan_pago__ficha_inscripcion__asignaciones_grupo__estado__in=("activo", "finalizado"),
+                cuota__plan_pago__ficha_inscripcion__asignaciones_grupo__grupo__nombre=curso,
+            ).distinct()
         q = self.request.GET.get("q")
         if q:
             queryset = queryset.filter(

@@ -59,6 +59,16 @@
         <i class="ri-search-line"></i>
         <input type="search" name="q" value="{{ request.GET.q }}" placeholder="Buscar por nombres, apellidos, identificación, contacto o ficha">
       </div>
+      <label class="student-payment-course-filter">
+        <i class="ri-graduation-cap-line"></i>
+        <span class="sr-only">Curso</span>
+        <select name="curso" aria-label="Filtrar por curso">
+          <option value="">Todos los cursos</option>
+          {% for curso in course_options %}
+            <option value="{{ curso }}"{% if curso == selected_curso %} selected{% endif %}>{{ curso }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <button class="btn btn-primary-600" type="submit">
         <i class="ri-search-line"></i>
         Buscar
@@ -303,7 +313,7 @@
       align-items: center;
       display: grid;
       gap: 10px;
-      grid-template-columns: minmax(260px, 1fr) auto auto;
+      grid-template-columns: minmax(260px, 1fr) minmax(190px, 260px) auto auto;
     }
 
     .student-payment-search {
@@ -331,6 +341,34 @@
       font-weight: 700;
       min-width: 0;
       outline: 0;
+    }
+
+    .student-payment-course-filter {
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      display: flex;
+      gap: 8px;
+      min-height: 44px;
+      padding: 0 10px;
+    }
+
+    .student-payment-course-filter i {
+      color: #667085;
+      flex: 0 0 auto;
+      font-size: 18px;
+    }
+
+    .student-payment-course-filter select {
+      background: transparent;
+      border: 0;
+      color: #344054;
+      cursor: pointer;
+      font-weight: 700;
+      min-width: 0;
+      outline: 0;
+      width: 100%;
     }
 
     .student-payment-filter .btn {
