@@ -1295,6 +1295,41 @@ class MatriculaProcesoTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, reverse("matricula:ficha_editar", kwargs={"pk": ficha.pk}))
 
+    def test_ficha_documents_shows_generated_and_signed_documents(self):
+        estudiante = self.create_partner("1002003024", "Alumno Firmado", es_estudiante=True)
+        representante = self.create_partner(
+            "1002003025",
+            "Representante Firmado",
+            es_cliente=True,
+            es_representante=True,
+        )
+        ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="000779",
+            fecha=date(2026, 8, 28),
+            cliente=representante,
+            estudiante=estudiante,
+            representante=representante,
+            archivo_ficha_firmada="matricula/fichas/matricula-firmada.pdf",
+            estado="activa",
+            activo=True,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("matricula:ficha_documentos", kwargs={"pk": ficha.pk}),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Matrícula firmada", count=1)
+        self.assertContains(response, "Ficha de matricula", count=1)
+        self.assertContains(response, ficha.archivo_ficha_firmada.url)
+        self.assertContains(response, reverse("matricula:ficha_pdf", kwargs={"pk": ficha.pk}))
+        self.assertContains(response, reverse("matricula:contrato_pdf", kwargs={"pk": ficha.pk}))
+        self.assertNotContains(response, "ODT")
+        self.assertNotContains(response, "DOCX")
+
     def test_process_uses_custom_datepicker_assets(self):
         self.client.force_login(self.user)
 

@@ -65,10 +65,6 @@
         <p>Anexo con datos academicos, convenio de pago y cuotas generadas.</p>
       </div>
       <div class="document-download-actions">
-        <a class="btn document-btn document-btn-light" href="{% url 'matricula:ficha_odt' ficha.pk %}">
-          <i class="ri-file-word-line"></i>
-          ODT
-        </a>
         <a class="btn document-btn document-btn-primary" href="{% url 'matricula:ficha_pdf' ficha.pk %}">
           <i class="ri-file-pdf-line"></i>
           PDF
@@ -85,16 +81,30 @@
         <p>Contrato completo con representante, estudiante y detalle de valores.</p>
       </div>
       <div class="document-download-actions">
-        <a class="btn document-btn document-btn-light" href="{% url 'matricula:contrato_docx' ficha.pk %}">
-          <i class="ri-file-word-line"></i>
-          DOCX
-        </a>
         <a class="btn document-btn document-btn-primary" href="{% url 'matricula:contrato_pdf' ficha.pk %}">
           <i class="ri-file-pdf-line"></i>
           PDF
         </a>
       </div>
     </article>
+
+    {% if ficha.archivo_ficha_firmada %}
+      <article class="document-download-card">
+        <div class="document-download-icon document-download-icon-blue">
+          <i class="ri-file-check-line"></i>
+        </div>
+        <div>
+          <h3>Matrícula firmada</h3>
+          <p>Documento firmado de la matrícula.</p>
+        </div>
+        <div class="document-download-actions">
+          <a class="btn document-btn document-btn-primary" href="{{ ficha.archivo_ficha_firmada.url }}" target="_blank" rel="noopener">
+            <i class="ri-external-link-line"></i>
+            Abrir
+          </a>
+        </div>
+      </article>
+    {% endif %}
   </section>
 
   <section class="document-data-grid">

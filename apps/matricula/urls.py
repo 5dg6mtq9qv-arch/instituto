@@ -21,8 +21,6 @@ urlpatterns = [
     path("fichas/nueva/", views.FichaInscripcionCreateView.as_view(), name="ficha_nueva"),
     path("fichas/<int:pk>/editar/", views.FichaInscripcionUpdateView.as_view(), name="ficha_editar"),
     path("fichas/<int:pk>/documentos/", views.ficha_documentos, name="ficha_documentos"),
-    path("fichas/<int:pk>/documentos/odt/", views.ficha_odt, name="ficha_odt"),
     path("fichas/<int:pk>/documentos/pdf/", views.ficha_pdf, name="ficha_pdf"),
-    path("fichas/<int:pk>/documentos/contrato/docx/", views.contrato_docx, name="contrato_docx"),
     path("fichas/<int:pk>/documentos/contrato/pdf/", views.contrato_pdf, name="contrato_pdf"),
 ]

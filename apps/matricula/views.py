@@ -971,20 +971,8 @@ def ficha_documentos(request, pk):
 
 @login_required
 @permission_required("matricula.view_fichainscripcion", raise_exception=True)
-def ficha_odt(request, pk):
-    return ficha_documento_descarga(pk, "odt")
-
-
-@login_required
-@permission_required("matricula.view_fichainscripcion", raise_exception=True)
 def ficha_pdf(request, pk):
     return ficha_documento_descarga(pk, "pdf")
-
-
-@login_required
-@permission_required("matricula.view_fichainscripcion", raise_exception=True)
-def contrato_docx(request, pk):
-    return contrato_documento_descarga(pk, "docx")
 
 
 @login_required

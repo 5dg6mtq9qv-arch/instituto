@@ -699,7 +699,6 @@ class FichaPdfDrawer:
         self.line([(548, 750), (548, 801)], width=1)
         self.text(72, 762, "Valor Total del Curso", size=10)
         self.text(72, 785, "(sin matricula)", size=10)
-        self.text(210, 777, self.context["valor_total_curso"], size=12, max_width=240)
         self.text(562, 770, "Valor de matricula", size=10)
         self.text(708, 770, self.context["valor_matricula"], size=12, max_width=260)
 
