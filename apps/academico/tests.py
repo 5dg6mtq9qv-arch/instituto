@@ -2250,6 +2250,23 @@ class DocenteHorariosPanelTests(TestCase):
             self.assertEqual(self.client.get(url, HTTP_HOST="localhost").status_code, 404)
             self.assertEqual(self.client.post(url, {}, HTTP_HOST="localhost").status_code, 404)
 
+    def test_view_all_horarios_permission_overrides_assigned_topics_scope(self):
+        other = Materia.objects.create(nombre="Materia ajena", nombre_corto="AJ")
+        other_course = MateriaCurso.objects.create(materia=other, grupo=self.curso)
+        self.grant_assigned_topic_permissions()
+        self.user.user_permissions.add(Permission.objects.get(
+            content_type__app_label="academico",
+            codename="view_all_horarioclase",
+        ))
+
+        response = self.client.get(
+            reverse("academico:coordinacion_planificacion_list"),
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(other_course, response.context["asignaciones"])
+
     def test_assigned_topics_scope_validates_post_and_allows_own_topics(self):
         other = Materia.objects.create(nombre="Materia ajena", nombre_corto="AJ")
         self.grant_assigned_topic_permissions()

@@ -3354,8 +3354,10 @@ class PlanificacionDocenteAsignadorView(LoginRequiredMixin, PermissionRequiredMi
 
 class TemasAsignadosMixin:
     def temas_restringidos(self):
-        return not self.request.user.is_superuser and self.request.user.has_perm(
-            "academico.restrict_to_assigned_materiatema"
+        user = self.request.user
+        return (
+            not can_view_all_horarios(user)
+            and user.has_perm("academico.restrict_to_assigned_materiatema")
         )
 
     def get_materias_curso_permitidas(self):
