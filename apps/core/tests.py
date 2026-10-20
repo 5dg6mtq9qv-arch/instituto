@@ -1,7 +1,9 @@
 import shutil
 import tempfile
 from io import BytesIO
+from pathlib import Path
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -47,6 +49,14 @@ class InstitutionalBrandingTests(TestCase):
         Image.new("RGB", (120, 80), color="#0f766e").save(content, format="PNG")
         return SimpleUploadedFile("logo-institucional.png", content.getvalue(), content_type="image/png")
 
+    def odt_upload(self):
+        content = (Path(settings.BASE_DIR) / "templates_odt" / "matricula_ficha.odt").read_bytes()
+        return SimpleUploadedFile(
+            "ficha-personalizada.odt",
+            content,
+            content_type="application/vnd.oasis.opendocument.text",
+        )
+
     def test_only_administrator_can_edit_institutional_brand(self):
         url = reverse("core:institution_branding")
         self.client.force_login(self.regular_user)
@@ -86,6 +96,40 @@ class InstitutionalBrandingTests(TestCase):
         self.assertContains(home, "Academia Horizonte")
         self.assertContains(home, self.institution.logo.url)
         self.assertContains(home, "brand-mark-image")
+
+    def test_administrator_uploads_document_template(self):
+        self.client.force_login(self.admin)
+        url = reverse("core:document_templates")
+
+        response = self.client.post(
+            url,
+            {"plantilla_ficha_matricula": self.odt_upload()},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertRedirects(response, url, fetch_redirect_response=False)
+        self.institution.refresh_from_db()
+        self.assertTrue(self.institution.plantilla_ficha_matricula.name.startswith("core/plantillas/"))
+
+        response = self.client.get(url, HTTP_HOST="localhost")
+        self.assertContains(response, "Plantilla personalizada")
+        self.assertContains(response, self.institution.plantilla_ficha_matricula.name)
+
+    def test_document_template_rejects_non_odt_file(self):
+        self.client.force_login(self.admin)
+        url = reverse("core:document_templates")
+        invalid_file = SimpleUploadedFile("plantilla.txt", b"no es un odt", content_type="text/plain")
+
+        response = self.client.post(
+            url,
+            {"plantilla_ficha_matricula": invalid_file},
+            HTTP_HOST="localhost",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "La plantilla debe ser un archivo ODT.")
+        self.institution.refresh_from_db()
+        self.assertFalse(self.institution.plantilla_ficha_matricula)
 
 
 class SystemUserFormPasswordTests(TestCase):

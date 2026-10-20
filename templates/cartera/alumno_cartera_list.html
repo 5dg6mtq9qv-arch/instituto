@@ -105,12 +105,12 @@
             data-card-url="{{ card.url }}"
             role="link"
             tabindex="0"
-            aria-label="Abrir cobro de {{ card.ficha.estudiante }}"
+            aria-label="Abrir cobro de {{ card.student_name }}"
           >
             <div class="student-payment-card-main">
               <span class="student-payment-avatar"><i class="ri-graduation-cap-line"></i></span>
               <div>
-                <h3>{{ card.ficha.estudiante }}</h3>
+                <h3>{{ card.student_name }}</h3>
                 <p>Ficha {{ card.ficha.numero }} · {{ card.classroom_label }}</p>
                 <small>
                   {% if card.academic_group_label %}{{ card.academic_group_label }} · {% endif %}{{ card.representante|default:"Sin representante" }}
@@ -150,12 +150,12 @@
 
             <div class="student-payment-card-actions">
               {% if can_view_payment_history %}
-                <a class="student-payment-action is-secondary" href="{{ card.payments_url }}" aria-label="Ver pagos de {{ card.ficha.estudiante }}">
+                <a class="student-payment-action is-secondary" href="{{ card.payments_url }}" aria-label="Ver pagos de {{ card.student_name }}">
                   <i class="ri-file-list-3-line"></i>
                   Ver pagos
                 </a>
               {% endif %}
-              <a class="student-payment-action" href="{{ card.url }}" aria-label="Cobrar a {{ card.ficha.estudiante }}">
+              <a class="student-payment-action" href="{{ card.url }}" aria-label="Cobrar a {{ card.student_name }}">
                 Cobrar
                 <i class="ri-arrow-right-line"></i>
               </a>

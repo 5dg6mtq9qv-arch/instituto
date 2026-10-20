@@ -95,7 +95,7 @@ class AlumnoCarteraListView(InstitutoListView):
                 ),
             )
             .filter(plan_pago__isnull=False, activo=True)
-            .order_by("estudiante__nombre")
+            .order_by("estudiante__apellido", "estudiante__nombre", "pk")
         )
         if not include_inactive_students:
             queryset = queryset.filter(estudiante__activo=True)
@@ -263,6 +263,9 @@ class AlumnoCarteraListView(InstitutoListView):
                 status_label = "Pendiente"
             card = {
                 "ficha": ficha,
+                "student_name": " ".join(
+                    part for part in (ficha.estudiante.apellido, ficha.estudiante.nombre) if part
+                ).strip(),
                 "academic_group_label": group_label,
                 "classroom_label": classroom_label,
                 "status_key": status_key,

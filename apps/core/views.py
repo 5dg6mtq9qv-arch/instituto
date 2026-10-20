@@ -16,6 +16,7 @@ from apps.core.forms import (
     EmpresaForm,
     EstudianteForm,
     GroupPermissionForm,
+    DocumentTemplateForm,
     InstitutionBrandingForm,
     MiPerfilPartnerForm,
     MiPerfilPasswordChangeForm,
@@ -657,6 +658,46 @@ class InstitutionBrandingView(LoginRequiredMixin, SecurityAccessMixin, View):
                 "institution": institution,
             },
         )
+
+
+class DocumentTemplateView(LoginRequiredMixin, SecurityAccessMixin, View):
+    template_name = "core/document_templates.html"
+
+    def get_institution(self):
+        institution = Empresa.objects.filter(activa=True).order_by("pk").first()
+        return institution or Empresa.objects.order_by("pk").first()
+
+    def get_context(self, form, institution):
+        return {
+            "title": "Plantillas de documentos",
+            "form": form,
+            "institution": institution,
+            "template_is_custom": bool(institution and institution.plantilla_ficha_matricula),
+            "ficha_template_variables": (
+                "{{ficha_numero}}, {{fecha}}, {{cliente}}, {{cliente_identificacion}}, "
+                "{{estudiante}}, {{estudiante_identificacion}}, {{representante}}, "
+                "{{curso_grado}}, {{colegio}}, {{horario}}, {{hora}}, {{duracion}}, "
+                "{{valor_matricula}}, {{total}}, {{descuento}}, {{abono}}, {{saldo}}, "
+                "{{cuota_1_numero}}, {{cuota_1_fecha}}, {{cuota_1_valor}}, "
+                "{{cuota_1_documento}}, {{cuota_1_observacion}} (hasta cuota_6)"
+            ),
+        }
+
+    def get(self, request):
+        institution = self.get_institution()
+        form = DocumentTemplateForm(instance=institution)
+        return render(request, self.template_name, self.get_context(form, institution))
+
+    def post(self, request):
+        institution = self.get_institution()
+        form = DocumentTemplateForm(request.POST, request.FILES, instance=institution)
+        if form.is_valid():
+            institution = form.save(commit=False)
+            institution.usuario_updated = request.user
+            institution.save()
+            messages.success(request, "La plantilla de la ficha de matrícula se actualizó correctamente.")
+            return redirect("core:document_templates")
+        return render(request, self.template_name, self.get_context(form, institution))
 
 
 class GroupListView(SecurityAccessMixin, InstitutoListView):

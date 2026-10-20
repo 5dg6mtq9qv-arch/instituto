@@ -590,6 +590,47 @@ class FormaPagoFormTests(TestCase):
         self.assertContains(response, reverse("cartera:alumno_pendientes", kwargs={"pk": ficha.pk}))
         self.assertContains(response, reverse("cartera:alumno_pagos", kwargs={"pk": ficha.pk}))
 
+    def test_student_wallet_list_displays_and_orders_students_by_last_name(self):
+        self.client.force_login(self.user)
+        first_ficha, _, _, _, _ = self.create_payment_flow_data()
+        first_ficha.estudiante.nombre = "Carlos"
+        first_ficha.estudiante.apellido = "Zamora"
+        first_ficha.estudiante.save(update_fields=["nombre", "apellido", "actualizado"])
+
+        second_student = Partner.objects.create(
+            nombre="Beatriz",
+            apellido="Alvarez",
+            tipo_identificacion=first_ficha.estudiante.tipo_identificacion,
+            identificacion="0990000003",
+            empresa=self.empresa,
+            es_estudiante=True,
+        )
+        second_ficha = FichaInscripcion.objects.create(
+            empresa=self.empresa,
+            numero="F-002",
+            fecha=date(2026, 8, 2),
+            cliente=first_ficha.cliente,
+            estudiante=second_student,
+            estado="activa",
+            activo=True,
+        )
+        PlanPago.objects.create(
+            empresa=self.empresa,
+            ficha_inscripcion=second_ficha,
+            valor_total=Decimal("100.00"),
+            saldo=Decimal("100.00"),
+            estado="activo",
+        )
+
+        response = self.client.get(reverse("cartera:alumno_cartera_list"), HTTP_HOST="localhost")
+
+        self.assertEqual(
+            [card["student_name"] for card in response.context["student_payment_cards"]],
+            ["Alvarez Beatriz", "Zamora Carlos"],
+        )
+        self.assertContains(response, "Alvarez Beatriz")
+        self.assertContains(response, "Zamora Carlos")
+
     def test_student_wallet_list_ignores_group_classrooms_without_schedules(self):
         self.client.force_login(self.user)
         ficha, _, _, _, _ = self.create_payment_flow_data()

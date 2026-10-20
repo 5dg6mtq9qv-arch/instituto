@@ -6,6 +6,7 @@ app_name = "core"
 
 urlpatterns = [
     path("configuracion/identidad-institucional/", views.InstitutionBrandingView.as_view(), name="institution_branding"),
+    path("configuracion/plantillas-documentos/", views.DocumentTemplateView.as_view(), name="document_templates"),
     path("empresas/", views.EmpresaListView.as_view(), name="empresa_list"),
     path("empresas/nueva/", views.EmpresaCreateView.as_view(), name="empresa_nueva"),
     path("empresas/<int:pk>/editar/", views.EmpresaUpdateView.as_view(), name="empresa_editar"),

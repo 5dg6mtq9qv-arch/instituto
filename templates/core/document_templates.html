@@ -1,0 +1,88 @@
+{% extends "web/base.html" %}
+
+{% block title %}{{ title }} | Instituto{% endblock %}
+
+{% block content %}
+  <header class="page-header">
+    <div>
+      <p class="eyebrow">Administración</p>
+      <h1>{{ title }}</h1>
+      <p class="text-muted mb-0">Administra el diseño que usa el sistema para generar documentos PDF.</p>
+    </div>
+  </header>
+
+  <form class="document-template-form" method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    <section class="panel document-template-editor">
+      <div class="document-template-summary">
+        <span class="document-template-icon"><i class="ri-file-word-2-line"></i></span>
+        <div>
+          <span class="preview-label">Ficha de matrícula</span>
+          <h2>{% if template_is_custom %}Plantilla personalizada{% else %}Plantilla incluida{% endif %}</h2>
+          <p>
+            {% if template_is_custom %}
+              {{ institution.plantilla_ficha_matricula.name }}
+            {% else %}
+              El sistema está usando la plantilla predeterminada del proyecto.
+            {% endif %}
+          </p>
+        </div>
+      </div>
+
+      <div class="document-template-fields">
+        {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+        <div>
+          <label class="form-label" for="{{ form.plantilla_ficha_matricula.id_for_label }}">
+            {{ form.plantilla_ficha_matricula.label }}
+          </label>
+          <div class="document-template-input">{{ form.plantilla_ficha_matricula }}</div>
+          <small class="form-help">{{ form.plantilla_ficha_matricula.help_text }}</small>
+          {% for error in form.plantilla_ficha_matricula.errors %}<div class="form-error">{{ error }}</div>{% endfor %}
+        </div>
+
+        <div class="document-template-note">
+          <i class="ri-information-line"></i>
+          <div>
+            <strong>Variables disponibles</strong>
+            <p>{{ ficha_template_variables }}</p>
+            <span>Al guardar una nueva plantilla, los próximos PDF usarán inmediatamente su diseño.</span>
+          </div>
+        </div>
+
+        <div class="document-template-actions">
+          <a class="btn btn-outline-secondary" href="{% url 'home' %}">Cancelar</a>
+          <button class="btn btn-primary-600" type="submit">
+            <i class="ri-upload-cloud-2-line"></i> Guardar plantilla
+          </button>
+        </div>
+      </div>
+    </section>
+  </form>
+{% endblock %}
+
+{% block extra_scripts %}
+  <style>
+    .document-template-form { max-width: 980px; }
+    .document-template-editor { align-items: start; display: grid; gap: 28px; grid-template-columns: minmax(280px, .8fr) minmax(360px, 1.2fr); }
+    .document-template-summary { align-items: flex-start; background: linear-gradient(145deg, #f0fdfa, #f8fafc); border: 1px solid #d1e9e4; border-radius: 14px; display: flex; gap: 15px; padding: 22px; }
+    .document-template-icon { align-items: center; background: #d8f3ef; border-radius: 12px; color: #0f766e; display: inline-flex; flex: 0 0 52px; font-size: 27px; height: 52px; justify-content: center; }
+    .preview-label { color: #0f766e; display: block; font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .document-template-summary h2 { color: #172033; font-size: 19px; margin: 8px 0 5px; }
+    .document-template-summary p { color: #667085; font-size: 12px; margin: 0; overflow-wrap: anywhere; }
+    .document-template-fields { display: grid; gap: 20px; }
+    .document-template-input { background: #f8fafc; border: 1px dashed #9dbdb7; border-radius: 10px; padding: 14px; }
+    .document-template-input input[type="file"] { width: 100%; }
+    .form-help { color: #667085; display: block; font-size: 12px; margin-top: 7px; }
+    .form-error { color: #b42318; font-size: 12px; margin-top: 5px; }
+    .document-template-note { align-items: flex-start; background: #eff8ff; border: 1px solid #b2ddff; border-radius: 10px; color: #175cd3; display: flex; font-size: 12px; gap: 10px; padding: 12px; }
+    .document-template-note > i { font-size: 19px; }
+    .document-template-note strong { display: block; margin-bottom: 4px; }
+    .document-template-note p { font-family: ui-monospace, monospace; line-height: 1.55; margin: 0 0 6px; overflow-wrap: anywhere; }
+    .document-template-actions { display: flex; gap: 9px; justify-content: flex-end; }
+    @media (max-width: 760px) {
+      .document-template-editor { grid-template-columns: 1fr; }
+      .document-template-actions { flex-direction: column-reverse; }
+      .document-template-actions .btn { justify-content: center; width: 100%; }
+    }
+  </style>
+{% endblock %}

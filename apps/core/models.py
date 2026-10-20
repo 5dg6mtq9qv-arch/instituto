@@ -24,6 +24,12 @@ class Empresa(models.Model):
     email = models.TextField(blank=True, null=True)
     ciudad = models.CharField(max_length=80, blank=True, null=True)
     logo = models.ImageField(upload_to="core/empresa/", max_length=255, blank=True, null=True)
+    plantilla_ficha_matricula = models.FileField(
+        upload_to="core/plantillas/",
+        max_length=255,
+        blank=True,
+        null=True,
+    )
     activa = models.BooleanField(default=True)
     tags = HStoreField(blank=True, null=True, default=dict)
     created = models.DateTimeField(auto_now_add=True)

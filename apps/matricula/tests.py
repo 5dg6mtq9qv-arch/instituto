@@ -40,7 +40,15 @@ from .forms import (
     MatriculaRepresentanteForm,
 )
 from .models import Aula, AulaHistorial, Curso, FichaInscripcion, PeriodoAcademico
-from .odt import SOFFICE_BIN, SYSTEM_PATH, convert_odt_to_pdf, ficha_context, footer_datos, identificacion_numero
+from .odt import (
+    SOFFICE_BIN,
+    SYSTEM_PATH,
+    convert_odt_to_pdf,
+    ficha_context,
+    footer_datos,
+    identificacion_numero,
+    render_ficha_pdf,
+)
 from .views import next_ficha_numero
 
 
@@ -79,6 +87,19 @@ class ConvertOdtToPdfTests(SimpleTestCase):
     def test_raises_when_libreoffice_binary_is_missing(self, mock_is_file):
         with self.assertRaisesMessage(RuntimeError, "No se encontró LibreOffice en /usr/bin/soffice."):
             convert_odt_to_pdf(Path("/tmp/ficha.odt"), "/tmp")
+
+    @patch("apps.matricula.odt.convert_odt_to_pdf")
+    @patch("apps.matricula.odt.render_ficha_odt")
+    def test_ficha_pdf_is_generated_from_odt_template(self, mock_render_odt, mock_convert):
+        ficha = SimpleNamespace()
+        with tempfile.TemporaryDirectory() as output_dir:
+            pdf_path = Path(output_dir) / "matricula_001.pdf"
+            mock_convert.return_value = pdf_path
+
+            render_ficha_pdf(ficha, pdf_path)
+
+        mock_render_odt.assert_called_once_with(ficha, pdf_path.with_suffix(".odt"))
+        mock_convert.assert_called_once_with(pdf_path.with_suffix(".odt"), pdf_path.parent)
 
 
 class FichaDocumentoContextTests(SimpleTestCase):

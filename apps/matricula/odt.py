@@ -189,7 +189,7 @@ def ficha_context(ficha):
     empresa_nombre = empresa.nombre_comercial or empresa.razon_social or ""
     titulo_1, titulo_2 = empresa_titulo(empresa_nombre)
     footer_direccion_1, footer_direccion_2, footer_contacto = footer_datos(empresa, empresa_nombre)
-    return {
+    context = {
         "empresa_nombre": empresa_nombre,
         "empresa_titulo_1": titulo_1,
         "empresa_titulo_2": titulo_2,
@@ -200,6 +200,7 @@ def ficha_context(ficha):
         "footer_direccion_1": footer_direccion_1,
         "footer_direccion_2": footer_direccion_2,
         "footer_contacto": footer_contacto,
+        "footer_ubicacion": " ".join(part for part in [footer_direccion_1, footer_direccion_2] if part),
         "ficha_numero": ficha.numero,
         "fecha": formato_fecha(ficha.fecha),
         "cliente": ficha.cliente.nombre_completo() if ficha.cliente else "",
@@ -251,6 +252,12 @@ def ficha_context(ficha):
         "pago_deposito": documento_checkbox(forma_pago_abono == "deposito"),
         "pago_debito": documento_checkbox(forma_pago_abono == "debito"),
     }
+    detalles = context["cuotas_detalle"]
+    for index in range(6):
+        cuota = detalles[index] if index < len(detalles) else {}
+        for field in ("numero", "fecha", "valor", "documento", "observacion"):
+            context[f"cuota_{index + 1}_{field}"] = cuota.get(field, "")
+    return context
 
 
 MESES = [
@@ -328,8 +335,17 @@ def render_odt(template_path, output_path, context):
             target.writestr(item, data)
 
 
+def ficha_template_path(ficha):
+    custom_template = getattr(ficha.empresa, "plantilla_ficha_matricula", None)
+    if custom_template and custom_template.name:
+        path = Path(custom_template.path)
+        if path.is_file():
+            return path
+    return TEMPLATE_PATH
+
+
 def render_ficha_odt(ficha, output_path):
-    render_odt(TEMPLATE_PATH, output_path, ficha_context(ficha))
+    render_odt(ficha_template_path(ficha), output_path, ficha_context(ficha))
 
 
 def render_docx(template_path, output_path, replacements):
@@ -815,7 +831,12 @@ class FichaPdfDrawer:
 
 
 def render_ficha_pdf(ficha, output_path):
-    FichaPdfDrawer(ficha_context(ficha)).save(output_path)
+    output_path = Path(output_path)
+    odt_path = output_path.with_suffix(".odt")
+    render_ficha_odt(ficha, odt_path)
+    generated_pdf = convert_odt_to_pdf(odt_path, output_path.parent)
+    if generated_pdf != output_path:
+        generated_pdf.replace(output_path)
 
 
 def convert_odt_to_pdf(odt_path, output_dir):

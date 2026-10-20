@@ -1,3 +1,5 @@
+import zipfile
+
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import PasswordChangeForm
@@ -93,6 +95,45 @@ class InstitutionBrandingForm(BootstrapFormMixin, forms.ModelForm):
             if logo.content_type not in allowed_types:
                 raise forms.ValidationError("El logo debe ser una imagen PNG, JPG o WEBP.")
         return logo
+
+
+class DocumentTemplateForm(BootstrapFormMixin, forms.ModelForm):
+    class Meta:
+        model = Empresa
+        fields = ["plantilla_ficha_matricula"]
+        labels = {
+            "plantilla_ficha_matricula": "Plantilla de la ficha de matrícula",
+        }
+        help_texts = {
+            "plantilla_ficha_matricula": (
+                "Selecciona un archivo ODT con las variables entre llaves, por ejemplo {{estudiante}}. "
+                "El PDF se generará con el diseño de este archivo."
+            ),
+        }
+        widgets = {
+            "plantilla_ficha_matricula": forms.FileInput(
+                attrs={"accept": ".odt,application/vnd.oasis.opendocument.text"}
+            ),
+        }
+
+    def clean_plantilla_ficha_matricula(self):
+        template = self.cleaned_data.get("plantilla_ficha_matricula")
+        if not isinstance(template, UploadedFile):
+            return template
+        if template.size > 10 * 1024 * 1024:
+            raise forms.ValidationError("La plantilla ODT no puede superar los 10 MB.")
+        if not template.name.lower().endswith(".odt"):
+            raise forms.ValidationError("La plantilla debe ser un archivo ODT.")
+        try:
+            with zipfile.ZipFile(template) as package:
+                content = package.read("content.xml").decode("utf-8")
+        except (KeyError, UnicodeDecodeError, zipfile.BadZipFile):
+            raise forms.ValidationError("El archivo no es una plantilla ODT válida.")
+        finally:
+            template.seek(0)
+        if "{{" not in content or "}}" not in content:
+            raise forms.ValidationError("La plantilla debe contener al menos una variable como {{estudiante}}.")
+        return template
 
 
 class PartnerForm(BootstrapFormMixin, forms.ModelForm):
