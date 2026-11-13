@@ -5241,6 +5241,74 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertEqual(activity.retroalimentacion, "Buen trabajo")
         self.assertIsNotNone(activity.fecha_calificacion)
 
+    def test_report_preserves_grades_from_transferred_group(self):
+        from unittest.mock import MagicMock, patch
+        from apps.academico.moodle_grades import sync_student_grades
+
+        estudiante, ficha = self.create_student_ficha(
+            nombre="Alumno trasladado",
+            identificacion="TR-GRADE-1",
+            numero="TR-G-F1",
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+            estado="trasladado",
+        )
+        new_group = Curso.objects.create(nombre="Grupo nuevo", activo=True)
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=new_group,
+            estado="activo",
+        )
+        old_course = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=305,
+            completo=True,
+        )
+        account = MoodleCuenta.objects.create(
+            persona=estudiante,
+            sitio="https://moodle.example",
+            usuario="transferred_grades",
+            usuario_id=405,
+        )
+        enrollment = MoodleMatricula.objects.create(
+            curso=old_course,
+            cuenta=account,
+            rol="Alumno",
+            confirmada=True,
+        )
+        historical_grade = MoodleCalificacion.objects.create(
+            matricula=enrollment,
+            item_id=705,
+            nombre="Evaluación anterior",
+            tipo="mod",
+            nota_formateada="8,50",
+            activa=False,
+        )
+        moodle_client = MagicMock(base_url="https://moodle.example")
+
+        self.assertEqual(sync_student_grades(estudiante, client=moodle_client)["courses"], 0)
+        moodle_client.user_grade_items.assert_not_called()
+        historical_grade.refresh_from_db()
+        self.assertFalse(historical_grade.activa)
+
+        coordinator = self.create_coordinator()
+        self.client.force_login(coordinator)
+        with patch("apps.academico.moodle_grades.sync_student_grades"):
+            response = self.client.get(
+                reverse("academico:estudiante_reporte_asistencia", args=[estudiante.pk]),
+                HTTP_HOST="localhost",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Evaluación anterior")
+        self.assertContains(response, "8,50")
+        self.assertContains(response, "Grupo anterior")
+
     def test_teacher_gradebook_lists_only_assigned_courses_and_shows_students(self):
         self.grant_teacher_gradebook_permission()
         estudiante, ficha = self.create_student_ficha(
@@ -5338,6 +5406,66 @@ class DocenteHorariosPanelTests(TestCase):
             HTTP_HOST="localhost",
         )
         self.assertEqual(forbidden_response.status_code, 404)
+
+    def test_administrator_can_view_gradebooks_for_all_courses(self):
+        admin = get_user_model().objects.create_user(username="grades_admin", password="test-password")
+        admin.groups.add(Group.objects.get(name="Administrador"))
+        other_subject = Materia.objects.create(nombre="Materia ajena")
+        other_materia_curso = MateriaCurso.objects.create(materia=other_subject, grupo=self.curso)
+        MoodleCurso.objects.create(
+            materia_curso=other_materia_curso,
+            sitio="https://moodle.example",
+            curso_id=302,
+            completo=True,
+        )
+        self.client.force_login(admin)
+
+        list_url = reverse("academico:docente_calificaciones")
+        detail_url = reverse("academico:docente_calificaciones_detalle", args=[other_materia_curso.pk])
+        self.assertFalse(any(
+            item["url_name"] == "academico:docente_calificaciones"
+            for group in permitted_menu_groups(admin)
+            if group["label"] == "Academico"
+            for item in group["items"]
+        ))
+        self.assertEqual(self.client.get(detail_url, HTTP_HOST="localhost").status_code, 404)
+
+        admin.user_permissions.add(Permission.objects.get(
+            content_type__app_label="academico",
+            codename="access_all_calificaciones",
+        ))
+        admin = get_user_model().objects.get(pk=admin.pk)
+
+        list_response = self.client.get(list_url, HTTP_HOST="localhost")
+        detail_response = self.client.get(detail_url, HTTP_HOST="localhost")
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "Matematicas")
+        self.assertContains(list_response, "Materia ajena")
+        self.assertContains(list_response, "Consulta las calificaciones de todas las materias")
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertContains(detail_response, "Todas las materias")
+        self.assertTrue(any(
+            item["url_name"] == "academico:docente_calificaciones"
+            for group in permitted_menu_groups(admin)
+            if group["label"] == "Academico"
+            for item in group["items"]
+        ))
+
+    def test_global_grade_permission_works_without_administrator_group(self):
+        viewer = get_user_model().objects.create_user(username="grades_viewer", password="test-password")
+        url = reverse("academico:docente_calificaciones")
+        self.client.force_login(viewer)
+        self.assertEqual(self.client.get(url, HTTP_HOST="localhost").status_code, 403)
+
+        viewer.user_permissions.add(Permission.objects.get(
+            content_type__app_label="academico",
+            codename="access_all_calificaciones",
+        ))
+        response = self.client.get(url, HTTP_HOST="localhost")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Consulta las calificaciones de todas las materias")
 
     def test_teacher_can_manually_recover_all_course_grades(self):
         from unittest.mock import patch

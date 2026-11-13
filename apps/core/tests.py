@@ -174,6 +174,28 @@ class SystemUserFormPasswordTests(TestCase):
         self.assertNotEqual(user.password, original_hash)
         self.assertTrue(user.check_password("NuevaClave987!"))
 
+    def test_grade_access_can_be_assigned_to_one_user(self):
+        user = get_user_model().objects.create_user(username="grade_viewer", password="ClaveActual987!")
+        other = get_user_model().objects.create_user(username="other_viewer", password="ClaveActual987!")
+        permission = Permission.objects.get(
+            content_type__app_label="academico",
+            codename="access_all_calificaciones",
+        )
+
+        form = SystemUserForm(
+            data={**self.form_data(user), "access_all_calificaciones": "on"},
+            instance=user,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertTrue(user.user_permissions.filter(pk=permission.pk).exists())
+        self.assertFalse(other.user_permissions.filter(pk=permission.pk).exists())
+
+        form = SystemUserForm(data=self.form_data(user), instance=user)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertFalse(user.user_permissions.filter(pk=permission.pk).exists())
+
 
 class MiPerfilPasswordTests(TestCase):
     def setUp(self):

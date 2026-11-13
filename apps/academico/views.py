@@ -4418,7 +4418,17 @@ class DocenteAsistenciasView(LoginRequiredMixin, View):
         )
 
 
+class CalificacionesPermissionMixin(PermissionRequiredMixin):
+    permission_required = "academico.access_docente_calificaciones"
+
+    def has_permission(self):
+        return self.request.user.has_perm("academico.access_all_calificaciones") or super().has_permission()
+
+
 class DocenteCalificacionesMixin:
+    def can_view_all_grades(self):
+        return self.request.user.has_perm("academico.access_all_calificaciones")
+
     def get_docente(self):
         docente = getattr(self.request.user, "partner", None)
         if docente and docente.es_docente and docente.activo:
@@ -4426,17 +4436,15 @@ class DocenteCalificacionesMixin:
         return None
 
     def get_materias_queryset(self, docente):
-        if not docente:
+        if not docente and not self.can_view_all_grades():
             return MateriaCurso.objects.none()
-        return (
-            MateriaCurso.objects.select_related("materia", "grupo", "aula_moodle")
-            .filter(
+        queryset = MateriaCurso.objects.select_related("materia", "grupo", "aula_moodle")
+        if not self.can_view_all_grades():
+            queryset = queryset.filter(
                 profesor_materia_cursos__partner=docente,
                 profesor_materia_cursos__auto_generada_por_clases=False,
             )
-            .distinct()
-            .order_by("grupo__nombre", "materia__nombre")
-        )
+        return queryset.distinct().order_by("grupo__nombre", "materia__nombre")
 
     def get_materia_curso(self, docente, materia_curso_pk):
         return get_object_or_404(self.get_materias_queryset(docente), pk=materia_curso_pk)
@@ -4462,9 +4470,8 @@ class DocenteCalificacionesMixin:
         )
 
 
-class DocenteCalificacionesView(LoginRequiredMixin, PermissionRequiredMixin, DocenteCalificacionesMixin, View):
+class DocenteCalificacionesView(LoginRequiredMixin, CalificacionesPermissionMixin, DocenteCalificacionesMixin, View):
     template_name = "academico/docente_calificaciones.html"
-    permission_required = "academico.access_docente_calificaciones"
 
     def get(self, request):
         docente = self.get_docente()
@@ -4509,6 +4516,7 @@ class DocenteCalificacionesView(LoginRequiredMixin, PermissionRequiredMixin, Doc
             {
                 "title": "Calificaciones",
                 "docente": docente,
+                "can_view_all_grades": self.can_view_all_grades(),
                 "course_cards": course_cards,
             },
         )
@@ -4516,12 +4524,11 @@ class DocenteCalificacionesView(LoginRequiredMixin, PermissionRequiredMixin, Doc
 
 class DocenteCalificacionesDetalleView(
     LoginRequiredMixin,
-    PermissionRequiredMixin,
+    CalificacionesPermissionMixin,
     DocenteCalificacionesMixin,
     View,
 ):
     template_name = "academico/docente_calificaciones_detalle.html"
-    permission_required = "academico.access_docente_calificaciones"
 
     def post(self, request, materia_curso_pk):
         wants_json = (
@@ -4678,6 +4685,7 @@ class DocenteCalificacionesDetalleView(
             {
                 "title": "Calificaciones",
                 "docente": docente,
+                "can_view_all_grades": self.can_view_all_grades(),
                 "materia_curso": materia_curso,
                 "moodle_course": moodle_course,
                 "activities": activities,
@@ -6812,12 +6820,23 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
         }
 
     def get_grade_context(self, estudiante):
+        historical_group_ids = set(
+            GrupoEstudiante.objects.filter(estudiante=estudiante, estado="trasladado")
+            .exclude(grupo_id__in=GrupoEstudiante.objects.filter(
+                estudiante=estudiante, estado="activo"
+            ).values("grupo_id"))
+            .values_list("grupo_id", flat=True)
+        )
         enrollments = list(
             MoodleMatricula.objects.filter(
                 cuenta__persona=estudiante,
                 rol="Alumno",
-                confirmada=True,
             )
+            .filter(
+                Q(confirmada=True)
+                | Q(curso__materia_curso__grupo_id__in=historical_group_ids, calificaciones__isnull=False)
+            )
+            .distinct()
             .select_related(
                 "curso__materia_curso__materia",
                 "curso__materia_curso__grupo",
@@ -6826,7 +6845,6 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
                 Prefetch(
                     "calificaciones",
                     queryset=MoodleCalificacion.objects.filter(
-                        activa=True,
                         oculta=False,
                     ),
                     to_attr="calificaciones_visibles",
@@ -6839,7 +6857,11 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
         activity_count = 0
         graded_count = 0
         for enrollment in enrollments:
-            grades = list(enrollment.calificaciones_visibles)
+            historical = enrollment.curso.materia_curso.grupo_id in historical_group_ids
+            grades = [
+                grade for grade in enrollment.calificaciones_visibles
+                if historical or grade.activa
+            ]
             activities = [grade for grade in grades if grade.tipo == "mod"]
             course_total = next((grade for grade in grades if grade.tipo == "course"), None)
             if grades:
@@ -6855,6 +6877,7 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
                 {
                     "materia": enrollment.curso.materia_curso.materia,
                     "grupo": enrollment.curso.materia_curso.grupo,
+                    "historical": historical,
                     "activities": activities,
                     "course_total": course_total,
                 }

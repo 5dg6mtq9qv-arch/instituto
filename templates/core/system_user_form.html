@@ -70,6 +70,13 @@
       </div>
     </section>
 
+    <section class="form-section">
+      <div class="section-heading">
+        <h2>Calificaciones</h2>
+      </div>
+      {% include "web/form_field.html" with field=form.access_all_calificaciones cols="col-md-12" %}
+    </section>
+
     <div class="form-actions">
       <a class="btn btn-outline-secondary" href="{{ cancel_url }}">Cancelar</a>
       <button class="btn btn-primary" type="submit">Guardar usuario</button>

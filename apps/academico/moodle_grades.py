@@ -5,7 +5,7 @@ from html import unescape
 from django.db import transaction
 from django.utils.html import strip_tags
 
-from .models import MoodleCalificacion, MoodleMatricula
+from .models import GrupoEstudiante, MoodleCalificacion, MoodleMatricula
 from .moodle import MoodleClient, MoodleError
 
 
@@ -101,8 +101,20 @@ def eligible_enrollments():
     )
 
 
+def is_transferred_enrollment(enrollment):
+    assignments = GrupoEstudiante.objects.filter(
+        estudiante_id=enrollment.cuenta.persona_id,
+        grupo_id=enrollment.curso.materia_curso.grupo_id,
+    )
+    return assignments.filter(estado="trasladado").exists() and not assignments.filter(estado="activo").exists()
+
+
 def sync_student_grades(estudiante, client=None):
-    enrollments = list(eligible_enrollments().filter(cuenta__persona=estudiante))
+    enrollments = [
+        enrollment
+        for enrollment in eligible_enrollments().filter(cuenta__persona=estudiante)
+        if not is_transferred_enrollment(enrollment)
+    ]
     if not enrollments:
         return {"courses": 0, "items": 0, "activities": 0}
     client = client or MoodleClient()
@@ -122,7 +134,11 @@ def sync_student_grades(estudiante, client=None):
 
 
 def sync_course_grades(course, client=None):
-    enrollments = list(eligible_enrollments().filter(curso=course))
+    enrollments = [
+        enrollment
+        for enrollment in eligible_enrollments().filter(curso=course)
+        if not is_transferred_enrollment(enrollment)
+    ]
     if not enrollments:
         return {"students": 0, "items": 0, "activities": 0}
     client = client or MoodleClient()

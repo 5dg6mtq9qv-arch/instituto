@@ -11,7 +11,7 @@
     </div>
     <div class="gradebook-actions">
       <a class="btn btn-outline-primary" href="{% url 'academico:docente_calificaciones' %}">
-        <i class="ri-arrow-left-line"></i> Mis aulas
+        <i class="ri-arrow-left-line"></i> {% if can_view_all_grades %}Todas las materias{% else %}Mis aulas{% endif %}
       </a>
       {% if moodle_course and moodle_course.curso_id %}
         <form id="gradebook-sync-form" method="post">
@@ -24,7 +24,7 @@
     </div>
   </header>
 
-  {% include "academico/includes/docente_tabs.html" with active_tab="calificaciones" %}
+  {% if not can_view_all_grades %}{% include "academico/includes/docente_tabs.html" with active_tab="calificaciones" %}{% endif %}
 
   <section class="gradebook-summary-grid">
     <article><span>Alumnos del aula</span><strong>{{ student_count }}</strong><small>{{ moodle_student_count }} vinculados con Moodle</small></article>

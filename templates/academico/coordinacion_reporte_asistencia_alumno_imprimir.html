@@ -677,7 +677,7 @@
             <header class="grade-course-header">
               <div>
                 <strong>{{ course.materia.nombre }}</strong>
-                <span>{{ course.grupo.nombre }}</span>
+                <span>{{ course.grupo.nombre }}{% if course.historical %} · Grupo anterior{% endif %}</span>
               </div>
               <div class="course-total">
                 {% if course.course_total %}

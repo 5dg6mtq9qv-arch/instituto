@@ -94,6 +94,7 @@ MENU_GROUPS = [
             {"label": "Horario general", "url_name": "academico:horario_general", "perm": "academico.view_general_clase"},
             {"label": "Planificacion docente", "url_name": "academico:planificacion_docente", "perm": "academico.view_profesormateriacurso"},
             {"label": "Estudiantes por grupo", "url_name": "academico:grupo_estudiantes", "perm": "academico.view_grupoestudiante"},
+            {"label": "Calificaciones", "url_name": "academico:docente_calificaciones", "perm": "academico.access_all_calificaciones"},
         ],
     },
     {

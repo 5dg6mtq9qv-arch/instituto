@@ -538,6 +538,11 @@ class GroupPermissionForm(BootstrapFormMixin, forms.ModelForm):
 
 
 class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
+    access_all_calificaciones = forms.BooleanField(
+        label="Ver calificaciones de todos los alumnos",
+        required=False,
+        help_text="Permite consultar todas las materias desde Académico → Calificaciones.",
+    )
     password = forms.CharField(
         label="Contraseña",
         required=False,
@@ -577,6 +582,10 @@ class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
         self.fields["groups"].queryset = Group.objects.order_by("name")
         if self.instance.pk:
             self.fields["groups"].initial = self.instance.groups.all()
+            self.fields["access_all_calificaciones"].initial = self.instance.user_permissions.filter(
+                content_type__app_label="academico",
+                codename="access_all_calificaciones",
+            ).exists()
             self.fields["password"].label = "Nueva contraseña"
             self.fields["password"].widget.attrs.setdefault("placeholder", "Contraseña actual protegida")
         else:
@@ -598,6 +607,15 @@ class SystemUserForm(BootstrapFormMixin, forms.ModelForm):
         if commit:
             user.save()
             user.groups.set(self.cleaned_data["groups"])
+            grade_permission = Permission.objects.filter(
+                content_type__app_label="academico",
+                codename="access_all_calificaciones",
+            ).first()
+            if grade_permission:
+                if self.cleaned_data["access_all_calificaciones"]:
+                    user.user_permissions.add(grade_permission)
+                else:
+                    user.user_permissions.remove(grade_permission)
             self.save_docente_partner(user)
         return user
 

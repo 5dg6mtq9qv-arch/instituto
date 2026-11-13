@@ -5,15 +5,15 @@
 {% block content %}
   <header class="page-header">
     <div>
-      <p class="eyebrow">Docente</p>
+      <p class="eyebrow">{% if can_view_all_grades %}Académico{% else %}Docente{% endif %}</p>
       <h1>{{ title }}</h1>
-      <p class="text-muted mb-0">Consulta el libro de calificaciones de cada una de tus materias.</p>
+      <p class="text-muted mb-0">{% if can_view_all_grades %}Consulta las calificaciones de todas las materias.{% else %}Consulta el libro de calificaciones de cada una de tus materias.{% endif %}</p>
     </div>
   </header>
 
-  {% include "academico/includes/docente_tabs.html" with active_tab="calificaciones" %}
+  {% if not can_view_all_grades %}{% include "academico/includes/docente_tabs.html" with active_tab="calificaciones" %}{% endif %}
 
-  {% if not docente %}
+  {% if not docente and not can_view_all_grades %}
     <section class="panel">
       <p class="text-muted mb-0">Tu usuario no está vinculado a un docente activo.</p>
     </section>
@@ -66,7 +66,7 @@
     </section>
   {% else %}
     <section class="panel academic-empty-state">
-      No tienes materias asignadas para consultar calificaciones.
+      {% if can_view_all_grades %}No hay materias para consultar calificaciones.{% else %}No tienes materias asignadas para consultar calificaciones.{% endif %}
     </section>
   {% endif %}
 {% endblock %}

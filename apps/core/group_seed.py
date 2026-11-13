@@ -94,7 +94,11 @@ def seed_default_groups():
     groups = {name: Group.objects.get_or_create(name=name)[0] for name in DEFAULT_GROUPS}
 
     groups["Administrador"].permissions.add(
-        *Permission.objects.exclude(codename__in=("restrict_to_assigned_materiatema", "access_bolsa_recursos"))
+        *Permission.objects.exclude(codename__in=(
+            "restrict_to_assigned_materiatema",
+            "access_bolsa_recursos",
+            "access_all_calificaciones",
+        ))
     )
     direccion_view_permissions = [
         permission
