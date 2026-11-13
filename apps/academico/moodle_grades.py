@@ -101,19 +101,19 @@ def eligible_enrollments():
     )
 
 
-def is_transferred_enrollment(enrollment):
+def is_historical_enrollment(enrollment):
     assignments = GrupoEstudiante.objects.filter(
         estudiante_id=enrollment.cuenta.persona_id,
         grupo_id=enrollment.curso.materia_curso.grupo_id,
     )
-    return assignments.filter(estado="trasladado").exists() and not assignments.filter(estado="activo").exists()
+    return assignments.exclude(estado="activo").exists() and not assignments.filter(estado="activo").exists()
 
 
 def sync_student_grades(estudiante, client=None):
     enrollments = [
         enrollment
         for enrollment in eligible_enrollments().filter(cuenta__persona=estudiante)
-        if not is_transferred_enrollment(enrollment)
+        if not is_historical_enrollment(enrollment)
     ]
     if not enrollments:
         return {"courses": 0, "items": 0, "activities": 0}
@@ -137,7 +137,7 @@ def sync_course_grades(course, client=None):
     enrollments = [
         enrollment
         for enrollment in eligible_enrollments().filter(curso=course)
-        if not is_transferred_enrollment(enrollment)
+        if not is_historical_enrollment(enrollment)
     ]
     if not enrollments:
         return {"students": 0, "items": 0, "activities": 0}

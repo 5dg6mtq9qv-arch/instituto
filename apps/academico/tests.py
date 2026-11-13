@@ -5309,6 +5309,68 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertContains(response, "8,50")
         self.assertContains(response, "Grupo anterior")
 
+    def test_retired_group_grades_remain_in_student_report(self):
+        from unittest.mock import MagicMock, patch
+        from apps.academico.moodle_grades import sync_course_grades, sync_student_grades
+
+        estudiante, ficha = self.create_student_ficha(
+            nombre="Alumno retirado",
+            identificacion="OLD-GRADE-1",
+            numero="OLD-G-F1",
+        )
+        GrupoEstudiante.objects.create(
+            ficha_inscripcion=ficha,
+            estudiante=estudiante,
+            grupo=self.curso,
+            estado="retirado",
+        )
+        old_course = MoodleCurso.objects.create(
+            materia_curso=self.materia_curso,
+            sitio="https://moodle.example",
+            curso_id=306,
+            completo=True,
+        )
+        account = MoodleCuenta.objects.create(
+            persona=estudiante,
+            sitio="https://moodle.example",
+            usuario="retired_grades",
+            usuario_id=406,
+        )
+        enrollment = MoodleMatricula.objects.create(
+            curso=old_course,
+            cuenta=account,
+            rol="Alumno",
+            confirmada=True,
+        )
+        MoodleCalificacion.objects.create(
+            matricula=enrollment,
+            item_id=706,
+            nombre="Nota antes del retiro",
+            tipo="mod",
+            nota_formateada="9,00",
+            activa=False,
+        )
+        moodle_client = MagicMock(base_url="https://moodle.example")
+
+        self.assertEqual(sync_student_grades(estudiante, client=moodle_client)["courses"], 0)
+        self.assertEqual(sync_course_grades(old_course, client=moodle_client)["students"], 0)
+        moodle_client.user_grade_items.assert_not_called()
+
+        enrollment.confirmada = False
+        enrollment.save(update_fields=["confirmada"])
+        coordinator = self.create_coordinator()
+        self.client.force_login(coordinator)
+        with patch("apps.academico.moodle_grades.sync_student_grades"):
+            response = self.client.get(
+                reverse("academico:estudiante_reporte_asistencia", args=[estudiante.pk]),
+                HTTP_HOST="localhost",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Nota antes del retiro")
+        self.assertContains(response, "9,00")
+        self.assertContains(response, "Grupo anterior")
+
     def test_teacher_gradebook_lists_only_assigned_courses_and_shows_students(self):
         self.grant_teacher_gradebook_permission()
         estudiante, ficha = self.create_student_ficha(

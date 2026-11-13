@@ -6821,7 +6821,8 @@ class EstudianteReporteAsistenciaImprimirView(CoordinacionRequiredMixin, View):
 
     def get_grade_context(self, estudiante):
         historical_group_ids = set(
-            GrupoEstudiante.objects.filter(estudiante=estudiante, estado="trasladado")
+            GrupoEstudiante.objects.filter(estudiante=estudiante)
+            .exclude(estado="activo")
             .exclude(grupo_id__in=GrupoEstudiante.objects.filter(
                 estudiante=estudiante, estado="activo"
             ).values("grupo_id"))
