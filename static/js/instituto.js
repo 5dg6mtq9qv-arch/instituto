@@ -217,5 +217,56 @@
         button.classList.toggle("ri-eye-off-line", showPassword);
       });
     });
+
+    qsa(".message-stack .alert[data-auto-dismiss='true']").forEach(function (alertEl) {
+      window.setTimeout(function () {
+        if (!document.body.contains(alertEl)) {
+          return;
+        }
+        if (window.bootstrap && window.bootstrap.Alert) {
+          window.bootstrap.Alert.getOrCreateInstance(alertEl).close();
+        } else {
+          alertEl.remove();
+        }
+      }, 5000);
+    });
+
+    document.addEventListener("submit", function (event) {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) {
+        return;
+      }
+      if (event.defaultPrevented || form.hasAttribute("data-no-disable") || form.target === "_blank") {
+        return;
+      }
+      if ((form.method || "get").toLowerCase() !== "post") {
+        return;
+      }
+      if (form.dataset.submitting === "true") {
+        event.preventDefault();
+        return;
+      }
+      form.dataset.submitting = "true";
+      const submitter = event.submitter;
+      const buttons = qsa('button[type="submit"], input[type="submit"]', form);
+      window.setTimeout(function () {
+        buttons.forEach(function (btn) {
+          btn.disabled = true;
+        });
+        if (submitter && submitter.tagName === "BUTTON") {
+          submitter.classList.add("is-submitting");
+        }
+      }, 0);
+    });
+
+    window.addEventListener("pageshow", function () {
+      qsa("form[data-submitting='true']").forEach(function (form) {
+        delete form.dataset.submitting;
+        qsa('button[type="submit"], input[type="submit"]', form).forEach(function (btn) {
+          btn.disabled = false;
+          btn.classList.remove("is-submitting");
+        });
+      });
+    });
   });
 })();

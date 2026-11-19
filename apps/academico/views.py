@@ -6166,7 +6166,9 @@ class CoordinacionRevisionAsistenciaView(CoordinacionRequiredMixin, View):
             )
             .order_by("fecha", "horario_aula_curso__horario_dia__horario__hora_inicio", "materia_curso__grupo__nombre")
         )
-        if not self.request.user.has_perm("academico.view_claseasistencia"):
+        request = getattr(self, "request", None)
+        user = getattr(request, "user", None)
+        if user is not None and not user.has_perm("academico.view_claseasistencia"):
             clases = clases.filter(asistencia_cerrada=True)
         return clases
 

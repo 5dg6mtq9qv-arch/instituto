@@ -721,9 +721,9 @@ class GroupListView(SecurityAccessMixin, InstitutoListView):
 
     def get_column_value(self, obj, attr):
         if attr == "usuarios_count":
-            return obj.user_set.count()
+            return len(obj.user_set.all())
         if attr == "permisos_count":
-            return obj.permissions.count()
+            return len(obj.permissions.all())
         return super().get_column_value(obj, attr)
 
     def can_create_object(self):
@@ -783,7 +783,7 @@ class SystemUserListView(SecurityAccessMixin, InstitutoListView):
 
     def get_column_value(self, obj, attr):
         if attr == "group_names":
-            return ", ".join(obj.groups.values_list("name", flat=True)) or "-"
+            return ", ".join(group.name for group in obj.groups.all()) or "-"
         return super().get_column_value(obj, attr)
 
     def can_create_object(self):

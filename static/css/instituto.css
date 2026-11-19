@@ -295,6 +295,31 @@ body.overlay-active .instituto-overlay {
   margin-bottom: 18px;
 }
 
+button.is-submitting {
+  opacity: 0.78;
+  pointer-events: none;
+  position: relative;
+}
+
+button.is-submitting::after {
+  animation: instituto-spin 0.65s linear infinite;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  border-right-color: transparent;
+  content: "";
+  display: inline-block;
+  height: 0.9em;
+  margin-left: 8px;
+  vertical-align: -0.12em;
+  width: 0.9em;
+}
+
+@keyframes instituto-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .page-header,
 .topbar {
   align-items: center;

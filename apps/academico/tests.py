@@ -1302,7 +1302,11 @@ class DocenteHorariosPanelTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse("academico:docente_asistencias"))
+        self.assertEqual(
+            response.url,
+            reverse("academico:docente_clase_asistencia", args=[self.pendiente.pk]),
+        )
+        self.assertFalse(ClaseAsistencia.objects.filter(clase=self.pendiente).exists())
 
     def test_class_student_movement_requires_same_materia_in_another_group(self):
         estudiante, ficha = self.create_student_ficha()
@@ -4207,7 +4211,7 @@ class DocenteHorariosPanelTests(TestCase):
         self.assertNotIn(other_estrategia, catalogs["estrategias"])
         self.assertNotIn(other_recurso, catalogs["recursos"])
         self.assertContains(response, "data-chip-search")
-        self.assertContains(response, "opción(es) de esta materia", count=3)
+        self.assertContains(response, "en catálogo", count=3)
 
     def test_docente_topic_planning_adds_topic_to_class_with_another_topic(self):
         other_topic = Tema.objects.create(planificacion=self.planificacion, nombre="Geometria", orden=2)

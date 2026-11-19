@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
@@ -131,8 +131,17 @@ def home(request):
 
     def build_docente_dashboard(docente):
         clases = base_clases_queryset().filter(materia_curso__profesor_materia_cursos__partner=docente).distinct()
-        por_atender = clases.filter(estado_planificacion__in=["pendiente", "rechazada"])
-        atrasadas = por_atender.filter(fecha__lt=today)
+        stats = clases.aggregate(
+            total=Count("id", distinct=True),
+            por_atender=Count("id", filter=Q(estado_planificacion__in=["pendiente", "rechazada"]), distinct=True),
+            atrasadas=Count(
+                "id",
+                filter=Q(estado_planificacion__in=["pendiente", "rechazada"], fecha__lt=today),
+                distinct=True,
+            ),
+            revision=Count("id", filter=Q(estado_planificacion="revision"), distinct=True),
+            aprobada=Count("id", filter=Q(estado_planificacion="aprobada"), distinct=True),
+        )
         current_time = timezone.localtime().time()
         siguiente = clases.filter(
             Q(fecha__gt=today)
@@ -174,10 +183,10 @@ def home(request):
                 "subtitle": "Revisa tus clases, planificaciones y actividades pendientes.",
             },
             "metrics": [
-                metric("Mis clases", clases.count(), "ri-calendar-check-line", "primary", "Total de clases asignadas", "academico:docente_calendario"),
-                metric("Por planificar", por_atender.count(), "ri-edit-2-line", "warning", f"{atrasadas.count()} atrasada(s)", "academico:docente_horarios"),
-                metric("En revision", clases.filter(estado_planificacion="revision").count(), "ri-search-eye-line", "blue", "Esperando respuesta de coordinacion", "academico:docente_horarios"),
-                metric("Aprobadas", clases.filter(estado_planificacion="aprobada").count(), "ri-checkbox-circle-line", "success", "Planificaciones validadas", "academico:docente_horarios"),
+                metric("Mis clases", stats["total"], "ri-calendar-check-line", "primary", "Total de clases asignadas", "academico:docente_calendario"),
+                metric("Por planificar", stats["por_atender"], "ri-edit-2-line", "warning", f"{stats['atrasadas']} atrasada(s)", "academico:docente_horarios"),
+                metric("En revision", stats["revision"], "ri-search-eye-line", "blue", "Esperando respuesta de coordinacion", "academico:docente_horarios"),
+                metric("Aprobadas", stats["aprobada"], "ri-checkbox-circle-line", "success", "Planificaciones validadas", "academico:docente_horarios"),
             ],
             "actions": [
                 action("Nueva planificación", "academico:docente_horarios", "ri-file-edit-line", quick_label="Planificaciones", helper="Crear y gestionar"),

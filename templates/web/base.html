@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="{% static 'assets/css/lib/bootstrap.min.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/remixicon.css' %}">
   <link rel="stylesheet" href="{% static 'assets/css/style.css' %}?v=20260919-1">
-  <link rel="stylesheet" href="{% static 'css/instituto.css' %}?v=20260930-1">
+  <link rel="stylesheet" href="{% static 'css/instituto.css' %}?v=20261119-1">
   {% block extra_head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -134,7 +134,10 @@
       {% if messages %}
         <div class="message-stack">
           {% for message in messages %}
-            <div class="alert alert-{{ message.tags|default:'info' }} mb-2">{{ message }}</div>
+            <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show mb-2" role="alert"{% if message.level_tag == 'success' or message.level_tag == 'info' %} data-auto-dismiss="true"{% endif %}>
+              <span>{{ message }}</span>
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+            </div>
           {% endfor %}
         </div>
       {% endif %}
@@ -147,7 +150,7 @@
   </main>
 
   <script src="{% static 'assets/js/lib/bootstrap.bundle.min.js' %}"></script>
-  <script src="{% static 'js/instituto.js' %}?v=20260919-3"></script>
+  <script src="{% static 'js/instituto.js' %}?v=20261119-1"></script>
   {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -177,12 +177,23 @@ MENU_GROUPS = [
 ]
 
 
-def user_can_see_menu_item(user, item):
+def _get_user_group_names(user):
+    if not user.is_authenticated or user.is_superuser:
+        return set()
+    return set(user.groups.values_list("name", flat=True))
+
+
+def user_can_see_menu_item(user, item, user_group_names=None):
     if item.get("superuser_only"):
         return user.is_superuser
     groups = item.get("groups")
-    if groups and not (user.is_superuser or user.groups.filter(name__in=groups).exists()):
-        return False
+    if groups:
+        if not user.is_superuser:
+            if user_group_names is None:
+                if not user.groups.filter(name__in=groups).exists():
+                    return False
+            elif not any(group in user_group_names for group in groups):
+                return False
     required_permissions = item.get("perms")
     if required_permissions and not (user.is_superuser or user.has_perms(required_permissions)):
         return False
@@ -195,21 +206,25 @@ def user_can_see_menu_item(user, item):
     return user.is_superuser or not perm or user.has_perm(perm)
 
 
-def permitted_menu_items(user):
+def permitted_menu_items(user, user_group_names=None):
     if not user.is_authenticated:
         return []
-    return [item for item in MENU_ITEMS if user_can_see_menu_item(user, item)]
+    if user_group_names is None:
+        user_group_names = _get_user_group_names(user)
+    return [item for item in MENU_ITEMS if user_can_see_menu_item(user, item, user_group_names=user_group_names)]
 
 
-def permitted_menu_groups(user, active_view_name=""):
+def permitted_menu_groups(user, active_view_name="", user_group_names=None):
     if not user.is_authenticated:
         return []
+    if user_group_names is None:
+        user_group_names = _get_user_group_names(user)
     groups = []
     for group in MENU_GROUPS:
         children = []
         group_is_active = False
         for item in group["items"]:
-            if not user_can_see_menu_item(user, item):
+            if not user_can_see_menu_item(user, item, user_group_names=user_group_names):
                 continue
             item = {**item, "active": item["url_name"] == active_view_name}
             group_is_active = group_is_active or item["active"]

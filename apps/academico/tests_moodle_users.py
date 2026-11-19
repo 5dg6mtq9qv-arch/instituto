@@ -89,6 +89,12 @@ class MoodleInactiveStudentsButtonTests(TestCase):
             username="moodle_sync_user",
             password="test-password",
         )
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="core",
+                codename="view_partner",
+            )
+        )
         self.list_url = reverse("core:estudiante_list")
         self.sync_url = reverse("core:sincronizar_estudiantes_inactivos_moodle")
 

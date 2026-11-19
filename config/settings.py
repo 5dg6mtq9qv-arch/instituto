@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 
+from django.contrib.messages import constants as message_constants
 import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -157,6 +158,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'home'
 LOGOUT_REDIRECT_URL = 'login'
+
+MESSAGE_TAGS = {
+    message_constants.ERROR: 'danger',
+}
 
 # Integración con Moodle: credenciales privadas del entorno.
 MOODLE_BASE_URL = env("MOODLE_BASE_URL", default="")
